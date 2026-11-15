@@ -28,7 +28,6 @@ function task(fn, ...)
   local args = table.pack(...)
   local t = { co = coroutine.create(function() return fn(table.unpack(args, 1, args.n)) end), wake = 0 }
   tasks[#tasks + 1] = t
-  return t
 end
 
 function in_task() return current ~= nil end
@@ -45,22 +44,27 @@ function yield()
   coroutine.yield()
 end
 
------------------------------------------------------------- net helpers
+---------------------------------------------------------- socket methods
+-- The waiting ones, on top of the non-blocking ones in C.
+local sock = net._methods
+net._methods = nil
+
 -- Wait until a socket from net.connect() is connected.
-function net.wait_connected(s, timeout_ms)
+function sock:wait_connected(timeout_ms)
   local deadline = sys.millis() + (timeout_ms or 5000)
   while true do
-    local st, err = s:status()
+    local st, err = self:status()
     if st == 'connected' then return true end
-    if st == 'closed' then return nil, 'cannot connect to ' .. s:peer() .. ': ' .. (err or 'failed') end
-    if sys.millis() >= deadline then s:close(); return nil, 'cannot connect to ' .. s:peer() .. ': timeout' end
-    if current then yield() else return nil, 'net.wait_connected() needs task()' end
+    if st == 'closed' then return nil, 'cannot connect to ' .. self:peer() .. ': ' .. (err or 'failed') end
+    if sys.millis() >= deadline then self:close(); return nil, 'cannot connect to ' .. self:peer() .. ': timeout' end
+    if current then yield() else return nil, 'wait_connected() needs task()' end
   end
 end
 
 -- Send everything. Inside a task it waits for buffer space; outside it
 -- gives up if the socket buffer is full.
-function net.write_all(s, data)
+function sock:write_all(data)
+  local s = self
   local pos, tries = 1, 0
   while pos <= #data do
     local n, err = s:send(data:sub(pos))
@@ -82,7 +86,8 @@ end
 -- r:line([timeout_ms]) one line without "\n", r:chunk([timeout_ms]) whatever
 -- has arrived. They wait (inside a task) and return nil, "closed" at the end
 -- or nil, "timeout".
-function net.reader(s)
+function sock:reader()
+  local s = self
   -- Unread data: head from pos on, then the chunks received since (joined
   -- into head only when needed, so a big body isn't copied for every chunk).
   local head, pos, parts, size = '', 1, {}, 0
@@ -92,7 +97,7 @@ function net.reader(s)
     local d, err = s:recv(4096)
     if not d then return nil, err end
     if d == '' then
-      if not current then return nil, 'net.reader needs task()' end
+      if not current then return nil, 'reader() needs task()' end
       if deadline and sys.millis() >= deadline then return nil, 'timeout' end
       yield()
     else
@@ -167,20 +172,6 @@ function ble.stop_scan()
   ble._stop_scan()
 end
 
--- Wait until a connection from ble.connect() is up (and its services known).
-function ble.wait_connected(c, timeout_ms)
-  local deadline = sys.millis() + (timeout_ms or 20000)
-  while true do
-    local st, err = c:status()
-    if st == 'connected' then return true end
-    if st == 'closed' then
-      return nil, 'cannot connect to ' .. c:addr() .. ': ' .. (err or 'failed'):gsub('^cannot connect: ', '')
-    end
-    if sys.millis() >= deadline then c:close() return nil, 'cannot connect to ' .. c:addr() .. ': timeout' end
-    if current then yield() else return nil, 'ble.wait_connected() needs task()' end
-  end
-end
-
 local function ble_wait(c, what, token, err)
   if not token then return nil, what .. ': ' .. err end
   while true do
@@ -197,6 +188,21 @@ local function ble_key(svc, chr)
 end
 
 local conn = ble._methods
+ble._methods = nil
+
+-- Wait until a connection from ble.connect() is up (and its services known).
+function conn:wait_connected(timeout_ms)
+  local deadline = sys.millis() + (timeout_ms or 20000)
+  while true do
+    local st, err = self:status()
+    if st == 'connected' then return true end
+    if st == 'closed' then
+      return nil, 'cannot connect to ' .. self:addr() .. ': ' .. (err or 'failed'):gsub('^cannot connect: ', '')
+    end
+    if sys.millis() >= deadline then self:close() return nil, 'cannot connect to ' .. self:addr() .. ': timeout' end
+    if current then yield() else return nil, 'wait_connected() needs task()' end
+  end
+end
 
 function conn:read(svc, chr)
   assert(current, 'read() only works inside task()')

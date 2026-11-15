@@ -23,7 +23,8 @@ task(function()
   local function size(url) local ok, st, b = pcall(http.get, url) collectgarbage() return ok and st and #b or tostring(ok and b or st) end
   R.big = size("http://127.0.0.1:$WP/big?n=250000") .. " " .. size("http://127.0.0.1:$WP/big?n=250000&chunked=1")
   local t = json.decode('{"a":[1,2.5,null],"s":"\\u00e4"}')
-  R.json = json.encode({ t.a[1], t.a[2], t.a[3] == json.null, t.s })
+  R.json = json.encode({ t.a[1], t.a[2], t.a[3] == json.null, t.s }) .. " " ..
+    table.concat({ tostring(json.decode('{"a":')), select(2, json.decode('{"a":')) }, " ")
   R.sha = crypto.hex(crypto.sha256("abc")):sub(1, 16)
   R.b64 = crypto.unbase64(crypto.base64("luaboard?", true))
   local _, jpeg = http.get("http://127.0.0.1:$WP/cover/0-300.jpg")
@@ -102,7 +103,8 @@ pub fn run(t: &mut T) {
         format!("bad: {v}")
     });
     let v = t.eval("R.json");
-    t.check(v == r#"[1,2.5,true,"ä"]"#, "json decode/encode", |_| format!("json: {v}"));
+    let ok = v == r#"[1,2.5,true,"ä"] nil json: unexpected end at line 1 (position 6)"#;
+    t.check(ok, "json decode/encode, bad text is nil, err", |_| format!("json: {v}"));
     let ok = t.eval("R.sha") == "ba7816bf8f01cfea" && t.eval("R.b64") == "luaboard?";
     t.check(ok, "crypto sha256/base64", |_| "crypto".into());
     let v = t.eval("R.jpeg");

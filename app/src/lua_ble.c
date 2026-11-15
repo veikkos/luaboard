@@ -403,7 +403,7 @@ void lua_ble_register(lua_State *L)
     };
     luaL_newlib(L, funcs);
     lua_pushvalue(L, idx);
-    lua_setfield(L, -2, "_methods");
+    lua_setfield(L, -2, "_methods");      /* the prelude adds the waiting ones (and removes this) */
     lua_setglobal(L, "ble");
     lua_pop(L, 2);                        /* methods, metatable */
 }

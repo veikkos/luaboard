@@ -365,22 +365,26 @@ void lua_net_register(lua_State *L)
     };
     luaL_newmetatable(L, MT_SOCK);
     luaL_newlib(L, methods);
-    lua_setfield(L, -2, "__index");
+    int idx = lua_gettop(L);
+    lua_pushvalue(L, idx);
+    lua_setfield(L, -3, "__index");
     lua_pushcfunction(L, m_gc);
-    lua_setfield(L, -2, "__gc");
+    lua_setfield(L, -3, "__gc");
     lua_pushcfunction(L, m_gc);
-    lua_setfield(L, -2, "__close");
+    lua_setfield(L, -3, "__close");
     lua_pushcfunction(L, m_tostring);
-    lua_setfield(L, -2, "__tostring");
+    lua_setfield(L, -3, "__tostring");
     /* Hide the metatable from getmetatable(): a script that removed __gc
        would get the socket freed while it is still in s_open (use after free). */
     lua_pushboolean(L, 0);
-    lua_setfield(L, -2, "__metatable");
-    lua_pop(L, 1);
+    lua_setfield(L, -3, "__metatable");
 
     static const luaL_Reg funcs[] = {
         { "connect", l_connect }, { "listen", l_listen }, { "_join", l_join }, { "wifi", l_wifi }, { NULL, NULL },
     };
     luaL_newlib(L, funcs);
+    lua_pushvalue(L, idx);
+    lua_setfield(L, -2, "_methods");      /* the prelude adds the waiting ones (and removes this) */
     lua_setglobal(L, "net");
+    lua_pop(L, 2);                        /* methods, metatable */
 }

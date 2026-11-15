@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <time.h>
 #include "esp_err.h"
+#include "tz.h"
 
 /** Apply the stored time zone. */
 void clock_init(void);
@@ -35,8 +36,10 @@ bool clock_tz_valid(const char *tz);
 /** Check, store and apply a time zone. */
 esp_err_t clock_set_tz(const char *tz);
 const char *clock_tz(void);
+/** The device's time zone, parsed (for tz.c). */
+const tz_t *clock_zone(void);
 
-/** Local time of `t` broken down; *offset = seconds east of UTC. */
+/** Local time of `t` broken down (tm_isdst 0 or 1); *offset = seconds east of UTC. */
 void clock_local(int64_t t, struct tm *out, int32_t *offset);
 /** "2026-11-06T15:30:00+02:00" for `t`, or "-" if t == 0. */
 void clock_iso_local(int64_t t, char *out, size_t cap);

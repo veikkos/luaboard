@@ -66,9 +66,9 @@ local function open(scheme, host, port, opts, deadline)
   local s, err = net.connect(host, port, scheme == 'https' and { tls = true, ca = opts.ca } or nil)
   if not s then return nil, err end
   local ok
-  ok, err = net.wait_connected(s, remaining(deadline))
+  ok, err = s:wait_connected(remaining(deadline))
   if not ok then return nil, err end
-  return { sock = s, reader = net.reader(s) }
+  return { sock = s, reader = s:reader() }
 end
 
 -- Read one response. Returns status, body, headers, keep (connection reusable).
@@ -177,7 +177,7 @@ function M.request(opts)
       c, err = open(scheme, host, port, opts, deadline)
       if not c then return nil, err end
     end
-    local ok, err = net.write_all(c.sock, req)
+    local ok, err = c.sock:write_all(req)
     local status, rbody, headers, keep
     if ok then status, rbody, headers, keep = read_response(c, method, deadline, max) end
     if status then

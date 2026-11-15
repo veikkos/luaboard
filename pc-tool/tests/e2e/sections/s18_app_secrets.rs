@@ -45,9 +45,9 @@ pub fn run(t: &mut T) {
     let v = t.eval(r#"secrets.get("token")"#);
     t.check(v == "from-env", "secrets.env goes to the installed app", |_| format!("app secret from secrets.env: {v}"));
     t.e(&["run", "beta"]);
-    let ok = t.eval(r#"secrets.get("token")"#) == "nil" && t.eval("#secrets.list()") == "0";
+    let ok = t.eval(r#"secrets.get("token")"#) == "nil" && t.eval("#secrets.keys()") == "0";
     t.check(ok, "an app can't read or list another app's secrets", |t| {
-        format!("beta sees: {} / {}", t.eval(r#"secrets.get("token")"#), t.eval("#secrets.list()"))
+        format!("beta sees: {} / {}", t.eval(r#"secrets.get("token")"#), t.eval("#secrets.keys()"))
     });
     t.eval(r#"secrets.set("shared", "beta value")"#);
     t.e(&["run", "alpha"]);
@@ -140,9 +140,9 @@ pub fn run(t: &mut T) {
         format!("uninstall left: {} {}", t.e(&["secrets"]), ls_a(&data))
     });
     let out = t.eval(r#"for i = 1, 4 do secrets.set("q" .. i, ("x"):rep(2048)) end"#);
-    let ok = out.contains("no room") && t.eval("#secrets.list()") == "5";
+    let ok = out.contains("no room") && t.eval("#secrets.keys()") == "5";
     t.check(ok, "an app's secrets can't take more than 8 KB of the device's settings flash", |t| {
-        format!("secrets quota: {out} / {}", t.eval("#secrets.list()"))
+        format!("secrets quota: {out} / {}", t.eval("#secrets.keys()"))
     });
     t.eval(r#"for i = 1, 4 do secrets.set("q" .. i, nil) end"#);
     t.e(&["secrets", "set", "gamma", "t", "1"]); // gamma: no app at all

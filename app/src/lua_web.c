@@ -3,7 +3,7 @@
  *
  *   secrets.get(name) -> value | nil       values kept in NVS, not in the scripts;
  *   secrets.set(name, value | nil)         nil deletes. Only the running app's own
- *   secrets.list() -> { name, ... }        secrets: other apps' can't be reached.
+ *   secrets.keys() -> { name, ... }        secrets: other apps' can't be reached. Sorted.
  *
  *   crypto.sha256(data) -> 32 raw bytes
  *   crypto.hmac_sha256(key, data) -> 32 raw bytes
@@ -96,7 +96,9 @@ static void list_one(const char *app, const char *name, size_t len, void *ctx)
     if (nm->n < SECRET_MAX_COUNT) snprintf(nm->names[nm->n++], sizeof nm->names[0], "%s", name);
 }
 
-static int l_secret_list(lua_State *L)
+static int cmp_name(const void *a, const void *b) { return strcmp(a, b); }
+
+static int l_secret_keys(lua_State *L)
 {
     char app[VFS_APP_NAME_MAX];
     app_of(L, app, sizeof app);
@@ -104,6 +106,7 @@ static int l_secret_list(lua_State *L)
        secrets_list would leak its buffer and NVS handle. */
     names_t nm = { .n = 0 };
     secrets_list(app, list_one, &nm);
+    qsort(nm.names, (size_t)nm.n, sizeof nm.names[0], cmp_name);
     lua_createtable(L, nm.n, 0);
     for (int i = 0; i < nm.n; i++) {
         lua_pushstring(L, nm.names[i]);
@@ -243,7 +246,7 @@ static int l_br_cancel(lua_State *L)
 void lua_web_register(lua_State *L)
 {
     static const luaL_Reg sec[] = {
-        { "get", l_secret_get }, { "set", l_secret_set }, { "list", l_secret_list }, { NULL, NULL },
+        { "get", l_secret_get }, { "set", l_secret_set }, { "keys", l_secret_keys }, { NULL, NULL },
     };
     luaL_newlib(L, sec);
     lua_setglobal(L, "secrets");

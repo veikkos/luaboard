@@ -41,7 +41,7 @@ pub fn run(t: &mut T) {
         lua(r#"ble.stop_scan()
 task(function()
   local c = assert(ble.connect("$ADDR"))
-  local ok, err = ble.wait_connected(c)
+  local ok, err = c:wait_connected()
   if not ok then log[#log + 1] = "connect: " .. err return end
   conn = c
   log[#log + 1] = "svcs " .. table.concat(c:services(), ",")
@@ -114,7 +114,7 @@ end)
     });
     t.write(
         "gone.lua",
-        lua("task(function() result = { ble.wait_connected(assert(ble.connect(\"$ADDR\")), 30000) } end)\n"),
+        lua("task(function() result = { assert(ble.connect(\"$ADDR\")):wait_connected(30000) } end)\n"),
     );
     t.e(&["put", &t.path("gone.lua"), "--app", "bt"]);
     t.e(&["run", "bt/gone.lua"]); // a new run: the old connections are closed
@@ -132,7 +132,7 @@ end)
         "pair.lua",
         lua(r#"task(function()
   local c = assert(ble.connect("$ADDR"))
-  assert(ble.wait_connected(c))
+  assert(c:wait_connected())
   result = { c:read("$SVC", "$PAIRED") }
 end)
 function loop() end
@@ -146,7 +146,7 @@ function loop() end
         "other.lua",
         lua(r#"task(function()
   local c = assert(ble.connect("$ADDR"))
-  result = { ble.wait_connected(c) }
+  result = { c:wait_connected() }
 end)
 function loop() end
 "#),

@@ -101,7 +101,7 @@ function Client:_next_id()
 end
 
 function Client:_raw_send(bytes)
-  local ok, err = net.write_all(self.sock, bytes)
+  local ok, err = self.sock:write_all(bytes)
   if not ok then self:_lost(err) return nil, err end
   self.last_send = sys.millis()
   return true
@@ -166,7 +166,7 @@ function Client:_open()
   local s, err = net.connect(self.host, self.port, self.tls and { tls = true, ca = o.ca } or nil)
   if not s then return nil, err end
   local ok
-  ok, err = net.wait_connected(s, o.timeout)
+  ok, err = s:wait_connected(o.timeout)
   if not ok then return nil, err end
 
   local flags = (o.clean == false) and 0 or 0x02
@@ -179,11 +179,11 @@ function Client:_open()
   if o.username then flags = flags | 0x80; tail = tail .. str(o.username) end
   if o.password then flags = flags | 0x40; tail = tail .. str(o.password) end
   local body = str('MQTT') .. string.char(4, flags) .. string.pack('>I2', self.keepalive) .. tail
-  ok, err = net.write_all(s, packet(CONNECT, body))
+  ok, err = s:write_all(packet(CONNECT, body))
   if not ok then s:close() return nil, err end
 
   -- A half-dead broker may accept TCP and never answer: don't wait forever.
-  local r = net.reader(s)
+  local r = s:reader()
   local kind, ack = read_packet(r, o.timeout or 5000, 16)
   if not kind or kind ~= CONNACK or #ack < 2 then s:close() return nil, 'no CONNACK from broker' end
   local rc = ack:byte(2)
@@ -312,7 +312,7 @@ end
 function Client:close()
   self.closing = true
   if self.connected then
-    net.write_all(self.sock, string.char(DISCONNECT, 0))
+    self.sock:write_all(string.char(DISCONNECT, 0))
     self.connected = false
     self.gen = self.gen + 1
     self.sock:close()

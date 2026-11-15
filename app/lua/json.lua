@@ -6,7 +6,9 @@
 -- Objects become tables, arrays become sequences. JSON null decodes to
 -- json.null (so arrays keep their length); encode accepts json.null and nil
 -- values in arrays. An empty table encodes as {} unless marked with
--- json.array(t). Integers stay integers; other numbers are floats.
+-- json.array(t). Integers stay integers; other numbers are floats. Text
+-- that isn't JSON decodes to nil and why; encoding what JSON can't hold
+-- (a function, a table that contains itself, NaN) is an error.
 
 local M = {}
 
@@ -127,12 +129,19 @@ function decode_value(s, pos)
   fail(s, pos, "unexpected '" .. char(c) .. "'")
 end
 
-function M.decode(s)
-  assert(type(s) == 'string', 'json.decode needs a string')
+local function decode_all(s)
   local v, pos = decode_value(s, 1)
   pos = skip(s, pos)
   if pos <= #s then fail(s, pos, 'trailing characters') end
   return v
+end
+
+-- Text from outside can be anything: bad text is nil, err, not an error.
+function M.decode(s)
+  assert(type(s) == 'string', 'json.decode needs a string')
+  local ok, v = pcall(decode_all, s)
+  if ok then return v end
+  return nil, v
 end
 
 ---------------------------------------------------------------- encode

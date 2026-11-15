@@ -650,42 +650,92 @@ static int sys_info(lua_State *L)
     return 1;
 }
 
-/* sys.time() -> UTC seconds since 1970, or nil until NTP has set the clock. */
+/* The zone argument at idx: the device's (none or nil), or a POSIX TZ
+   string ("UTC" for UTC). A string that isn't one is an error. */
+static const tz_t *zone_arg(lua_State *L, int idx, tz_t *buf)
+{
+    if (lua_isnoneornil(L, idx)) return clock_zone();
+    const char *s = luaL_checkstring(L, idx);
+    if (strlen(s) >= TZ_MAX || !tz_parse(s, buf))
+        luaL_argerror(L, idx, lua_pushfstring(L, "not a time zone: %s (a POSIX TZ string such as \"UTC\" or "
+                                                 "\"EST5EDT,M3.2.0,M11.1.0\")", s));
+    return buf;
+}
+
+/* An integer field of sys.time's table: `def` if absent (-1: required). */
+static int64_t time_field(lua_State *L, const char *k, int64_t def)
+{
+    int t = lua_getfield(L, 1, k);
+    int ok;
+    lua_Integer v = lua_tointegerx(L, -1, &ok);
+    lua_pop(L, 1);
+    if (t == LUA_TNIL && def >= 0) return def;
+    if (!ok) luaL_error(L, "sys.time: field '%s' must be a whole number", k);
+    return (int64_t)v;
+}
+
+/* sys.time([x], [zone]) -> UTC seconds since 1970.
+     no x: now, or nil until the time is known (NTP or the RTC chip);
+     a table {year, month, day, [hour], [min], [sec]}: that local time in
+       the zone (fields out of range carry over, as os.time's);
+     a string (RFC 3339 / ISO 8601, an HTTP date): that time, in the zone
+       if it has no offset; nil, err if it isn't one. */
 static int sys_time(lua_State *L)
 {
-    int64_t t = clock_now();
-    if (t == 0) lua_pushnil(L); else lua_pushinteger(L, (lua_Integer)t);
+    if (lua_isnoneornil(L, 1)) {
+        int64_t t = clock_now();
+        if (t == 0) lua_pushnil(L); else lua_pushinteger(L, (lua_Integer)t);
+        return 1;
+    }
+    tz_t buf;
+    const tz_t *zone = zone_arg(L, 2, &buf);
+    int64_t t;
+    if (lua_type(L, 1) == LUA_TSTRING) {
+        size_t len;
+        const char *s = lua_tolstring(L, 1, &len);
+        if (!tz_parse_time(s, len, zone, &t)) {
+            lua_pushnil(L);
+            lua_pushfstring(L, "not a date and time: %s", len > 64 ? "(too long)" : s);
+            return 2;
+        }
+        lua_pushinteger(L, (lua_Integer)t);
+        return 1;
+    }
+    luaL_argexpected(L, lua_istable(L, 1), 1, "table, string or nil");
+    int64_t local;
+    if (!tz_fields(time_field(L, "year", -1), time_field(L, "month", -1), time_field(L, "day", -1),
+                   time_field(L, "hour", 0), time_field(L, "min", 0), time_field(L, "sec", 0), &local))
+        return luaL_error(L, "sys.time: time out of range (years 0..9999)");
+    t = tz_from_local(zone, local);
+    if (t < TZ_MIN_TIME || t > TZ_MAX_TIME) return luaL_error(L, "sys.time: time out of range (years 0..9999)");
+    lua_pushinteger(L, (lua_Integer)t);
     return 1;
 }
 
-/* sys.date([t], [utc]) -> { year, month, day, hour, min, sec, wday, yday,
-   isdst, offset, zone } in the device's time zone (or UTC); nil if t is
+/* sys.date([t], [zone]) -> { year, month, day, hour, min, sec, wday, yday,
+   isdst, offset, zone } in the device's time zone or `zone`; nil if t is
    left out and the time isn't known yet. wday: 1 = Sunday, like os.date. */
 static int sys_date(lua_State *L)
 {
     int64_t t = lua_isnoneornil(L, 1) ? clock_now() : (int64_t)luaL_checkinteger(L, 1);
-    bool utc = lua_toboolean(L, 2);
+    tz_t buf;
+    const tz_t *zone = zone_arg(L, 2, &buf);
     if (lua_isnoneornil(L, 1) && t == 0) { lua_pushnil(L); return 1; }
-    /* Years 0..9999: beyond that gmtime/localtime fail or tm_year overflows. */
-    luaL_argcheck(L, t >= -62167219200LL && t <= 253402300799LL, 1, "time out of range (years 0..9999)");
-    struct tm tm = { 0 };
-    int32_t offset = 0;
-    if (utc) { time_t tt = (time_t)t; gmtime_r(&tt, &tm); }
-    else clock_local(t, &tm, &offset);
-    char zone[16] = "UTC";
-    if (!utc) strftime(zone, sizeof zone, "%Z", &tm);
+    luaL_argcheck(L, t >= TZ_MIN_TIME && t <= TZ_MAX_TIME, 1, "time out of range (years 0..9999)");
+    tz_tm_t tm;
+    tz_local(zone, t, &tm);
     lua_createtable(L, 0, 11);
-    lua_pushinteger(L, tm.tm_year + 1900); lua_setfield(L, -2, "year");
-    lua_pushinteger(L, tm.tm_mon + 1); lua_setfield(L, -2, "month");
-    lua_pushinteger(L, tm.tm_mday); lua_setfield(L, -2, "day");
-    lua_pushinteger(L, tm.tm_hour); lua_setfield(L, -2, "hour");
-    lua_pushinteger(L, tm.tm_min); lua_setfield(L, -2, "min");
-    lua_pushinteger(L, tm.tm_sec); lua_setfield(L, -2, "sec");
-    lua_pushinteger(L, tm.tm_wday + 1); lua_setfield(L, -2, "wday");
-    lua_pushinteger(L, tm.tm_yday + 1); lua_setfield(L, -2, "yday");
-    lua_pushboolean(L, !utc && tm.tm_isdst > 0); lua_setfield(L, -2, "isdst");
-    lua_pushinteger(L, offset); lua_setfield(L, -2, "offset");
-    lua_pushstring(L, zone); lua_setfield(L, -2, "zone");
+    lua_pushinteger(L, (lua_Integer)tm.year); lua_setfield(L, -2, "year");
+    lua_pushinteger(L, tm.month); lua_setfield(L, -2, "month");
+    lua_pushinteger(L, tm.day); lua_setfield(L, -2, "day");
+    lua_pushinteger(L, tm.hour); lua_setfield(L, -2, "hour");
+    lua_pushinteger(L, tm.min); lua_setfield(L, -2, "min");
+    lua_pushinteger(L, tm.sec); lua_setfield(L, -2, "sec");
+    lua_pushinteger(L, tm.wday + 1); lua_setfield(L, -2, "wday");
+    lua_pushinteger(L, tm.yday + 1); lua_setfield(L, -2, "yday");
+    lua_pushboolean(L, tm.dst); lua_setfield(L, -2, "isdst");
+    lua_pushinteger(L, tm.offset); lua_setfield(L, -2, "offset");
+    lua_pushstring(L, tm.zone); lua_setfield(L, -2, "zone");
     return 1;
 }
 

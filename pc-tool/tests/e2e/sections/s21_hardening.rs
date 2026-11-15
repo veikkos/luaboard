@@ -33,7 +33,7 @@ pub fn run(t: &mut T) {
     t.check(ok, "text_width checks its scale", |_| "text_width scale".into());
     let ok = t.eval("sys.date(2^62)").contains("out of range");
     t.check(ok, "sys.date rejects absurd times", |t| format!("sys.date: {}", t.eval("sys.date(2^62)")));
-    let ok = t.eval("sys.date(0, true).year") == "1970";
+    let ok = t.eval(r#"sys.date(0, "UTC").year"#) == "1970";
     t.check(ok, "sys.date still works", |_| "sys.date(0)".into());
 
     let ok = t.eval("string.dump") == "nil";

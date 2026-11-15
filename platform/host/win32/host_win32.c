@@ -57,7 +57,6 @@ void host_init(void)
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
     _set_invalid_parameter_handler(quiet_invalid_parameter);
     SetConsoleOutputCP(CP_UTF8);
-    posix_tzset();
 }
 
 /* ---- clocks ------------------------------------------------------------ */

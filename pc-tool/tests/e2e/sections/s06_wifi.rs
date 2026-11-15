@@ -198,8 +198,21 @@ pub fn run(t: &mut T) {
     t.check(ok, "summer time rules (CEST in July)", |t| format!("CEST: {}", t.eval("sys.date(1783000000).hour")));
     let ok = t.e(&["tz", "X1"]).contains("not a POSIX TZ") && t.eval("sys.timezone()") == "CET-1CEST,M3.5.0,M10.5.0/3";
     t.check(ok, "device refuses a broken TZ string", |_| "bad tz accepted".into());
-    let ok = t.eval("sys.date(0, true).year") == "1970" && t.e(&["info"]).contains("time: 20");
-    t.check(ok, "sys.date(t, utc); INFO has the time", |_| "date utc / info time".into());
+    let ok = t.eval(r#"sys.date(0, "UTC").year"#) == "1970" && t.e(&["info"]).contains("time: 20");
+    t.check(ok, "sys.date(t, \"UTC\"); INFO has the time", |_| "date utc / info time".into());
+    // Into seconds: a date string, a table in the device's zone (CET now) or another one.
+    const TIMES: &str = r#"table.concat({ sys.time("2026-11-15T12:30:00+02:00"),
+      sys.time({ year = 2026, month = 11, day = 15, hour = 11, min = 30 }),
+      sys.time({ year = 2026, month = 11, day = 15, hour = 5, min = 30 }, "EST5EDT"),
+      sys.time("Sun, 15 Nov 2026 10:30:00 GMT"), sys.time("2026-11-15 11:30"),
+      sys.date(1794738600, "EST5EDT").hour, sys.date(1794738600, "EST5EDT").zone,
+      select(2, sys.time("soon")), select(2, pcall(sys.date, 0, true)),
+      select(2, pcall(sys.date, 0, "Mars/Base")) }, " ")"#;
+    let out = t.eval(TIMES);
+    let ok = out.starts_with("1794738600 1794738600 1794738600 1794738600 1794738600 5 EST not a date and time: soon")
+        && out.contains("string expected")
+        && out.contains("not a time zone: Mars/Base");
+    t.check(ok, "sys.time from a string or a table, sys.date in any zone", |_| format!("times: {out}"));
     let ok = grep("^synced", &t.e(&["time", "--sync"]));
     t.check(ok, "time --sync asks the time server now", |t| format!("time --sync: {}", t.e(&["time", "--sync"])));
     t.e(&["tz", "helsinki"]);

@@ -12,6 +12,7 @@
 #include "hw.h"
 #include "protocol.h"
 #include "settings.h"
+#include "tz.h"
 
 static const char *TAG = "clock";
 
@@ -22,10 +23,12 @@ static bool s_from_rtc;               /* time taken from the RTC chip at boot */
 static int64_t s_last_sync;           /* UTC of the last NTP sync the main loop saw */
 static bool s_started, s_announced;
 
+static tz_t s_zone;                   /* the device's time zone, parsed */
+
+/* The C library's local time isn't used: tz.c is the same everywhere. */
 static void apply_tz(const char *tz)
 {
-    setenv("TZ", tz, 1);
-    tzset();
+    if (!tz_parse(tz, &s_zone)) tz_parse(TZ_DEFAULT, &s_zone);
 }
 
 #define SANE_TIME 1735689600          /* 2025-01-01: anything earlier is a chip that was never set */
@@ -113,75 +116,10 @@ void clock_poll(void)
 
 /* ------------------------------------------------------- time zones */
 
-/* std/dst name: 3+ letters, or <...> with letters, digits, + and - */
-static bool tz_name(const char **p)
-{
-    const char *s = *p;
-    int n = 0;
-    if (*s == '<') {
-        s++;
-        while (*s && *s != '>') {
-            if (!((*s >= 'A' && *s <= 'Z') || (*s >= 'a' && *s <= 'z') || (*s >= '0' && *s <= '9') ||
-                  *s == '+' || *s == '-')) return false;
-            s++; n++;
-        }
-        if (*s != '>' || n < 3) return false;
-        *p = s + 1;
-        return true;
-    }
-    while ((*s >= 'A' && *s <= 'Z') || (*s >= 'a' && *s <= 'z')) { s++; n++; }
-    if (n < 3) return false;
-    *p = s;
-    return true;
-}
-
-static bool digits(const char **p, int maxd, int maxv)
-{
-    int n = 0, v = 0;
-    while (**p >= '0' && **p <= '9' && n < maxd) { v = v * 10 + (**p - '0'); (*p)++; n++; }
-    return n > 0 && v <= maxv;
-}
-
-/* [+-]hh[:mm[:ss]]; `hours` = largest hour value allowed */
-static bool tz_time(const char **p, bool sign, int hours)
-{
-    if (sign && (**p == '+' || **p == '-')) (*p)++;
-    if (!digits(p, 3, hours)) return false;
-    for (int i = 0; i < 2 && **p == ':'; i++) {
-        (*p)++;
-        if (!digits(p, 2, 59)) return false;
-    }
-    return true;
-}
-
-/* Mm.w.d | Jn | n, then optionally /time */
-static bool tz_rule(const char **p)
-{
-    if (**p == 'M') {
-        (*p)++;
-        if (!digits(p, 2, 12) || *(*p)++ != '.' || !digits(p, 1, 5) || *(*p)++ != '.' || !digits(p, 1, 6))
-            return false;
-    } else if (**p == 'J') {
-        (*p)++;
-        if (!digits(p, 3, 365)) return false;
-    } else if (!digits(p, 3, 365)) {
-        return false;
-    }
-    if (**p == '/') { (*p)++; return tz_time(p, true, 167); }
-    return true;
-}
-
 bool clock_tz_valid(const char *tz)
 {
-    if (!tz || !*tz || strlen(tz) >= TZ_MAX) return false;
-    const char *p = tz;
-    if (!tz_name(&p) || !tz_time(&p, true, 24)) return false;
-    if (!*p) return true;                               /* no daylight saving */
-    if (!tz_name(&p)) return false;
-    if (*p && *p != ',' && !tz_time(&p, true, 24)) return false;
-    if (!*p) return true;
-    if (*p++ != ',' || !tz_rule(&p) || *p++ != ',' || !tz_rule(&p)) return false;
-    return *p == 0;
+    tz_t parsed;
+    return tz && strlen(tz) < TZ_MAX && tz_parse(tz, &parsed);
 }
 
 esp_err_t clock_set_tz(const char *tz)
@@ -194,16 +132,25 @@ esp_err_t clock_set_tz(const char *tz)
 
 const char *clock_tz(void) { return settings_timezone(); }
 
+const tz_t *clock_zone(void) { return &s_zone; }
+
 /* ------------------------------------------------------- local time */
 
 void clock_local(int64_t t, struct tm *out, int32_t *offset)
 {
-    time_t tt = (time_t)t;
-    localtime_r(&tt, out);
-    if (offset) {
-        struct tm as_utc = *out;
-        *offset = (int32_t)(timegm(&as_utc) - t);
-    }
+    tz_tm_t tm;
+    tz_local(&s_zone, t, &tm);
+    memset(out, 0, sizeof *out);
+    out->tm_year = (int)(tm.year - 1900);
+    out->tm_mon = tm.month - 1;
+    out->tm_mday = tm.day;
+    out->tm_hour = tm.hour;
+    out->tm_min = tm.min;
+    out->tm_sec = tm.sec;
+    out->tm_wday = tm.wday;
+    out->tm_yday = tm.yday;
+    out->tm_isdst = tm.dst;
+    if (offset) *offset = tm.offset;
 }
 
 void clock_iso_local(int64_t t, char *out, size_t cap)

@@ -8,7 +8,8 @@ of the standard library (`string`, `table`, `math`, `utf8`, `coroutine`, base
 functions, but no `io`, `os`, `debug`, `package`, `dofile`, `loadfile`), the
 firmware exposes the modules below. `load` takes Lua source only: precompiled
 bytecode is refused (unchecked bytecode can break out of the VM), and
-`string.dump` is gone.
+`string.dump` is gone. Names starting with `_` (`net._join`, `touch._event`)
+are the firmware's own, not part of the API: they can change in any release.
 
 ## API version
 
@@ -43,8 +44,8 @@ local w, h = disp.jpeg(0, 0, data)
 if not w then print(h) end                -- e.g. "disp.jpeg: not a JPEG"
 ```
 
-The one exception is `json.decode`: like most Lua JSON libraries it raises
-on bad text, so text from outside goes through `pcall(json.decode, text)`.
+Running out of room in `store` or `secrets` raises too: an app that went on
+without noticing would lose what it meant to keep.
 
 ## Script structure
 
@@ -445,9 +446,9 @@ The waiting functions need a `task`.
 |---|---|
 | `ble.scan(fn, [opts])` -> `true` or `nil, err` | Start scanning. `fn(adv)` is called for each device heard, and again whenever it advertises (at most once a tick per device). `opts.active = true` also asks devices for their scan response: more data, more radio. |
 | `ble.stop_scan()` | Stop scanning. |
-| `ble.connect(addr)` -> `conn` or `nil, err` | Start connecting to the device with address `addr` (`"c7:18:2c:93:8f:cc"`), then `ble.wait_connected(conn)`. At most 3 connections at a time. |
-| `ble.wait_connected(conn, [timeout_ms])` -> `true` or `nil, err` | Wait until connected and the device's services are known (default 20 s). A device that doesn't answer gives up after 15 s. |
+| `ble.connect(addr)` -> `conn` or `nil, err` | Start connecting to the device with address `addr` (`"c7:18:2c:93:8f:cc"`), then `conn:wait_connected()`. At most 3 connections at a time. |
 | `ble.uuid(s)` -> `uuid` or `nil` | A UUID in its usual form: `"0x2A19"` and `"00002a19-0000-1000-8000-00805f9b34fb"` are both `"2a19"`. `nil` if it isn't one. |
+| `conn:wait_connected([timeout_ms])` -> `true` or `nil, err` | Wait until connected and the device's services are known (default 20 s). A device that doesn't answer gives up after 15 s. |
 | `conn:status()` | `"connecting"`, `"connected"` or `"closed"` with a reason: `"connection lost"`, `"disconnected by the device"`, `"cannot connect: timeout"`, `"closed"`. |
 | `conn:services()` -> `{ uuid, ... }` | The device's services. |
 | `conn:characteristics([svc])` -> `{ c, ... }` | Its characteristics (of service `svc`, or all): `{svc, uuid, read, write, write_nr, notify, indicate}`, the last five true or false. |
@@ -490,7 +491,7 @@ while connecting.
 -- Battery level of a device with the standard battery service
 task(function()
   local c = assert(ble.connect("c7:18:2c:93:8f:cc"))
-  assert(ble.wait_connected(c))
+  assert(c:wait_connected())
   print("battery", assert(c:read("180f", "2a19")):byte(), "%")
   c:subscribe("180f", "2a19", function(d) print("now", d:byte(), "%") end)
 end)
@@ -525,8 +526,22 @@ loop period (33 ms at the default 30 Hz).
 | `sys.keep_on([on])` -> `on` | While on, the device's Turn off after setting doesn't turn the device off, for an app that works in the dark (a running countdown, a logger). Off again when the script ends. Without an argument, returns the current state. |
 | `sys.off([seconds])` | Turn the device off once the current call returns: the app is stopped as by `sys.exit()` (what it keeps in `store` is written), and the board powers down. With `seconds` (10 to 27 days' worth) the device also turns itself on in time for the app to be running by then. It comes early, never late, by up to a minute or two for waits over 255 s, so the app waits out the rest itself. A wait over 255 minutes needs the time to be known (`sys.time()`). A time it can't honor is an error. See below. |
 | `sys.time()` -> `seconds` or `nil` | The time: UTC seconds since 1970, or `nil` while the time isn't known. At boot the time comes from the board's RTC chip if it kept it (it runs while the board has power: a reset or a crash, or with a battery also while off), otherwise from the network (NTP) a second or two after joining Wi-Fi. |
-| `sys.date([t], [utc])` -> `table` or `nil` | `t` (default: now, but `nil` if the time isn't known yet) in the device's time zone, or UTC if `utc` is true: `{year, month, day, hour, min, sec, wday, yday, isdst, offset, zone}`. `wday` 1 = Sunday (like `os.date`), `offset` = seconds east of UTC, `zone` e.g. `"EET"`/`"EEST"`. |
+| `sys.time(text, [zone])` -> `seconds` or `nil, err` | A date and time as web APIs send them, in seconds: `"2026-11-15T10:30:00Z"`, `"2026-11-15T12:30:00.250+02:00"`, `"2026-11-15 12:30"`, `"2026-11-15"` (midnight), `"Sun, 15 Nov 2026 10:30:00 GMT"`. Without an offset it's a time in `zone`. Fractions of a second are dropped. |
+| `sys.time(fields, [zone])` -> `seconds` | The other way from `sys.date`: `{year, month, day, [hour], [min], [sec]}` in `zone`, the times left out 0. A field out of range carries over, as in `os.time` (`month = 13` is January, `day = 0` the last of the month before). A time skipped when the clocks go forward counts as before the change (02:30 is 03:30), one repeated when they go back is the first. |
+| `sys.date([t], [zone])` -> `table` or `nil` | `t` (default: now, but `nil` if the time isn't known yet) in `zone`: `{year, month, day, hour, min, sec, wday, yday, isdst, offset, zone}`. `wday` 1 = Sunday (like `os.date`), `offset` = seconds east of UTC, `zone` e.g. `"EET"`/`"EEST"`. |
 | `sys.timezone()` -> `string` | The device's time zone as a POSIX TZ string, e.g. `"EET-2EEST,M3.5.0/3,M10.5.0/4"` (Finland, the default). Set with `luaboard tz`. |
+
+`zone` is the device's time zone when left out, or a POSIX TZ string:
+`"UTC"`, `"EST5EDT,M3.2.0,M11.1.0"` (New York), `"CET-1CEST,M3.5.0,M10.5.0/3"`
+(Berlin). An app that follows one place's time, whatever the device's
+zone, passes that place's string. Times go from year 0 to 9999.
+
+```lua
+local t = assert(sys.time("2026-11-15T10:30:00Z"))   -- from an API
+local ny = "EST5EDT,M3.2.0,M11.1.0"
+print(sys.date(t, ny).hour)                          -- 5
+local open = sys.time({ year = 2026, month = 11, day = 16, hour = 9, min = 30 }, ny)
+```
 
 When the device comes on again after `sys.off`, by the power key or by
 itself, it starts the app that turned it off, once. That needs an installed
@@ -570,13 +585,13 @@ network in the simulator). The waiting helpers need a `task`.
 | Function | Description |
 |---|---|
 | `net.wifi()` -> `state, [ip]` | The device's Wi-Fi: `"off"` (no network set up), `"connecting"` (joining, or rejoining after losing it) or `"connected"`, with the IP address. In the simulator, the simulated access point's state. |
-| `net.connect(host, port, [opts])` -> `socket` or `nil, err` | Start connecting (host name or IPv4 address). Then `net.wait_connected(s)`. The device's own control port (3333) refuses connections from scripts. `opts.tls = true`: TLS (HTTPS, MQTTS, ...) with the server's certificate checked against the built-in root certificates. `opts.ca = pem` trusts that CA instead (your own server) and implies `tls`. |
-| `net.wait_connected(s, [timeout_ms])` -> `true` or `nil, err` | Wait until connected (default 5 s). Closes the socket on timeout. |
+| `net.connect(host, port, [opts])` -> `socket` or `nil, err` | Start connecting (host name or IPv4 address). Then `s:wait_connected()`. The device's own control port (3333) refuses connections from scripts. `opts.tls = true`: TLS (HTTPS, MQTTS, ...) with the server's certificate checked against the built-in root certificates. `opts.ca = pem` trusts that CA instead (your own server) and implies `tls`. |
 | `net.listen(port)` -> `server` or `nil, err` | Accept incoming connections: `srv:accept()` -> `socket` or `nil`. Port 3333 is the device's own. |
+| `s:wait_connected([timeout_ms])` -> `true` or `nil, err` | Wait until connected (default 5 s). Closes the socket on timeout. |
 | `s:send(data)` -> `n` | Bytes accepted right now (may be fewer or 0, and 0 while connecting). `nil, "closed"` (or a TLS error) at the end. |
 | `s:recv([max])` -> `data` | What has arrived, up to `max` bytes (default 1024, at most 16384): `""` if nothing yet, `nil, "closed"` at the end. |
-| `net.write_all(s, data)` -> `true` or `nil, err` | Send everything (waits inside a task, but outside one it gives up after about 50 ms with a full buffer). |
-| `net.reader(s)` -> `r` | Buffered reading, inside a task: `r:read(n, [timeout_ms])` (exactly n bytes), `r:line([timeout_ms])` (without the `\n` or `\r\n`), `r:chunk([timeout_ms])` (whatever has arrived). `nil, "closed"` at the end, `nil, "timeout"`. |
+| `s:write_all(data)` -> `true` or `nil, err` | Send everything (waits inside a task, but outside one it gives up after about 50 ms with a full buffer). |
+| `s:reader()` -> `r` | Buffered reading, inside a task: `r:read(n, [timeout_ms])` (exactly n bytes), `r:line([timeout_ms])` (without the `\n` or `\r\n`), `r:chunk([timeout_ms])` (whatever has arrived). `nil, "closed"` at the end, `nil, "timeout"`. |
 | `s:status()` | `"connecting"`, `"connected"`, `"listening"` or `"closed"` (+ error). |
 | `s:peer()`, `s:close()` | `"host:port"`. Close (also done when the socket is garbage-collected or the script ends). |
 
@@ -594,7 +609,7 @@ local srv = assert(net.listen(8080))          -- a tiny inbound server
 task(function()
   while true do
     local c = srv:accept()
-    if c then net.write_all(c, "knob=" .. adc.read(adc.PORTB_IN) .. "\n") c:close() end
+    if c then c:write_all("knob=" .. adc.read(adc.PORTB_IN) .. "\n") c:close() end
     yield()
   end
 end)
@@ -681,17 +696,19 @@ seconds doesn't pay for a new TLS handshake each time.
 local http, json = require("http"), require("json")
 task(function()
   local st, body = http.get("https://api.example.com/weather?city=Helsinki")
-  if st == 200 then print(json.decode(body).temp) end
+  local t = st == 200 and json.decode(body)
+  if t then print(t.temp) end
 end)
 ```
 
 ## json (built in)
 
-`local json = require("json")`: `json.decode(text)` -> value,
-`json.encode(value)` -> text. JSON `null` is `json.null`. An empty table
-encodes as `{}` unless marked with `json.array(t)` (decoded empty arrays are
-marked). Both raise an error on bad input. Decode errors say the line and
-position.
+`local json = require("json")`: `json.decode(text)` -> `value` or
+`nil, err`, `json.encode(value)` -> `text`. JSON `null` is `json.null`, so
+`nil` always means the text wasn't JSON, and `err` says the line and
+position. An empty table encodes as `{}` unless marked with `json.array(t)`
+(decoded empty arrays are marked). Encoding what JSON can't hold (a
+function, a table that contains itself, NaN) is an error.
 
 ## secrets - tokens and API keys
 
@@ -715,7 +732,7 @@ Small named values kept in flash, apart from the scripts.
 |---|---|
 | `secrets.get(name)` -> `value` or `nil` | |
 | `secrets.set(name, value)` / `secrets.set(name, nil)` | Store / delete. Names: 1..15 characters `A-Z a-z 0-9 _ . -`, not starting with `_`. Values up to 2048 bytes. An app's secrets up to 8 KB together, all apps' 16 KB, and 32 secrets on the device in all. Breaking a limit is an error. |
-| `secrets.list()` -> `{ name, ... }` | |
+| `secrets.keys()` -> `{ name, ... }` | Sorted. |
 
 A project can keep its own values (API keys, client IDs) out of its scripts
 in a `secrets.env` file next to them, `NAME=value` per line (`#` comments).

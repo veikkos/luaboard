@@ -9,11 +9,9 @@
  * other names or with other behaviour:
  *   - rename() replaces an existing file, as POSIX's does
  *   - mkdir() takes a mode
- *   - localtime_r() and tzset() follow a POSIX TZ string (EET-2EEST,M3.5.0/3,
- *     M10.5.0/4), which the firmware sets for its time zone; MSVC's tzset()
- *     only knows "EST5EDT" with US rules
  *   - GCC attributes and builtins the sources use
- * Implementations: posix_win32.c, pthread_win32.c, tz_win32.c.
+ * Implementations: posix_win32.c, pthread_win32.c. (Local time needs none:
+ * app/src/tz.c reads the POSIX TZ string itself.)
  */
 #pragma once
 #ifndef _WIN32
@@ -107,13 +105,6 @@ int unsetenv(const char *name);
 typedef int clockid_t;
 int clock_gettime(clockid_t clock, struct timespec *ts);
 struct tm *gmtime_r(const time_t *t, struct tm *out);
-/* Local time by the POSIX TZ string in the environment (tz_win32.c). */
-struct tm *localtime_r(const time_t *t, struct tm *out);
-void posix_tzset(void);
-#define tzset posix_tzset
-/* strftime with %Z from the POSIX TZ string. */
-size_t posix_strftime(char *out, size_t cap, const char *fmt, const struct tm *tm);
-#define strftime posix_strftime
 time_t timegm(struct tm *tm);
 
 /* ---- randomness (the mock's esp_random) ------------------------------- */

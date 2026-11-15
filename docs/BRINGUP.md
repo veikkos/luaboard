@@ -72,7 +72,7 @@ things to check on a real board, by part of the board.
 ## Clock
 
 - SNTP (`esp_netif_sntp`, pool.ntp.org) sets the time a second or two after
-  Wi-Fi connects, and `localtime_r` works with the POSIX TZ string.
+  Wi-Fi connects, and local time follows the POSIX TZ string.
 - The BM8563 RTC at 0x51 (listed for the SE in M5Stack's docs): it's fitted
   and powered on the SE, keeps time over a reset, and sets VL after the
   board was unplugged.

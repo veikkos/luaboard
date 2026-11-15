@@ -58,10 +58,10 @@ function Login:_token_request(fields)
   local st, body = http.post(self.o.token_url, http.form(fields), {
     ['Content-Type'] = 'application/x-www-form-urlencoded', Accept = 'application/json' })
   if not st then return nil, body end                         -- network: no code
-  local ok, t = pcall(json.decode, body)
-  if st == 200 and ok and type(t) == 'table' and t.access_token then return t end
-  local code = ok and type(t) == 'table' and t.error or nil
-  local msg = ok and type(t) == 'table' and (t.error_description or t.error) or ('HTTP ' .. st)
+  local t = json.decode(body)
+  if st == 200 and type(t) == 'table' and t.access_token then return t end
+  local code = type(t) == 'table' and t.error or nil
+  local msg = type(t) == 'table' and (t.error_description or t.error) or ('HTTP ' .. st)
   if st >= 500 then code = nil end                            -- server trouble: retry later
   return nil, tostring(msg), code
 end

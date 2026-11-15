@@ -34,7 +34,7 @@ local srv = assert(net.listen({lp}))
 task(function()
   while true do
     local cl = srv:accept()
-    if cl then net.write_all(cl, "hello from luaboard\n") cl:close() end
+    if cl then cl:write_all("hello from luaboard\n") cl:close() end
     yield()
   end
 end)
@@ -146,7 +146,7 @@ end)
             r#"R = nil
 task(function()
   local s = assert(net.connect("localhost", {ep}))
-  assert(net.wait_connected(s, 5000))
+  assert(s:wait_connected(5000))
   local line = ""
   while not line:find("\n") do local d = s:recv() if not d then break end line = line .. d yield() end
   R = line
