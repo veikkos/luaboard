@@ -79,6 +79,15 @@ int64_t host_utc_us(void)
     return (int64_t)(t / 10);
 }
 
+int64_t host_thread_cpu_us(void)
+{
+    FILETIME created, exited, kernel, user;
+    if (!GetThreadTimes(GetCurrentThread(), &created, &exited, &kernel, &user)) return host_mono_us();
+    uint64_t k = (uint64_t)kernel.dwHighDateTime << 32 | kernel.dwLowDateTime;
+    uint64_t u = (uint64_t)user.dwHighDateTime << 32 | user.dwLowDateTime;
+    return (int64_t)((k + u) / 10);
+}
+
 void host_sleep_ms(int ms) { Sleep((DWORD)(ms < 0 ? 0 : ms)); }
 
 /* ---- files --------------------------------------------------------------- */

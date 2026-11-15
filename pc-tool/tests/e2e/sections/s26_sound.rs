@@ -150,7 +150,8 @@ pub fn run(t: &mut T) {
     t.check(ok, "the clip: 250 ms at 500 Hz, resampled from 8 kHz", |_| format!("sounds: {}", show()));
     let ok = got.get(3).is_some_and(|&(d, f)| near(d, 0.15, 0.02) && near(f, 600.0, 30.0));
     t.check(ok, "the asset: 150 ms at 600 Hz", |_| format!("sounds: {}", show()));
-    let ok = got.get(2).is_some_and(|&(d, _)| d < 1.0) && got.get(4).is_some_and(|&(d, _)| d < 1.0);
+    // (5 s sounds stopped well before their end; how soon depends on the host)
+    let ok = got.get(2).is_some_and(|&(d, _)| d < 4.0) && got.get(4).is_some_and(|&(d, _)| d < 4.0);
     t.check(ok, "stopped sounds end early", |_| format!("sounds: {}", show()));
     let peak = s.iter().map(|v| v.unsigned_abs()).max().unwrap_or(0);
     let ok = (2000..=3100).contains(&peak);

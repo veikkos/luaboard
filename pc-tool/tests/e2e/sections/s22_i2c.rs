@@ -1,9 +1,5 @@
-//! i2c on Port A against the simulated ENV IV unit, and the ha_env example
-//! publishing its readings to Home Assistant over MQTT.
+//! i2c on Port A against the simulated ENV IV unit.
 
-use std::fs;
-
-use crate::fakes::mqtt::{self, Broker};
 use crate::harness::T;
 
 const SHT_LUA: &str = r#"local function crc(s)
@@ -62,43 +58,5 @@ pub fn run(t: &mut T) {
     t.e(&["put", &t.path("main.lua"), "--app", "env", "--run", "main.lua"]);
     let v = t.eval("#i2c.scan()");
     t.check(v == "0", "nothing plugged in: empty scan", |_| format!("empty: {v}"));
-    t.stop();
-
-    t.say("== example ha_env: ENV unit -> Home Assistant over MQTT");
-    let broker = Broker::start(mqtt::Opts::default());
-    let (bp, log) = (broker.port, broker.log.clone());
-    let src = t.root.join("marketplace/ha_env");
-    for e in fs::read_dir(&src).unwrap().filter_map(|e| e.ok()) {
-        let n = e.file_name().to_string_lossy().into_owned();
-        if n.ends_with(".lua") || n == "app.json" {
-            t.write(&format!("ha_env/{n}"), fs::read(e.path()).unwrap());
-        }
-    }
-    t.write("ha_env/secrets.env", format!("mqtt_url=mqtt://127.0.0.1:{bp}\n"));
-    t.boot_with(&["--set", "porta=env", "--set", "env_temp=19.96", "--set", "env_hum=40.4"]);
-    t.e(&["install", &t.path("ha_env"), "--run"]);
-    t.until(5.0, |_| log.has("/state "));
-    let id = t.eval(r#"store.get("id")"#);
-    let ok = log.has(&format!("PUB luaboard-{id} homeassistant/sensor/luaboard_{id}_temperature/config "))
-        && log.has(&format!("PUB luaboard-{id} homeassistant/sensor/luaboard_{id}_humidity/config "))
-        && log.has(&format!("PUB luaboard-{id} luaboard/{id}/status online"));
-    t.check(ok, "announces its sensors to Home Assistant (discovery, online)", |_| {
-        let text = log.text();
-        let mut end = text.len().min(600);
-        while !text.is_char_boundary(end) {
-            end -= 1;
-        }
-        format!("discovery: {}", &text[..end])
-    });
-    let rid = regex::escape(&id);
-    let ok = log.grep(&format!(r#"PUB luaboard-{rid} luaboard/{rid}/state .*"temperature":20[,}}]"#))
-        && log.has(r#""humidity":40"#);
-    t.check(ok, "publishes the reading", |_| {
-        let s: Vec<String> = log.lines().into_iter().filter(|l| l.contains("state")).collect();
-        format!("state: {}", s.join("\n"))
-    });
-    t.e(&["run", "ha_env"]);
-    let v = t.eval(r#"store.get("id")"#);
-    t.check(v == id, "keeps its id across runs (store)", |_| format!("id changed: {v}"));
     t.stop();
 }

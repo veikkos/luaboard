@@ -161,7 +161,7 @@ window.
 | `--set apps_url=URL` | The [app marketplace](https://github.com/veikkos/luaboard-marketplace): its base address, with the index at `URL/main/index.json` and an app version's files at `URL/<commit>/<app>/<file>` (`https://raw.githubusercontent.com/veikkos/luaboard-marketplace` on the device; default none here: no app checks, and Get apps finds nothing; the `run` target takes it as `APPS_URL`). Checked on the update check's schedule (`update_every`) |
 | `--set rtc=lost\|none` | `lost`: the RTC lost power (otherwise kept in `<nvs>.rtc`). `none`: it doesn't answer at all, as a broken one |
 | `--set time=EPOCH` | The world's clock (NTP, RTC chip) starts at these UTC seconds |
-| `--set boot_touch=0\|1` | Finger on screen at boot (safe mode) |
+| `--set boot_touch=0\|1` | Finger on screen at boot (safe mode), until the next touch |
 | `--set button=A\|B\|C\|-`, `touch=X,Y\|-` | Hold a button / touch the screen |
 | `--set power=short\|long` | Press the power key |
 | `--ble-device FILE` | A simulated Bluetooth device described in JSON (repeatable, see [Bluetooth](#bluetooth)) |
@@ -238,12 +238,14 @@ timers and timeouts) is the computer's clock plus a skew. `advance=MS` on the
 control channel fast-forwards it: the firmware's delays return at once and the
 main loop runs through MS milliseconds tick by tick, in a few milliseconds of
 real time. A minute of a script's life can be checked without waiting a
-minute. Real time that passes meanwhile uses up the advance too, so the
-clock moves by exactly MS however busy the computer is.
+minute. Meanwhile the clock stands except for what the firmware runs
+through: its delays, and the CPU time it uses when it's busy without one (a
+script in a loop). So the clock moves by exactly MS, and the firmware has
+run through all of it, however busy the computer is. After the advance the
+clock runs on in real time.
 
 `skip=MS` makes the clock jump MS ahead at once, whatever the firmware is
-doing. A script in a busy loop never waits, so a fast-forward doesn't pass for
-it; after a skip its watchdog finds the second gone.
+doing: a script's watchdog finds the time gone without waiting it out.
 
 The wall clock is the simulated world's: what NTP answers and what the RTC
 chip counts. It starts at the computer's time, or at `--set time=EPOCH` (UTC

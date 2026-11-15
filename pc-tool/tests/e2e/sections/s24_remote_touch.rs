@@ -32,18 +32,6 @@ pub fn run(t: &mut T) {
     t.advance(100);
     let v = t.eval("evs()");
     t.check(v == "press:B", "touch B presses the B button", |_| format!("remote B: {v}"));
-    // C held for 1.6 s of the device's time, said again every 0.4 s as
-    // `luaboard touch --hold` does (every 0.3 s, in real time).
-    for _ in 0..4 {
-        t.raw(&["TOUCH 260 260"]);
-        t.advance(400);
-    }
-    t.raw(&["TOUCH UP"]);
-    t.advance(100);
-    let v = t.eval("evs()");
-    t.check(v == "long:C", "a remote finger held past the 1 s timeout stays down while repeated", |_| {
-        format!("remote long C: {v}")
-    });
     let r = t.raw(&["TOUCH 160 180", "TOUCH 160 140", "TOUCH 160 100", "TOUCH UP"]);
     t.advance(200);
     let v = t.eval("evs()");

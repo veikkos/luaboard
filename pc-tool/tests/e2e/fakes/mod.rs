@@ -1,20 +1,14 @@
 //! Fake servers the device talks to in the tests, in this process: an MQTT
-//! broker, an OAuth provider with a Spotify-like API, Google's OAuth and
-//! Calendar API, porssisahko.net, Open-Meteo, Alpaca, GitHub, its release downloads and the app marketplace. Each takes a free port (port 0) and logs
+//! broker, an OAuth provider with a small web API, the release downloads and
+//! the app marketplace. Each takes a free port (port 0) and logs
 //! every event as one line ("PUB dev1 dev1/temp 23", "TOKEN code", ...).
 
 #![allow(dead_code)]
 
-pub mod alpaca;
-pub mod bmw;
-pub mod github;
-pub mod google;
 pub mod http;
 pub mod marketplace;
 pub mod mqtt;
 pub mod oauth;
-pub mod open_meteo;
-pub mod porssisahko;
 pub mod releases;
 pub mod tls;
 

@@ -138,7 +138,6 @@ void app_main(void)
     /* Safe mode: keep a finger on the screen during boot to skip autostart. */
     int tx, ty;
     bool safe_mode = !tapped_on && hw_touch_read(&tx, &ty);
-    hw_boot_settled();
     menu_init();                       /* (ignores that finger until it's lifted) */
 
     /* The app the device turned itself off under comes first, once: it is

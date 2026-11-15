@@ -3,13 +3,13 @@
 ```sh
 cmake --build --preset default --target unit   # Rust unit tests
 cmake --build --preset default --target e2e    # end-to-end suite
-E2E_ONLY="gcal menu" cmake --build --preset default --target e2e   # only sections whose name contains a word
+E2E_ONLY="oauth menu" cmake --build --preset default --target e2e   # only sections whose name contains a word
 E2E_KEEP=1 ...                                 # keep failed sections' work folders (logs, screenshots)
 E2E_LIMIT=300 ...                              # time limit per section in seconds (default 120)
 E2E_TIMES=1 ...                                # each check's time, each section's time by what it went to
 ```
 
-From `pc-tool/`, the same with cargo: `cargo test --release --test e2e -- gcal menu`
+From `pc-tool/`, the same with cargo: `cargo test --release --test e2e -- oauth menu`
 (the simulator must be built; `SIM=path` picks another one).
 
 The suite is a Rust test of the PC tools with its own runner (`main.rs`). It
@@ -24,12 +24,8 @@ each on a free port, logging every event as a line the tests look for:
 | Fake | Stands in for |
 |---|---|
 | `mqtt.rs` | An MQTT 3.1.1 broker (QoS 0/1, retained messages, last will, a "silent" mode that hangs) |
-| `oauth.rs` | An OAuth provider and the Spotify API, plus chunked, close-delimited and large HTTP bodies |
-| `google.rs` | Google's OAuth and Calendar API |
-| `porssisahko.rs` | The porssisahko.net price API |
-| `open_meteo.rs` | Open-Meteo's forecast and geocoding APIs |
-| `bmw.rs` | BMW CarData: the phone login (device code) and the REST API the bmw example uses |
-| `github.rs` | GitHub: a GitHub App's browser login and the REST API the github example uses |
+| `oauth.rs` | An OAuth provider with a small API, plus chunked, close-delimited and large HTTP bodies |
+| `marketplace.rs` | The app marketplace: its index and the apps' files |
 | `releases.rs` | GitHub's release downloads: the manifest and the image, behind redirects |
 | `http.rs` | The small HTTP/1.1 server the fakes are built on, and the tests' own client |
 | `tls.rs` | A self-signed certificate for 127.0.0.1, for the HTTPS and MQTT over TLS servers |
@@ -81,6 +77,8 @@ the same on every system. Only its serial port differs: a pty on macOS and
 Linux, a named pipe on Windows (`harness.rs` does all this).
 
 `data/` holds what the tests hand out: `cover.jpg` (a 300x300 JPEG the fake
-Spotify and web servers serve), `ble_device.json` (a simulated Bluetooth
-device) and `gcal_agenda_test.lua` (the gcal agenda logic, run on the device
-with fixed times).
+web server serves) and `ble_device.json` (a simulated Bluetooth device).
+
+The tests are about the firmware, the simulator and the CLI. The apps in
+the marketplace are tested there; here only that each one starts and draws
+(the apps section).

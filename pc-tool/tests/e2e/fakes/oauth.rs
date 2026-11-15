@@ -3,13 +3,12 @@
 //!   GET  /authorize?...        redirects straight back to redirect_uri with a code
 //!                              (a real provider shows a login page first)
 //!   POST /token                authorization_code (checks PKCE) and refresh_token
-//!                              grants; rotates refresh tokens like Spotify may
+//!                              grants; rotates refresh tokens as some providers do
 //!   GET  /api/me               200 with a valid Bearer token, else 401
 //!   GET  /chunked              a chunked response; /close: body until close
 //!                              (/close?cut=1: with no TLS close_notify)
 //!   GET  /big?n=N[&chunked=1]  N bytes of body
-//!   /v1/me/player...           a Spotify-like player (GET state, PUT play/pause,
-//!                              POST next/previous), every cover the same JPEG
+//!   GET  /cover/...            the JPEG it was started with
 //!   POST /admin/revoke         invalidate every token (forces a new login)
 //!   POST /admin/expire         invalidate access tokens only (forces a refresh)
 //!
@@ -24,20 +23,12 @@ use serde_json::json;
 use super::http::{self, Body, Request, Response, Server};
 use super::Log;
 
-const TRACKS: [(&str, &str, &str, u64); 3] = [
-    ("Harbor Lights", "Nightfall Ensemble", "Coastal Hours", 214000),
-    ("Pohjoistuuli \u{2013} \u{e4}\u{e4}ni", "Kaisla & Co.", "Talvi", 187000),
-    ("Pull-up Resistor Blues", "The Breadboards", "Floating Inputs", 251000),
-];
-
 #[derive(Default)]
 struct State {
     /// code -> (challenge, redirect)
     codes: HashMap<String, (Option<String>, Option<String>)>,
     access: HashSet<String>,
     refresh: HashSet<String>,
-    track: usize,
-    playing: bool,
 }
 
 pub struct FakeOauth {
@@ -51,17 +42,12 @@ impl FakeOauth {
     /// `cover`: the JPEG served as every cover; `tls`: serve HTTPS.
     pub fn start(cover: Vec<u8>, tls: Option<Arc<ServerConfig>>) -> FakeOauth {
         let log = Log::default();
-        let state = Arc::new(Mutex::new(State { playing: true, ..State::default() }));
-        let port = Arc::new(Mutex::new(0u16));
-        let (log2, state2, port2) = (log.clone(), state.clone(), port.clone());
+        let state = Arc::new(Mutex::new(State::default()));
+        let (log2, state2) = (log.clone(), state.clone());
         let server = http::serve(
             http::Opts { tls, ..Default::default() },
-            Arc::new(move |r: &Request| {
-                let p = *port2.lock().unwrap();
-                handle(r, &log2, &mut state2.lock().unwrap(), &cover, p)
-            }),
+            Arc::new(move |r: &Request| handle(r, &log2, &mut state2.lock().unwrap(), &cover)),
         );
-        *port.lock().unwrap() = server.port;
         FakeOauth { port: server.port, log, state, server }
     }
 
@@ -93,35 +79,6 @@ fn expired() -> Response {
     Response::json(401, json!({"error": {"status": 401, "message": "The access token expired"}}).to_string())
 }
 
-fn player_state(st: &State, port: u16) -> serde_json::Value {
-    let (title, artist, album, dur) = TRACKS[st.track];
-    let base = format!("http://127.0.0.1:{port}/cover/{}", st.track);
-    json!({
-        "is_playing": st.playing, "progress_ms": 1000, "device": {"name": "Test Speaker"},
-        "item": {"type": "track", "id": st.track.to_string(), "name": title, "duration_ms": dur,
-                 "artists": [{"name": artist}],
-                 "album": {"name": album, "images": [
-                     {"url": format!("{base}-640.jpg"), "width": 640, "height": 640},
-                     {"url": format!("{base}-300.jpg"), "width": 300, "height": 300},
-                     {"url": format!("{base}-64.jpg"), "width": 64, "height": 64}]}}
-    })
-}
-
-fn player_cmd(r: &Request, log: &Log, st: &mut State) -> Response {
-    let cmd = r.path().rsplit('/').next().unwrap_or("");
-    if !st.access.contains(r.bearer()) {
-        return expired();
-    }
-    match (r.method.as_str(), cmd) {
-        ("PUT", "play") | ("PUT", "pause") => st.playing = cmd == "play",
-        ("POST", "next") => st.track = (st.track + 1) % TRACKS.len(),
-        ("POST", "previous") => st.track = (st.track + TRACKS.len() - 1) % TRACKS.len(),
-        _ => return Response::json(405, "{}"),
-    }
-    log.line(format!("SPOTIFY {cmd}"));
-    Response::json(204, "")
-}
-
 fn tokens(st: &mut State) -> String {
     let (a, r) = (super::token(16), super::token(16));
     st.access.insert(a.clone());
@@ -129,10 +86,9 @@ fn tokens(st: &mut State) -> String {
     json!({"access_token": a, "refresh_token": r, "expires_in": 3600, "token_type": "Bearer"}).to_string()
 }
 
-fn handle(r: &Request, log: &Log, st: &mut State, cover: &[u8], port: u16) -> Response {
+fn handle(r: &Request, log: &Log, st: &mut State, cover: &[u8]) -> Response {
     let path = r.path();
     match r.method.as_str() {
-        "PUT" => player_cmd(r, log, st),
         "GET" => match path {
             "/authorize" => {
                 let q = r.query();
@@ -156,13 +112,6 @@ fn handle(r: &Request, log: &Log, st: &mut State, cover: &[u8], port: u16) -> Re
                     log.line("API 401");
                     expired()
                 }
-            }
-            "/v1/me/player" => {
-                if !st.access.contains(r.bearer()) {
-                    return expired();
-                }
-                log.line("SPOTIFY state");
-                Response::json(200, player_state(st, port).to_string())
             }
             p if p.starts_with("/cover/") => {
                 log.line(format!("COVER {p}"));
@@ -201,9 +150,6 @@ fn handle(r: &Request, log: &Log, st: &mut State, cover: &[u8], port: u16) -> Re
             _ => Response::json(404, "{}"),
         },
         "POST" => {
-            if path.starts_with("/v1/me/player/") {
-                return player_cmd(r, log, st);
-            }
             let f = r.form();
             match path {
                 "/token" | "/api/token" => match f.get("grant_type").map(String::as_str) {

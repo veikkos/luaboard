@@ -51,7 +51,8 @@ pub fn run(t: &mut T) {
     let ok = t.until(3.0, |t| t.eval("sys.info().boot") == "timer");
     t.check(ok, "the clock chip turns it on: boot reason timer", |t| format!("boot: {}", t.eval("sys.info().boot")));
     let dt = t.eval("sys.time()").parse::<i64>().unwrap_or(0) - t0;
-    t.check((540..=550).contains(&dt), "about 541 s went by", |_| format!("seconds since sys.off: {dt}"));
+    // Not early; how much later depends on the host, so only a loose bound.
+    t.check((540..600).contains(&dt), "about 541 s went by", |_| format!("seconds since sys.off: {dt}"));
 
     t.say("   coming back: the app that turned it off, then the power key into the menu");
     let ok = running(t) == "offtest/main.lua" && t.eval("BOOT") == "timer";

@@ -88,8 +88,6 @@ pub fn run(t: &mut T) {
     t.keep_restart_notice = true;
     t.boot();
     t.keep_restart_notice = false;
-    // (boot returns before the firmware is up on a busy machine: tap once the screen is there)
-    t.until(3.0, |t| t.eval(ORANGE_TOP) == "true");
     t.tap_at(160, 120);
     let ok = t.until(3.0, running_t);
     t.check(ok, "the tap starts the app, it isn't a safe-mode touch", |t| format!("info: {}", t.e(&["info"])));

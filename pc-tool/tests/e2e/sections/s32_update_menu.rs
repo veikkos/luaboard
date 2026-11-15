@@ -131,5 +131,17 @@ pub fn run(t: &mut T) {
     t.check(ok, "a manifest in a later format: the row tells to update by hand", |_| {
         format!("checked {checked}, update: {upd}, offer: {offer}, back {back}")
     });
+
+    // Settings > Check now: a check at once, not at the next one's time.
+    rel.set_manifest(&manifest("v1.2.0", &bin_url(&rel, "v1.2.0"), &img, 2, 1));
+    // Settings; Check now is its eighth row: drag the list up two rows, then
+    // it's the last one shown.
+    t.tap_at(60, 200);
+    t.ctl(&["touch=60,150", "advance=50", "touch=60,90", "advance=50", "touch=-", "advance=250"]);
+    t.tap_at(60, 195);
+    let ok = t.until(5.0, |t| t.read("sim.err").contains("menu: check now: firmware v1.2.0"));
+    t.check(ok, "Check now checks at once and says what it found", |t| {
+        t.read("sim.err").lines().rfind(|l| l.contains(" menu: ")).unwrap_or("").to_string()
+    });
     t.stop();
 }

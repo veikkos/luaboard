@@ -503,7 +503,7 @@ impl T {
         let mut cmd = Command::new(&self.sim_bin);
         cmd.args(&args)
             .env("SIM_IMAGE_LINK", "1") // a store's first image is a symbolic link, no copy (a copy's first start is slow on macOS)
-            .env("SIM_BOOT_ADVANCE", "300") // every boot starts 300 ms fast-forwarded: its hardware delays, the boot-touch window
+            .env("SIM_BOOT_ADVANCE", "300") // every boot starts 300 ms fast-forwarded: its hardware delays
             .envs(self.sim_env.iter().map(|(k, v)| (k, v)))
             .envs(roots.iter().map(|r| ("SIM_CA_FILE", r)))
             .stdin(Stdio::null())
@@ -870,16 +870,27 @@ impl T {
     fn device(&self) -> anyhow::Result<luaboard::Device> {
         luaboard::Device::open(&self.tty, 115200)
     }
-    /// What `luaboard eval EXPR` prints: what the script printed meanwhile,
-    /// then the result; "Error: ..." if it failed. (`e(&["eval", ..])` is
-    /// the CLI itself.)
+    /// The result of EXPR on the device; "Error: ..." if it failed. What
+    /// the device logs meanwhile (a script's prints, its notices) isn't part
+    /// of it: eval_out has that too.
     pub fn eval(&self, expr: &str) -> String {
+        self.eval_with(expr, false)
+    }
+    /// What `luaboard eval EXPR` prints: what the device logged meanwhile
+    /// (a script's prints), then the result. (`e(&["eval", ..])` is the CLI
+    /// itself.)
+    pub fn eval_out(&self, expr: &str) -> String {
+        self.eval_with(expr, true)
+    }
+    fn eval_with(&self, expr: &str, logs: bool) -> String {
         let t0 = Instant::now();
         let mut out: Vec<String> = Vec::new();
         let result = self.device().and_then(|mut dev| {
             dev.eval(expr, &mut |m| {
                 if let luaboard::Msg::Log(s) = m {
-                    out.push(s);
+                    if logs {
+                        out.push(s);
+                    }
                 }
             })
         });

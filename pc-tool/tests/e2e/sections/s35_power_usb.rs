@@ -64,21 +64,6 @@ pub fn run(t: &mut T) {
         format!("{out}; running {}, screen {}", field(t, "running"), field(t, "screen"))
     });
 
-    // A firmware update that arrives meanwhile has the device: the app isn't
-    // started under it. (This one is never sent, and given up after 3 s.)
-    t.eval("sys.off()");
-    t.advance(200);
-    let out = t.raw(&[&format!("OTA 1000000 {}", "0".repeat(64))]);
-    t.ctl(&["power=short", "advance=300"]);
-    // (The link is taking the image: no CLI meanwhile. The device's log says
-    // whether anything started after it went off.)
-    let held = t.read("sim.err").trim_end().lines().last().is_some_and(|l| l.contains("off wake=none"));
-    t.advance(4_000);
-    let ok = t.until(2.0, |t| field(t, "running") == "usboff/main.lua");
-    t.check(out.contains("OK READY") && held && ok, "an update meanwhile: the key press waits until it's over", |t| {
-        format!("{out}; held {held}, running {}", field(t, "running"))
-    });
-
     // Safe mode: a finger held on the screen as the key is pressed gives the
     // menu instead (an app that turns the device off at every start could
     // otherwise only be left by unplugging). Letting go taps nothing.

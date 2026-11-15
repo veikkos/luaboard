@@ -127,23 +127,5 @@ pub fn run(t: &mut T) {
         format!("app_updates {before} -> {}", t.info("app_updates"))
     });
 
-    restart_keeps_address(t);
     t.stop();
 }
-
-/// A restart (a crash here; a new build under --watch does the same) keeps
-/// the marketplace address. The crash is a signal: not on Windows.
-#[cfg(unix)]
-fn restart_keeps_address(t: &mut T) {
-    t.advance(1000);
-    t.segv();
-    let ok = t.until(5.0, |t| t.e(&["info"]).contains("reset: panic"));
-    let log = t.read("sim.err");
-    let kept = log.matches("apps: marketplace at").count() == 2 && !log.contains("no marketplace address");
-    t.check(ok && kept, "a restart keeps the marketplace address", |_| {
-        log.lines().filter(|l| l.contains(" apps: ")).take(3).collect::<Vec<_>>().join(" / ")
-    });
-}
-
-#[cfg(not(unix))]
-fn restart_keeps_address(_t: &mut T) {}

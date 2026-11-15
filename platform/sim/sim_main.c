@@ -55,9 +55,6 @@ extern void app_main(void);
 
 static volatile sig_atomic_t s_quit;
 
-/* The finger of --set boot_touch=1 stays this long after power-on (chip clock). */
-#define BOOT_TOUCH_MS 300
-#define BOOT_TOUCH_MAX_MS 5000   /* a firmware that never looks again: the finger goes anyway */
 
 /* -------------------------------------------------------------- options */
 
@@ -453,8 +450,12 @@ static void control_poll_locked(void)
                answers. Answered here, a question right behind it would
                still find the board off. */
             if (sim_board_wake_due() || sim_deep_sleep_wake_due()) { sim_time_release(); return; }
-            control_ack("ok", s_ctl_advance);
+            /* Cleared before it's answered: a crash in between (boot_again)
+               must not answer it a second time. */
+            char done[sizeof s_ctl_advance];
+            snprintf(done, sizeof done, "%s", s_ctl_advance);
             *s_ctl_advance = 0;
+            control_ack("ok", done);
         }
         char *nl = memchr(s_ctl_buf, '\n', s_ctl_len);
         if (nl) {
@@ -652,13 +653,6 @@ static int write_ppm(const char *path)
     return fclose(f);
 }
 
-static int s_boot_done;
-static atomic_int s_settled;            /* the firmware has looked for the boot finger (hw_boot_settled) */
-
-/* hw_boot_settled: the boot has decided on safe mode, so the finger of
-   --set boot_touch=1 can go. */
-void sim_boot_settled(void) { atomic_store(&s_settled, 1); }
-
 static void tick(void)
 {
     control_poll();
@@ -669,14 +663,6 @@ static void tick(void)
     if (sim_deep_sleep_wake_due()) {                /* in deep sleep, and its timer is up */
         fprintf(stderr, "wake from deep sleep\n");
         boot_again(s_self, ESP_RST_DEEPSLEEP, false);
-    }
-    /* The finger of boot_touch goes once the firmware says it has looked
-       (hw_boot_settled), or 5 s into the boot for a firmware that never
-       says so (an older image an update test boots). */
-    bool late = uptime_ms() >= BOOT_TOUCH_MAX_MS;
-    if (!s_boot_done && uptime_ms() >= BOOT_TOUCH_MS && (atomic_load(&s_settled) || late)) {
-        sim_board_boot_done();
-        s_boot_done = 1;
     }
     watch_poll();
 }

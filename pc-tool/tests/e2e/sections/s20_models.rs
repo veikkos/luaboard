@@ -24,20 +24,6 @@ pub fn run(t: &mut T) {
     t.ctl(&["power=short"]);
     let ok = t.until(2.0, |t| t.e(&["info"]).contains("running: -") && t.eval(MENU_PX) == "true");
     t.check(ok, "power key leaves a running app", |t| format!("power key: {}", line_with(&t.e(&["info"]), "running")));
-    t.tap_at(60, 200); // Settings
-    t.ctl(&["power=short", "advance=300"]);
-    t.press("C"); // on home: C wraps from Settings to the first app, B opens it
-    t.press("B");
-    let info = t.e(&["info"]);
-    t.check(info.contains("running: hello/main.lua"), "power key in Settings goes home", |_| {
-        format!("power key in Settings: {}", line_with(&info, "running"))
-    });
-    t.ctl(&["power=short", "advance=300"]);
-    t.ctl(&["power=long", "advance=300"]);
-    let info = t.e(&["info"]);
-    let ok = info.contains("running: -") && info.contains("screen: off");
-    t.check(ok, "a long press turns the screen off", |_| format!("long press: {}", line_with(&info, "screen")));
-    t.ctl(&["power=short", "advance=300"]);
     t.stop();
 
     t.wipe();

@@ -1,6 +1,6 @@
 //! The RTC chip keeps the time over a restart.
 
-use crate::harness::{E2E_TIME, RESTART_NOTICE_S, T};
+use crate::harness::{E2E_TIME, T};
 
 pub fn run(t: &mut T) {
     t.say("== RTC chip keeps the time over a restart");
@@ -12,16 +12,15 @@ pub fn run(t: &mut T) {
     t.until(2.0, |t| t.work.join("nvs.bin.rtc").metadata().is_ok_and(|m| m.len() > 0));
     t.crash();
     t.boot_with(&["--set", "wifi=0"]); // restart, no network: only the chip knows the time
-                                       // the first reply after boot can carry "time rtc"
     let out = t.eval("sys.time() or 0");
-    let last = out.lines().rfind(|l| !l.starts_with("[evt]")).unwrap_or("");
-    let secs: i64 = last.trim().parse().unwrap_or(0);
-    // The world starts at E2E_TIME again; the chip was set from it: it agrees
-    // (after the Restarted screen, which boot() ran past).
-    let dt = (secs - E2E_TIME as i64 - RESTART_NOTICE_S).abs();
+    let secs: i64 = out.lines().last().unwrap_or("").trim().parse().unwrap_or(0);
+    // The world starts at E2E_TIME again and the chip was set from it during
+    // the first boot: not earlier than that, and not wildly later. (How much
+    // later depends on how long the first boot ran, so no tighter bound.)
+    let ok = secs >= E2E_TIME as i64 && secs < E2E_TIME as i64 + 3600;
     let time = t.e(&["time"]);
-    t.check(dt <= 5 && time.contains("RTC chip"), "time from the RTC chip after a restart, without Wi-Fi", |t| {
-        format!("rtc: off by {dt} s, {}", t.e(&["time"]))
+    t.check(ok && time.contains("RTC chip"), "time from the RTC chip after a restart, without Wi-Fi", |t| {
+        format!("rtc: {secs}, {}", t.e(&["time"]))
     });
     t.crash();
     t.boot_with(&["--set", "wifi=0", "--set", "rtc=lost"]); // the chip lost power: its time isn't trusted

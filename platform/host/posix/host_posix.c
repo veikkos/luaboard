@@ -54,6 +54,13 @@ int64_t host_mono_us(void)
     return (int64_t)t.tv_sec * 1000000 + t.tv_nsec / 1000;
 }
 
+int64_t host_thread_cpu_us(void)
+{
+    struct timespec t;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t);
+    return (int64_t)t.tv_sec * 1000000 + t.tv_nsec / 1000;
+}
+
 int64_t host_utc_us(void)
 {
     struct timespec t;
@@ -323,7 +330,7 @@ host_ctl_t *host_ctl_create(const char *path)
     socklen_t alen = sizeof a;
     int one = 1;
     if (s >= 0) setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
-    if (s < 0 || bind(s, (struct sockaddr *)&a, sizeof a) != 0 || listen(s, 1) != 0 ||
+    if (s < 0 || bind(s, (struct sockaddr *)&a, sizeof a) != 0 || listen(s, 8) != 0 ||
         getsockname(s, (struct sockaddr *)&a, &alen) != 0) {
         fprintf(stderr, "--control %s: cannot listen there: %s\n", path, strerror(errno));
         if (s >= 0) close(s);

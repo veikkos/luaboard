@@ -46,6 +46,9 @@ void host_init(void);
 int64_t host_mono_us(void);
 /** This computer's wall clock, µs since 1970 (UTC). */
 int64_t host_utc_us(void);
+/** The CPU time the calling thread has used, µs: it doesn't grow while the
+ *  thread waits, or while the computer runs other things instead. */
+int64_t host_thread_cpu_us(void);
 void host_sleep_ms(int ms);
 
 /* ---- files --------------------------------------------------------------- */

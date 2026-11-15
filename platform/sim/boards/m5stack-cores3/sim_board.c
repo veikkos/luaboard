@@ -308,6 +308,7 @@ bool sim_board_set(const char *key, const char *val)
         else return false;
     } else if (!strcmp(key, "touch")) {                /* finger on the screen at X,Y; "-" = lift */
         int x, y;
+        s_boot_touch = 0;                              /* (the finger held from power-on goes) */
         if (!strcmp(val, "-")) s_touch_down = 0;
         else if (sscanf(val, "%d,%d", &x, &y) == 2 && x >= 0 && x < BOARD_TOUCH_W && y >= 0 && y < BOARD_TOUCH_H) {
             s_tx = x; s_ty = y; s_touch_down = 1;
@@ -378,12 +379,6 @@ void sim_board_state(char *out, size_t cap)
        mode after a power-off: touch=X,Y, then power=short). */
     n = strlen(out);
     if (s_touch_down && n < cap) snprintf(out + n, cap - n, " touch=%d,%d", s_tx, s_ty);
-}
-
-void sim_board_boot_done(void)
-{
-    s_boot_touch = 0;
-    apply_inputs();
 }
 
 bool sim_board_screen_rgb(uint8_t *rgb, int *w, int *h)
@@ -480,7 +475,7 @@ void sim_board_ui_event(sim_ui_t *ui, const SDL_Event *e)
         int x = e->button.x, y = e->button.y;
         ui_rect_t ph = { L.pwr.x - 6, L.pwr.y - 4, L.pwr.w + 12, L.pwr.h + 8 };
         if (ui_hit(ph, x, y)) power_key_down(true);
-        else if (touch_at(&L, x, y, &s_tx, &s_ty)) s_touch_down = 1;
+        else if (touch_at(&L, x, y, &s_tx, &s_ty)) s_touch_down = 1, s_boot_touch = 0;
         else if (ui_hit(L.settings, x, y)) ui->settings_open = true;
         break;
     }

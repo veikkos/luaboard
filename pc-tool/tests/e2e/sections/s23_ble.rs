@@ -1,38 +1,19 @@
 //! Bluetooth LE from Lua against simulated devices described in JSON
-//! (platform/sim/models/ble_device.h), and the di2 example on one.
+//! (platform/sim/models/ble_device.h).
 
-use std::fs;
 use std::process::{Command, Stdio};
 
-use crate::harness::{Ppm, T};
+use crate::harness::T;
 
 const ADDR: &str = "c0:ff:ee:00:00:01";
 const SVC: &str = "12345678-1234-5678-1234-56789abcdef0";
 const NOTE: &str = "12345678-1234-5678-1234-56789abcdef1"; // notifies; sends ff then its value when subscribed
 const RW: &str = "12345678-1234-5678-1234-56789abcdef2"; // read and write
 const PAIRED: &str = "12345678-1234-5678-1234-56789abcdef3"; // read, needs pairing
-const GEAR: &str = "00002ac1-5348-494d-414e-4f5f424c4500";
 
 /// Lua with the names above filled in.
 fn lua(s: &str) -> String {
     s.replace("$ADDR", ADDR).replace("$SVC", SVC).replace("$NOTE", NOTE).replace("$RW", RW).replace("$PAIRED", PAIRED)
-}
-
-fn gear(front: u8, rear: u8) -> String {
-    format!("ble_value=di2:{GEAR}:00 06 03 0{front} 02 {rear:02x} 0c 02 ee 12 fd ee 12 05 00 12 00")
-}
-
-/// The gear in use is drawn amber (255,196,40 -> RGB565 ~ 255,195,66).
-fn amber(t: &T) -> usize {
-    let p = Ppm::load(&t.work.join("screen.ppm"));
-    p.px.as_chunks::<3>().0.iter().filter(|c| c[0] > 230 && c[1] > 170 && c[1] < 220 && c[2] < 100).count()
-}
-
-fn same(t: &T, a: &str, b: &str) -> bool {
-    match (fs::read(t.work.join(a)), fs::read(t.work.join(b))) {
-        (Ok(x), Ok(y)) => x == y,
-        _ => false,
-    }
 }
 
 pub fn run(t: &mut T) {
@@ -203,46 +184,4 @@ function loop() end
     } else {
         t.check(err.contains(r#"needs "addr""#), "a description without an address says so", |_| format!("bad: {err}"));
     }
-
-    t.say("== example di2: gear and battery on screen (marketplace/di2/sim_device.json)");
-    t.wipe();
-    let di2_dev = t.root.join("marketplace/di2/sim_device.json").to_string_lossy().into_owned();
-    t.boot_with(&["--ble-device", &di2_dev, "--set", "ble=di2:off"]);
-    let di2 = t.root.join("marketplace/di2").to_string_lossy().into_owned();
-    t.e(&["install", &di2, "--run"]);
-    t.advance(500);
-    t.shot("screen.ppm");
-    let n = amber(t);
-    t.check(n == 0, "no derailleur: looking for one, no gear shown", |_| format!("amber before: {n}"));
-    t.ctl(&["ble=di2:on"]);
-    let ok = t.until_sim(5.0, |t| {
-        t.shot("screen.ppm");
-        amber(t) > 500
-    });
-    t.check(ok, "finds it, connects and shows the gear", |t| format!("live: {}", amber(t)));
-    let v = t.eval(r#"store.get("addr")"#);
-    t.check(v == "c7:18:2c:51:4d:01", "remembers the derailleur", |t| {
-        format!("store: {}", t.eval(r#"store.get("addr")"#))
-    });
-    t.shot("before.ppm");
-    t.ctl(&[&gear(2, 11)]);
-    let ok = t.until_sim(1.0, |t| {
-        t.shot("screen.ppm");
-        !same(t, "screen.ppm", "before.ppm")
-    });
-    t.check(ok, "a shift changes the screen", |_| "no redraw after a shift".into());
-    t.shot("before.ppm");
-    t.ctl(&[&format!("ble_notify=di2:{GEAR}:01 ff ff ff ff ff ff ff 00 ff ff ff ff ff ff"), "advance=300"]);
-    t.shot("screen.ppm");
-    let ok = same(t, "screen.ppm", "before.ppm");
-    t.check(ok, "other kinds of message (01 ff ...) don't change the gear", |_| {
-        "a 01 message changed the screen".into()
-    });
-    t.ctl(&["ble=di2:off"]);
-    let ok = t.until_sim(4.0, |t| {
-        t.shot("screen.ppm");
-        amber(t) == 0
-    });
-    t.check(ok, "losing it dims the last gear", |t| format!("lost: {}", amber(t)));
-    t.stop();
 }

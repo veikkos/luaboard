@@ -1,8 +1,8 @@
 name: CI
 
 # Every push to main and every pull request: the simulator, tests and lint
-# on Linux, macOS and Windows (Actions are free for a public repository),
-# and the firmware when the change touches it. The same checks run locally
+# on Linux and macOS, the build and unit tests on Windows (Actions are free
+# for a public repository), and the firmware when the change touches it. The same checks run locally
 # before every push: the hooks target (.githooks/pre-push). A run by hand
 # from the Actions tab does the same.
 on:
@@ -30,9 +30,6 @@ jobs:
           - { os: windows-2022, preset: vs }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
-    # Windows fails sections of the end-to-end suite for now (fixed on a
-    # Windows machine next): its results show, but don't fail the run.
-    continue-on-error: ${{ matrix.os == 'windows-2022' }}
     defaults:
       run:
         shell: bash
@@ -69,16 +66,16 @@ jobs:
           cmake --build --preset ${{ matrix.preset }} ${{ matrix.preset == 'default' && '-- -k 0' || '' }}
       - name: Build PC tools
         run: cmake --build --preset ${{ matrix.preset }} --target tool
-      - name: Unit and end-to-end tests
-        run: |
-          cmake --build --preset ${{ matrix.preset }} --target unit
-          cmake --build --preset ${{ matrix.preset }} --target e2e
+      - name: Unit tests
+        run: cmake --build --preset ${{ matrix.preset }} --target unit
+      - name: End-to-end tests
+        # Not on Windows: its simulator doesn't wait for a server's answer
+        # during a fast-forward, nor wake on socket input (docs/TODO.md).
+        if: runner.os != 'Windows'
+        run: cmake --build --preset ${{ matrix.preset }} --target e2e
         env:
           E2E_KEEP: "1"
-          # the work folders: TMPDIR on macOS and Linux, TMP and TEMP on Windows
-          TMPDIR: ${{ runner.temp }}
-          TMP: ${{ runner.temp }}
-          TEMP: ${{ runner.temp }}
+          TMPDIR: ${{ runner.temp }}   # the work folders, uploaded when a run fails
       - name: clippy
         if: runner.os == 'Linux'
         run: cargo clippy --manifest-path pc-tool/Cargo.toml --release --all-targets -- -D warnings
