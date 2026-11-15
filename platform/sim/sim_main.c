@@ -452,7 +452,7 @@ static void control_poll_locked(void)
                sleep's timer) is part of it: tick() boots, and boot_again
                answers. Answered here, a question right behind it would
                still find the board off. */
-            if (sim_board_wake_due() || sim_deep_sleep_wake_due()) return;
+            if (sim_board_wake_due() || sim_deep_sleep_wake_due()) { sim_time_release(); return; }
             control_ack("ok", s_ctl_advance);
             *s_ctl_advance = 0;
         }
@@ -462,13 +462,22 @@ static void control_poll_locked(void)
             char *line = s_ctl_buf;
             if (nl > line && nl[-1] == '\r') nl[-1] = 0;
             bool quiet;
+            /* Lines behind it ("touch=X,Y advance=150 touch=- advance=250"):
+               the clock waits for them, at once or at the end of an advance,
+               so a press lasts what was asked, however long this thread takes
+               to come to them on a busy machine (answering a line can take a
+               while on Windows: the clock is held before that). */
+            bool more = memchr(nl + 1, '\n', s_ctl_len - (size_t)(nl + 1 - s_ctl_buf)) != NULL;
             if (!*line) { /* empty line */ }
             else if (!control_apply(line, &quiet)) {
                 if (!quiet) fprintf(stderr, "control: bad line %s\n", line);
+                if (more) sim_time_hold_after();
                 control_ack("error", line);
             } else if (!strncmp(line, "advance=", 8)) {
                 snprintf(s_ctl_advance, sizeof s_ctl_advance, "%s", line);   /* answered once it's run through */
+                if (more) sim_time_hold_after();
             } else {
+                if (more) sim_time_hold_after();
                 control_ack("ok", line);
             }
             s_ctl_len -= (size_t)(nl + 1 - s_ctl_buf);
@@ -477,7 +486,7 @@ static void control_poll_locked(void)
         }
         if (s_ctl_len == sizeof s_ctl_buf) s_ctl_len = 0;   /* overlong line: drop */
         int n = host_ctl_read(s_boot.ctl, s_ctl_buf + s_ctl_len, sizeof s_ctl_buf - s_ctl_len);
-        if (n <= 0) return;
+        if (n <= 0) { sim_time_release(); return; }      /* all applied: the clock goes on */
         s_ctl_len += (size_t)n;
     }
 }
@@ -644,6 +653,11 @@ static int write_ppm(const char *path)
 }
 
 static int s_boot_done;
+static atomic_int s_settled;            /* the firmware has looked for the boot finger (hw_boot_settled) */
+
+/* hw_boot_settled: the boot has decided on safe mode, so the finger of
+   --set boot_touch=1 can go. */
+void sim_boot_settled(void) { atomic_store(&s_settled, 1); }
 
 static void tick(void)
 {
@@ -656,7 +670,14 @@ static void tick(void)
         fprintf(stderr, "wake from deep sleep\n");
         boot_again(s_self, ESP_RST_DEEPSLEEP, false);
     }
-    if (!s_boot_done && uptime_ms() >= BOOT_TOUCH_MS && sim_board_boot_done(uptime_ms() >= BOOT_TOUCH_MAX_MS)) s_boot_done = 1;
+    /* The finger of boot_touch goes once the firmware says it has looked
+       (hw_boot_settled), or 5 s into the boot for a firmware that never
+       says so (an older image an update test boots). */
+    bool late = uptime_ms() >= BOOT_TOUCH_MAX_MS;
+    if (!s_boot_done && uptime_ms() >= BOOT_TOUCH_MS && (atomic_load(&s_settled) || late)) {
+        sim_board_boot_done();
+        s_boot_done = 1;
+    }
     watch_poll();
 }
 

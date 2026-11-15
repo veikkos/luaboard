@@ -38,7 +38,13 @@ void host_init(void)
 {
     WSADATA wsa;
     WSAStartup(MAKEWORD(2, 2), &wsa);
-    /* Sleeps and waits to the millisecond (the firmware's tick is 10 ms). */
+    /* Sleeps and waits to the millisecond (the firmware's tick is 10 ms).
+       Windows 11 may ignore that for a process with no visible window (the
+       headless simulator, a minimized one): waits were then 15.6 ms and up,
+       and answers on the control channel took 100 ms. Not here. */
+    PROCESS_POWER_THROTTLING_STATE pt = { PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+                                          PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION, 0 };
+    SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &pt, sizeof pt);
     timeBeginPeriod(1);
     /* Files are bytes, as on the device: no CRLF translation; the log too,
        so what reads it sees the same lines everywhere. */

@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 thread_local! {
@@ -488,11 +488,24 @@ impl T {
             format!("time={time}"),
         ];
         args.extend(extra.iter().map(|s| s.to_string()));
+        // What the simulator trusts for TLS without an app's own ca: a test
+        // certificate, not this computer's store, unless the section sets
+        // SIM_CA_FILE itself. The tests only reach fakes, and loading a
+        // keychain can take longer than the script watchdog on a CI runner.
+        static TEST_ROOTS: OnceLock<String> = OnceLock::new();
+        let own_roots = !self.sim_env.iter().any(|(k, _)| k == "SIM_CA_FILE");
+        let roots = if own_roots {
+            let pem = TEST_ROOTS.get_or_init(|| crate::fakes::tls::self_signed().pem);
+            Some(self.write("test-roots.pem", pem))
+        } else {
+            None
+        };
         let mut cmd = Command::new(&self.sim_bin);
         cmd.args(&args)
             .env("SIM_IMAGE_LINK", "1") // a store's first image is a symbolic link, no copy (a copy's first start is slow on macOS)
             .env("SIM_BOOT_ADVANCE", "300") // every boot starts 300 ms fast-forwarded: its hardware delays, the boot-touch window
             .envs(self.sim_env.iter().map(|(k, v)| (k, v)))
+            .envs(roots.iter().map(|r| ("SIM_CA_FILE", r)))
             .stdin(Stdio::null())
             .stdout(fs::File::create(self.work.join("sim.out")).unwrap())
             .stderr(fs::File::create(self.work.join("sim.err")).unwrap());

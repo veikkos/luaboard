@@ -52,7 +52,7 @@ static uint32_t s_gen;                  /* vfs_generation() when the apps were l
 static bool s_compared;
 static const apps_entry_t *s_upd[VFS_MAX_APPS];
 static int s_nupd;
-static int s_told = -1;                 /* the count "app updates" last went out with */
+static int s_told;                      /* the count "app updates" last went out with (0 at start: no event for none) */
 
 /* An install (app_install_start), stepped from app_update_poll. */
 static struct {

@@ -48,6 +48,9 @@ static atomic_bool s_ff_on;             /* s_ff_us > 0, for who doesn't hold s_t
 static atomic_uint s_ff_pass;           /* the firmware's delays since the fast-forward began */
 static atomic_bool s_boot_set;
 static host_link_t *s_wake;           /* the PC link */
+static atomic_bool s_held;              /* the clock stands (see esp_timer_get_time) */
+static _Atomic int64_t s_held_us;       /* the clock while held */
+static bool s_hold_next;                /* hold when the fast-forward ends (under s_tlock) */
 
 void sim_time_init(void)
 {
@@ -55,14 +58,43 @@ void sim_time_init(void)
     s_boot_us = host_mono_us();
     s_skew_us = 0;
     s_ff_us = 0;
+    s_hold_next = false;
+    atomic_store(&s_held, false);
     atomic_store(&s_boot_set, true);
     pthread_mutex_unlock(&s_tlock);
 }
 
+/* Held: the clock stands while control lines sent together are applied, also
+   at the end of an advance among them (sim_time_hold_after, sim_time_release).
+   On a busy machine the simulator's main thread may get to the next line only
+   a while later, and a finger lifted then had been down that much longer (a
+   tap became a hold). */
+static int64_t clock_now_us(void) { return host_mono_us() - s_boot_us + atomic_load(&s_skew_us); }
+
 int64_t esp_timer_get_time(void)
 {
     if (!atomic_load(&s_boot_set)) sim_time_init();
-    return host_mono_us() - s_boot_us + atomic_load(&s_skew_us);
+    if (atomic_load(&s_held)) return atomic_load(&s_held_us);
+    return clock_now_us();
+}
+
+/* The fast-forward is used up: hold the clock if lines wait behind it. */
+static void ff_done_locked(void)
+{
+    if (!s_hold_next) return;
+    s_hold_next = false;
+    if (atomic_load(&s_held)) return;                /* held already: it stays where it stood */
+    atomic_store(&s_held_us, clock_now_us());
+    atomic_store(&s_held, true);
+}
+
+static void release_locked(void)
+{
+    s_hold_next = false;
+    if (!atomic_load(&s_held)) return;
+    atomic_store(&s_skew_us, atomic_load(&s_held_us) - (host_mono_us() - s_boot_us));
+    atomic_store(&s_held, false);
+    pthread_cond_broadcast(&s_tcond);
 }
 
 /* ---- wall clocks: the world's and the firmware's system clock ---------- */
@@ -124,6 +156,7 @@ static void ff_charge_locked(void)
     s_ff_mark_us = now;
     if (real > 0) s_ff_us -= real < s_ff_us ? real : s_ff_us;
     atomic_store(&s_ff_on, s_ff_us > 0);
+    if (s_ff_us <= 0) ff_done_locked();
 }
 
 /* The board is powered down (the PMIC cut the power, or the chip is in
@@ -177,6 +210,7 @@ void sim_time_advance(uint32_t ms)
         return;
     }
     pthread_mutex_lock(&s_tlock);
+    release_locked();                                /* the clock goes on from where it was held */
     ff_charge_locked();
     if (s_ff_us <= 0) {
         s_ff_mark_us = host_mono_us();               /* a new fast-forward: real time counts from now */
@@ -189,9 +223,26 @@ void sim_time_advance(uint32_t ms)
     host_link_kick(s_wake);                          /* a delay waiting on the link goes on */
 }
 
+void sim_time_hold_after(void)
+{
+    pthread_mutex_lock(&s_tlock);
+    ff_charge_locked();
+    s_hold_next = true;
+    if (s_ff_us <= 0) ff_done_locked();              /* already run through */
+    pthread_mutex_unlock(&s_tlock);
+}
+
+void sim_time_release(void)
+{
+    pthread_mutex_lock(&s_tlock);
+    release_locked();
+    pthread_mutex_unlock(&s_tlock);
+}
+
 void sim_time_skip(uint32_t ms)
 {
     pthread_mutex_lock(&s_tlock);
+    if (atomic_load(&s_held)) atomic_fetch_add(&s_held_us, (int64_t)ms * 1000);
     atomic_fetch_add(&s_skew_us, (int64_t)ms * 1000);
     pthread_cond_broadcast(&s_tcond);
     pthread_mutex_unlock(&s_tlock);
@@ -532,6 +583,7 @@ static void sleep_until(int64_t deadline, bool drive)
             s_ff_us -= step;
             atomic_store(&s_ff_on, s_ff_us > 0);
             atomic_fetch_add(&s_skew_us, step);
+            if (s_ff_us <= 0) ff_done_locked();
             pthread_cond_broadcast(&s_tcond);
             continue;
         }

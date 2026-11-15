@@ -9,13 +9,15 @@ pub fn run(t: &mut T) {
     t.wipe();
     t.boot();
     t.write("first.lua", "gpio.mode(gpio.PORTB_OUT, gpio.OUT)\ngpio.write(gpio.PORTB_OUT, 1)\ndisp.clear(disp.RED)\n");
-    t.write("second.lua", "print(\"second\")\n");
+    // It keeps running: a script that ends says so, and that notice can come
+    // in the middle of the eval that follows.
+    t.write("second.lua", "print(\"second\")\nfunction loop() end\n");
     t.e(&["put", &t.path("first.lua"), &t.path("second.lua"), "--run", "first.lua"]);
     let ok = t.eval("gpio.read(gpio.PORTB_OUT)") == "1";
     t.check(ok, "script drives a pin", |_| "pin not driven".into());
     t.e(&["run", "second.lua"]);
-    let ok = t.eval("gpio.read(gpio.PORTB_OUT)") == "0";
-    t.check(ok, "pin released when another script starts", |_| "pin still driven after switch".into());
+    let v = t.eval("gpio.read(gpio.PORTB_OUT)");
+    t.check(v == "0", "pin released when another script starts", |_| format!("after the switch: {v}"));
     t.e(&["run", "first.lua"]);
     t.e(&["stop"]);
     let ok = t.eval("gpio.read(gpio.PORTB_OUT)") == "0";

@@ -108,7 +108,7 @@ go(function() R.st, R.lim = C:rest(TOK.access, "GET", "/customers/vehicles/mappi
 C2 = cardata.new{ api_url = "http://127.0.0.1:1" }
 go(function() R.st2, R.e2 = C2:rest(TOK.access, "GET", "/customers/vehicles/mappings") end)"#,
     );
-    t.wait_lua(2.0, "R.done");
+    t.wait_lua(5.0, "R.done"); // (Windows says a closed port is closed only after 2 s of retries)
     let v = t.eval(r#"tostring(R.st2) .. " " .. json.decode(store.get("rest_budget")).n"#);
     t.check(v == "nil 9", "bmw rest: a call BMW never answered isn't counted", |t| {
         format!("bmw rest unanswered: {v} {}", t.eval("R.e2"))
@@ -183,12 +183,15 @@ fn login(t: &mut T) {
     t.check(v == "BMWT-1234", "bmw login: code shown", |_| format!("bmw login code: {v} / {}", log.text()));
 
     t.advance(5100); // first poll: pending
-    t.advance(5000); // second: slow down
-    let slowed = log.has("POLL slow_down");
+    t.advance(4900);
+    // The second: slow down. Waited for, not timed to the millisecond: each
+    // poll's own time on the network moves the next.
+    let slowed = t.until_net(3.0, |_| log.has("POLL slow_down"));
     bmw.approve();
-    t.advance(9000); // the interval is 10 s now: no poll yet
+    // The interval is 10 s now: no poll 8 s on, where 5 s had one.
+    t.advance(8000);
     let quiet = log.count("POLL") == 2;
-    t.advance(1500);
+    t.advance(2500);
     t.wait_lua(2.0, "R.done");
     let v = t.eval("R.id");
     t.check(slowed && quiet && v == "id-1", "bmw login: polls slow down", |_| {
@@ -205,7 +208,7 @@ fn login(t: &mut T) {
     t.check(ok, "bmw login: refresh", |_| format!("bmw login refresh: {v} / {}", log.text()));
 
     t.eval(r#"L2 = login.new{ client_id = "test-client", auth_url = "http://127.0.0.1:1/gcdm/oauth" } go(L2)"#);
-    t.wait_lua(2.0, "R.done");
+    t.wait_lua(5.0, "R.done"); // (a closed port: 2 s on Windows)
     let v = t.eval(r#"tostring(R.kind) .. " " .. tostring(secrets.get("bmw_refresh") ~= nil)"#);
     t.check(v == "network true", "bmw login: network error keeps the login", |t| {
         format!("bmw login offline: {v} {}", t.eval("R.err"))
@@ -213,8 +216,9 @@ fn login(t: &mut T) {
 
     bmw.revoke();
     t.eval("L.refresh_at = 0 go()");
-    t.until_net(2.0, |_| log.count("DEVICECODE") == 2);
-    let gone = t.eval(r#"secrets.get("bmw_refresh") == nil"#) == "true";
+    let gone_lua = r#"secrets.get("bmw_refresh") == nil"#;
+    t.until_net(2.0, |t| log.count("DEVICECODE") == 2 && t.eval(gone_lua) == "true");
+    let gone = t.eval(gone_lua) == "true";
     let ok = log.has("TOKEN refresh invalid_grant") && log.count("DEVICECODE") == 2 && gone;
     t.check(ok, "bmw login: refused refresh logs in again", |_| {
         format!("bmw login relogin: gone={gone} / {}", log.text())

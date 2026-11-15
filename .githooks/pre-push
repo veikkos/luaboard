@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Before a push, run what CI runs (its builds are off for now): the check target,
+# Before a push, run what CI runs (so a push rarely turns it red): the check target,
 # plus the firmware build when the push changes what goes into the firmware.
 # Turn on with the hooks target. Skip once with `git push --no-verify`.
 # Uses the build folder build/ (cmake --preset default, or vs on Windows).

@@ -44,6 +44,9 @@ bool ota_finish(char *msg, size_t cap);
 void ota_abort(const char *why);
 /** True while an update owns the device: being written, or about to reboot. */
 bool ota_active(void);
+/** The clients were sent away for the reboot, which comes in a moment: a
+ *  new one now would find the old firmware (and take it for a rollback). */
+bool ota_restarting(void);
 
 /** The app slot running ("ota_0", "ota_1") and its state: "ok", or
  *  "rolledback" (an update kept crashing, this is the old firmware again). */

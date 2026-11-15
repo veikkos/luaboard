@@ -380,22 +380,10 @@ void sim_board_state(char *out, size_t cap)
     if (s_touch_down && n < cap) snprintf(out + n, cap - n, " touch=%d,%d", s_tx, s_ty);
 }
 
-bool sim_board_boot_done(bool late)
+void sim_board_boot_done(void)
 {
-    /* The finger of boot_touch stays until the firmware has looked for one
-       once more after the boot's 300 ms: on a busy computer its start takes
-       longer than that, and it looks more than once before it decides on
-       safe mode (the first look comes before the 300 ms even then). A
-       firmware that never looks again lets it go 5 s into the boot (late). */
-    static unsigned looked = UINT_MAX;                   /* its looks when the 300 ms were over */
-    if (s_boot_touch && !late) {
-        unsigned now = ft6336u_reads(&s_touch);
-        if (looked == UINT_MAX) looked = now;
-        if (now == looked) return false;
-    }
     s_boot_touch = 0;
     apply_inputs();
-    return true;
 }
 
 bool sim_board_screen_rgb(uint8_t *rgb, int *w, int *h)

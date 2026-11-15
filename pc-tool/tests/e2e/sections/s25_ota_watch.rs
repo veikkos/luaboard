@@ -21,6 +21,11 @@ pub fn run(t: &mut T) {
     // a new file, as the linker writes one
     let new_build = t.work.join(format!("new-build{EXE}"));
     cp(&sim, &new_build);
+    // Written now, as a link would: a copy on Windows keeps the old time,
+    // and there a file's size and time are what tell a new build.
+    let f = fs::OpenOptions::new().write(true).open(&new_build).unwrap();
+    f.set_modified(std::time::SystemTime::now()).unwrap();
+    drop(f);
     fs::rename(&new_build, &watched).unwrap();
     let ok = t.until(10.0, |t| t.read("sim.err").contains("watch: new build"));
     t.check(ok, "a new build is noticed", |t| format!("no watch message: {}", tail(&t.read("sim.err"), 3)));

@@ -256,6 +256,17 @@ static bool copy_file(const char *from, const char *to)
             unlink(tmp);
         }
     }
+#else
+    /* Windows: a hard link (a symbolic one needs a privilege). The virus
+       scanner checks a program it hasn't seen when it's started: a copy per
+       boot kept it busy for seconds on a test run's every simulator. */
+    if (getenv("SIM_IMAGE_LINK")) {
+        unlink(tmp);
+        if (CreateHardLinkA(tmp, from, NULL)) {
+            if (host_replace_file(tmp, to)) return true;
+            unlink(tmp);
+        }
+    }
 #endif
     FILE *in = fopen(from, "rb"), *out = in ? fopen(tmp, "wb") : NULL;
     bool ok = in && out;

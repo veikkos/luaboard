@@ -145,7 +145,7 @@ mod pipe {
         use std::os::windows::io::AsRawHandle;
         use std::time::{Duration, Instant};
         use windows_sys::Win32::Foundation::{ERROR_BROKEN_PIPE, ERROR_PIPE_BUSY, HANDLE};
-        use windows_sys::Win32::System::Pipes::PeekNamedPipe;
+        use windows_sys::Win32::System::Pipes::{PeekNamedPipe, WaitNamedPipeW};
 
         /// A connection to the simulator's pipe, with a short read timeout
         /// (`wait`) like the other links. Reads wait by peeking, as a pipe
@@ -157,13 +157,27 @@ mod pipe {
 
         impl PipeLink {
             pub fn open(path: &str, wait: Duration) -> io::Result<Self> {
-                match OpenOptions::new().read(true).write(true).open(path.replace('/', "\\")) {
-                    Ok(file) => Ok(PipeLink { file, wait }),
-                    Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY as i32) => Err(io::Error::new(
-                        io::ErrorKind::ResourceBusy,
-                        format!("{path} is in use (the simulator takes one connection at a time, like a serial port)"),
-                    )),
-                    Err(e) => Err(e),
+                let name = path.replace('/', "\\");
+                // Busy also for a moment after the last client left, until
+                // the simulator listens again: waited for, a second at most.
+                let until = Instant::now() + Duration::from_secs(1);
+                loop {
+                    match OpenOptions::new().read(true).write(true).open(&name) {
+                        Ok(file) => return Ok(PipeLink { file, wait }),
+                        Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY as i32) => {
+                            if Instant::now() >= until {
+                                return Err(io::Error::new(
+                                    io::ErrorKind::ResourceBusy,
+                                    format!(
+                                        "{path} is in use (the simulator takes one connection at a time, like a serial port)"
+                                    ),
+                                ));
+                            }
+                            let wide: Vec<u16> = name.encode_utf16().chain([0]).collect();
+                            unsafe { WaitNamedPipeW(wide.as_ptr(), 100) };
+                        }
+                        Err(e) => return Err(e),
+                    }
                 }
             }
 

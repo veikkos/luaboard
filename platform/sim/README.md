@@ -272,8 +272,9 @@ The control channel (`--control PORT`, one client at a time) takes the
 
 Each control line is answered on the same connection, in order, with `ok
 LINE` or `error LINE` once it has taken effect; `advance` once the time has
-been run through, and lines after it wait for that. So `button=B`, `advance=1000`,
-`button=-` holds B for exactly one simulated second. The tests use this
+been run through, and lines after it wait for that. Lines sent together are
+applied with the clock standing between them, also on a busy computer. So
+`button=B`, `advance=1000`, `button=-` holds B for exactly one simulated second. The tests use this
 (`pc-tool/tests/e2e/harness.rs`), and so does `luaboard sim-ctl`, which
 returns once its lines have taken effect: `luaboard sim-ctl advance=60000`
 skips a minute (`--control PORT` or `LUABOARD_SIM_CONTROL` for a simulator

@@ -36,6 +36,10 @@ void hw_gpio_release(int pin);
 /* Touch: true while a finger is down; coordinates in the 320x280 touch area
    (y >= LCD height = the button strip under the screen). */
 bool hw_touch_read(int *x, int *y);
+/** The boot has looked for a finger held from power-on (safe mode) and
+ *  decided. Nothing on the board; the simulator lifts the finger of its
+ *  boot_touch input then, not on a guess. */
+void hw_boot_settled(void);
 
 /* Speaker: 16-bit stereo frames (L, R) at SOUND_RATE. Start and stop from
    the main task (they share the internal I2C bus with everything else); a

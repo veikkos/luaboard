@@ -36,6 +36,7 @@ static const char *s_state = "ok";
 static bool s_updated;             /* this is the first boot of a new update */
 static bool s_watching;            /* an update not proven yet: crash boots count */
 static uint32_t s_reboot_at;       /* hw_millis() to reboot at, 0: none */
+static bool s_dropped;             /* the clients were told: the reboot follows */
 
 const char *fw_version(void) { return esp_app_get_description()->version; }
 
@@ -167,14 +168,13 @@ void ota_boot(void)
 
 void ota_poll(void)
 {
-    static bool dropped;
     if (s_reboot_at && (int32_t)(hw_millis() - s_reboot_at) >= 0) {
-        if (!dropped) {
+        if (!s_dropped) {
             /* A reset doesn't close TCP connections: a PC on Wi-Fi would
                wait on a dead one. Close them, so they reconnect to the new
                firmware, and give the closing a moment to go out. */
             net_drop_clients("restarting into the new firmware");
-            dropped = true;
+            s_dropped = true;
             s_reboot_at = (hw_millis() + 200) | 1;
             return;
         }
@@ -188,6 +188,7 @@ void ota_poll(void)
 }
 
 bool ota_active(void) { return s_up.busy || s_reboot_at; }
+bool ota_restarting(void) { return s_dropped; }
 
 static void resume(void);
 

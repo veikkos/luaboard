@@ -336,6 +336,17 @@ bool hw_gpio_is_reserved(int pin)
 
 /* ---------------------------------------------------------------- touch */
 
+#ifndef ESP_PLATFORM
+void sim_boot_settled(void);            /* the simulator's side (sim_main.c) */
+#endif
+
+void hw_boot_settled(void)
+{
+#ifndef ESP_PLATFORM
+    sim_boot_settled();
+#endif
+}
+
 bool hw_touch_read(int *x, int *y)
 {
     uint8_t d[5];

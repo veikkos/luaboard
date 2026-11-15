@@ -128,7 +128,7 @@ jobs:
             exe: ""
             archive: zip
           - name: windows-x64
-            os: windows-latest
+            os: windows-2022
             preset: vs
             exe: ".exe"
             archive: zip
@@ -178,6 +178,7 @@ jobs:
         env:
           E2E_KEEP: "1"
           TMPDIR: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
           TEMP: ${{ runner.temp }}
       - name: Package
         run: |

@@ -22,10 +22,9 @@ void sim_board_init(void);
 bool sim_board_set(const char *key, const char *value);
 /** One-line help for the board's --set keys. */
 const char *sim_board_set_help(void);
-/** Called from ~300 ms after boot until it returns true, e.g. to release a
- *  finger held during boot (false: not yet, the firmware hasn't seen it).
- *  `late`: the boot is long over, let go whatever the firmware has seen. */
-bool sim_board_boot_done(bool late);
+/** The boot is past the point where it looks for a finger held from
+ *  power-on (hw_boot_settled, or 5 s): let go of boot_touch's finger. */
+void sim_board_boot_done(void);
 /** The inputs that stay through a reset of the chip (battery, units, the
  *  access point, ...), as space-separated KEY=VALUE --set inputs: a reboot
  *  starts with these instead of the start's --set (no finger at boot). */

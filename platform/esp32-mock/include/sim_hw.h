@@ -252,6 +252,12 @@ void sim_world_set(int64_t utc_us);
 /** The firmware's system clock (gettimeofday, see sim_wallclock.h) is the
  *  world's plus what settimeofday changed; an NTP sync puts it back. */
 void sim_system_clock_sync(void);
+/** The clock stops when the fast-forward under way ends (at once if none
+ *  is), until sim_time_release() or the next sim_time_advance(): control
+ *  lines sent together take effect at the device time they were meant for,
+ *  not however much later the host gets to each. */
+void sim_time_hold_after(void);
+void sim_time_release(void);
 /** True while a fast-forward is still being run through. */
 bool sim_time_advancing(void);
 /** Input on `link` (the PC's) ends the firmware's one-tick delay at once,

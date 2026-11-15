@@ -78,6 +78,8 @@ pub fn run(t: &mut T) {
     // No marketplace address (or no Wi-Fi): the store says so.
     t.wipe();
     t.boot();
+    t.wait_lua(5.0, "true"); // the firmware runs (boot returns before it is up on a busy machine)
+    t.advance(300);
     t.tap_at(60, 44); // the only row: Get apps
     t.advance(300);
     let said = store_log(t);

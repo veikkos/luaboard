@@ -229,6 +229,7 @@ static void accept_client(void)
     socklen_t plen = sizeof peer;
     int fd = accept(s_listen, (struct sockaddr *)&peer, &plen);
     if (fd < 0) return;
+    if (ota_restarting()) { close(fd); return; }   /* it comes back to the new firmware */
     /* A script on this device dialling its own control port: apps must not
        drive the device (install code into other apps, change its settings). */
     if (lua_net_is_own_socket(&peer)) {

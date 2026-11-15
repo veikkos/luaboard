@@ -156,25 +156,9 @@ bool aw88298_playing(aw88298_t *m, uint32_t rate)
 
 /* ---------------------------------------------------------------- FT6336U */
 
-static void ft6336u_on_read(i2c_regs_t *r, uint8_t addr)
-{
-    if (addr == 0x02) ((ft6336u_t *)r->user)->reads++;
-}
-
-unsigned ft6336u_reads(ft6336u_t *m)
-{
-    pthread_mutex_lock(&m->r.lock);
-    unsigned n = m->reads;
-    pthread_mutex_unlock(&m->r.lock);
-    return n;
-}
-
 void ft6336u_init(ft6336u_t *m)
 {
     i2c_regs_init(&m->r);
-    m->r.on_read = ft6336u_on_read;
-    m->r.user = m;
-    m->reads = 0;
     m->r.reg[0xA8] = 0x11;   /* FocalTech vendor ID */
     m->r.reg[0xA3] = 0x64;   /* chip ID */
     m->in_reset = false;

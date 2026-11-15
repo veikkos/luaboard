@@ -346,7 +346,8 @@ pub fn run(t: &mut T) {
     let codes = log.count("DEVICECODE");
     hold(t);
     t.press("B");
-    let ok = t.until_net(2.0, |_| log.count("DEVICECODE") == codes + 1);
+    // (the fake logs the request before the app has the answer)
+    let ok = t.until_net(2.0, |t| log.count("DEVICECODE") == codes + 1 && t.eval("UI.mode") == "login");
     let v = t.eval(
         "UI.mode .. ' ' .. tostring(secrets.get('bmw_refresh')) .. ' ' .. tostring(store.get('vin')) .. ' ' .. tostring(store.get('state')) .. ' ' .. tostring(UI.soc)",
     );
