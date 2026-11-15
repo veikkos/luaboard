@@ -8,7 +8,7 @@ use std::path::Path;
 use crate::harness::{Ppm, T};
 
 pub fn run(t: &mut T) {
-    t.say("== examples");
+    t.say("== apps");
     let list = fs::read_to_string(t.root.join("tools/own_apps.txt")).unwrap();
     let mut dirs: Vec<_> = list
         .lines()

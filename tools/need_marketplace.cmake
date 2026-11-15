@@ -1,7 +1,7 @@
 # Stop with one clear line when marketplace/ (the luaboard-marketplace
 # submodule) isn't checked out, instead of failing deep inside a test.
 #
-#   cmake -DROOT=<repo> -P need_examples.cmake
+#   cmake -DROOT=<repo> -P need_marketplace.cmake
 if(NOT EXISTS ${ROOT}/marketplace/hello/app.json)
     message(FATAL_ERROR "marketplace/ is empty: run git submodule update --init")
 endif()

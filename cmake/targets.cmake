@@ -18,10 +18,10 @@ set(SIM $<TARGET_FILE:esp32-sim>)
 # Where `run` keeps the simulator's NVS, apps and app slots.
 set(STATE ${SIM_DIR})
 
-# The options of run, studio, examples and flash are environment variables
+# The options of run, studio, apps and flash are environment variables
 # read when the target runs, so they hold for one command, as make's did:
 # MODEL, BLE_DEVICE, WATCH (run), STUDIO_ARGS (studio) and LUABOARD_PORT
-# (studio, examples, flash; the CLI's own). From the repository root, so
+# (studio, apps, flash; the CLI's own). From the repository root, so
 # paths in them resolve as typed.
 #
 # run builds its simulator in a build folder of its own (build/run): its
@@ -51,9 +51,9 @@ add_custom_target(studio
     WORKING_DIRECTORY ${ROOT} USES_TERMINAL VERBATIM)
 
 # Installing over an app replaces its files and keeps its data (logins, settings).
-add_custom_target(examples
-    COMMAND ${CMAKE_COMMAND} -DROOT=${ROOT} -P ${ROOT}/tools/need_examples.cmake
-    COMMAND ${CMAKE_COMMAND} -DROOT=${ROOT} -DCLI=${CLI} -P ${ROOT}/tools/install_examples.cmake
+add_custom_target(apps
+    COMMAND ${CMAKE_COMMAND} -DROOT=${ROOT} -P ${ROOT}/tools/need_marketplace.cmake
+    COMMAND ${CMAKE_COMMAND} -DROOT=${ROOT} -DCLI=${CLI} -P ${ROOT}/tools/install_apps.cmake
     DEPENDS tool
     USES_TERMINAL VERBATIM)
 
@@ -77,7 +77,7 @@ add_custom_target(unit
 # its fake servers included: nothing else to install. E2E_ONLY="gcal menu"
 # runs only the sections whose name contains a word.
 add_custom_target(e2e
-    COMMAND ${CMAKE_COMMAND} -DROOT=${ROOT} -P ${ROOT}/tools/need_examples.cmake
+    COMMAND ${CMAKE_COMMAND} -DROOT=${ROOT} -P ${ROOT}/tools/need_marketplace.cmake
     COMMAND ${CMAKE_COMMAND} -E env SIM=${SIM} ${CARGO} test --release --test e2e
     DEPENDS esp32-sim
     WORKING_DIRECTORY ${PC_TOOL} USES_TERMINAL VERBATIM)

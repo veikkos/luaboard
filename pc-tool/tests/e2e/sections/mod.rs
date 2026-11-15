@@ -5,7 +5,7 @@ use crate::harness::T;
 mod gcal_app;
 mod market;
 pub mod ota;
-mod s01_examples;
+mod s01_apps;
 mod s02_error_screen;
 mod s03_protocol;
 mod s04_notice;
@@ -66,7 +66,7 @@ pub mod update;
 pub type Section = fn(&mut T);
 
 pub const ALL: &[(&str, Section)] = &[
-    ("01-examples", s01_examples::run),
+    ("01-apps", s01_apps::run),
     ("02-error-screen", s02_error_screen::run),
     ("03-protocol", s03_protocol::run),
     ("04-notice", s04_notice::run),

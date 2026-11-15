@@ -1,12 +1,12 @@
-# The `examples` target: (re)install the apps in tools/own_apps.txt from
+# The `apps` target: (re)install the apps in tools/own_apps.txt from
 # marketplace/ on the device or simulator ($LUABOARD_PORT, which the CLI reads,
-# else the simulator). EXAMPLES="gcal paint" (environment) installs only
-# those, EXAMPLES=all every app in marketplace/.
+# else the simulator). APPS="gcal paint" (environment) installs only
+# those, APPS=all every app in marketplace/.
 #
-#   cmake -DROOT=<repo> -DCLI=<luaboard> -P install_examples.cmake
-if(DEFINED ENV{EXAMPLES} AND NOT "$ENV{EXAMPLES}" STREQUAL "" AND NOT "$ENV{EXAMPLES}" STREQUAL "all")
-    string(REPLACE " " ";" names "$ENV{EXAMPLES}")
-elseif(NOT "$ENV{EXAMPLES}" STREQUAL "all")
+#   cmake -DROOT=<repo> -DCLI=<luaboard> -P install_apps.cmake
+if(DEFINED ENV{APPS} AND NOT "$ENV{APPS}" STREQUAL "" AND NOT "$ENV{APPS}" STREQUAL "all")
+    string(REPLACE " " ";" names "$ENV{APPS}")
+elseif(NOT "$ENV{APPS}" STREQUAL "all")
     file(STRINGS ${ROOT}/tools/own_apps.txt names REGEX "^[^#]")
 else()
     file(GLOB dirs LIST_DIRECTORIES true ${ROOT}/marketplace/*)

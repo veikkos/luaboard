@@ -12,7 +12,7 @@
 #               (tools/watch_build.cmake and the simulator's --watch)
 #   tool        the PC tools (Rust: luaboard-studio GUI + luaboard CLI)
 #   studio      build and start the studio
-#   examples    (re)install every app in marketplace/ on the device or simulator
+#   apps        (re)install your apps from marketplace/ on the device or simulator
 #   unit        Rust unit tests and the C unit tests (fw-unit, app/test)
 #   e2e         end-to-end tests against headless simulators (pc-tool/tests/e2e)
 #   lint        rustfmt and clippy
@@ -30,8 +30,8 @@
 #   WIFI_NET       run: the network the board joins while it has none set up (default Simulator, none: no)
 #   APPS_URL       run: the app marketplace, https://raw.githubusercontent.com/veikkos/luaboard-marketplace
 #   STUDIO_ARGS    studio: a project folder, some of its .lua files, or a firmware .bin
-#   LUABOARD_PORT  studio, examples, flash: the device's serial port (else the simulator)
-#   EXAMPLES       examples: only these, "gcal paint" (default tools/own_apps.txt, "all": every app)
+#   LUABOARD_PORT  studio, apps, flash: the device's serial port (else the simulator)
+#   APPS           apps: only these, "gcal paint" (default tools/own_apps.txt, "all": every app)
 #   E2E_ONLY       e2e: only sections whose name contains a word, "gcal menu"
 #   E2E_KEEP=1     e2e: keep failed sections' work folders (logs, screenshots)
 #   E2E_LIMIT      e2e: time limit per section in seconds (default 120)
