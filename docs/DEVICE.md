@@ -2,7 +2,7 @@
 
 ## The menu and the buttons
 
-The home screen lists the installed apps, then "+ Get apps" (see
+The home screen lists the installed apps, then "+ Marketplace" (see
 [Apps from the marketplace](#apps-from-the-marketplace)); below a divider
 stay App updates and Update available when there are any, and Settings.
 
@@ -110,7 +110,7 @@ updates on, the device reads the marketplace's index along with the firmware
 check (a minute after it connects, then daily). Nothing is installed unless
 you tap.
 
-"+ Get apps", the last row of the home list, opens every app this firmware
+"+ Marketplace", the last row of the home list, opens every app this firmware
 can run, by name. A tag at the right says "installed", "update" (a newer
 version is published), or "(i)" for an app that needs your own keys or a
 login. An app's screen tells who made it, its version and license and what

@@ -13,7 +13,7 @@
 #                                       none set up (default Simulator, so it is
 #                                       online without `luaboard wifi set`; none:
 #                                       it waits for one, as a new board does)
-#   APPS_URL=<base>                     the app marketplace for Get apps and
+#   APPS_URL=<base>                     the app marketplace for Marketplace and
 #                                       app updates (none: the simulator
 #                                       doesn't reach it), e.g.
 #                                       https://raw.githubusercontent.com/veikkos/luaboard-marketplace

@@ -1,7 +1,7 @@
 //! Asleep on battery: light sleep is allowed, everything keeps running, a
 //! touch wakes it; `disp.sleep`.
 
-use crate::harness::T;
+use crate::harness::{ui, T};
 
 const SCRIPT: &str = r#"N, TAPS, FIRED = 0, 0, nil
 function loop() N = N + 1 end
@@ -71,8 +71,8 @@ pub fn run(t: &mut T) {
 
     t.say("   the Turn off after setting, and sys.keep_on");
     t.ctl(&["power=short", "advance=300"]); // home
-    t.tap_at(60, 200); // Settings
-    t.tap_at(60, 135); // Turn off after: never -> 5 min
+    t.tap_at(60, ui::SETTINGS); // Settings
+    t.tap_at(60, ui::row(3)); // Turn off after: never -> 5 min
     t.e(&["run", "sleeper"]);
     t.until(2.0, |t| t.e(&["info"]).contains("running: sleeper/main.lua"));
     let v = t.eval("tostring(sys.keep_on())");

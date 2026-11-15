@@ -1,9 +1,9 @@
-//! Get apps: the last row of the home list opens the marketplace's apps,
+//! Marketplace: the last row of the home list opens the marketplace's apps,
 //! each with its tag (update, installed, (i) for setup needed); an app's
 //! screen shows the QR code of its setup steps and installs it.
 
 use super::market::{self, app_json, first_check, said};
-use crate::harness::T;
+use crate::harness::{ui, T};
 
 type Rgb = (i32, i32, i32);
 const ACCENT: Rgb = (80, 180, 255);
@@ -17,7 +17,7 @@ fn near(c: Rgb, d: i32) -> impl Fn(u8, u8, u8) -> bool {
 
 /// Pixels of colour c in the tag place of list row `row` (30 px rows from y 32).
 fn tag(t: &T, row: usize, c: Rgb) -> usize {
-    let y = 32 + row * 30 + 11;
+    let y = ui::value_top(row as i32) as usize;
     t.shot("s.ppm").count(200..308, y..y + 8, near(c, 30))
 }
 
@@ -27,7 +27,7 @@ fn store_log(t: &T) -> String {
 }
 
 pub fn run(t: &mut T) {
-    t.say("== Get apps");
+    t.say("== Marketplace");
     let market = market::start(t);
     let j = |n: &str, v: &str| app_json(n, v);
     let (alpha, hello, stocks, upd) =
@@ -44,11 +44,12 @@ pub fn run(t: &mut T) {
     let ok = first_check(t);
     t.check(ok, "the first check is done", |t| said(t));
 
-    // Home: Hello, Upd, then "+ Get apps" (tinted), App updates (1), Settings.
+    // Home: Hello, Upd, then "+ Marketplace" (tinted), App updates (1), Settings.
     t.advance(300);
-    let tint = t.shot("home.ppm").count(20..300, 94..120, near(TINT, 6));
-    t.check(tint > 1000, "Get apps is the last row, set apart", |_| format!("{tint} tinted pixels"));
-    t.tap_at(60, 104);
+    let (top, bottom) = (ui::row_top(2) as usize, (ui::row_top(3) - ui::ROW_GAP) as usize);
+    let tint = t.shot("home.ppm").count(20..300, top..bottom, near(TINT, 6));
+    t.check(tint > 1000, "Marketplace is the last row, set apart", |_| format!("{tint} tinted pixels"));
+    t.tap_at(60, ui::row(2));
     t.advance(300);
     let opened = store_log(t);
     t.check(opened.ends_with("4 apps"), "the store lists the marketplace's apps", |_| opened.clone());
@@ -58,7 +59,7 @@ pub fn run(t: &mut T) {
         format!("alpha {a}, hello {h}, stocks {s}, upd {u}")
     });
 
-    t.tap_at(60, 104); // Stocks
+    t.tap_at(60, ui::row(2)); // Stocks
     t.advance(300);
     let shot = t.shot("app.ppm");
     let (black, white) =
@@ -66,7 +67,7 @@ pub fn run(t: &mut T) {
     t.check(black > 300 && white > 300, "Stocks needs setup: a QR code to its README", |_| {
         format!("{black} black, {white} white pixels")
     });
-    t.tap_at(60, 44); // Install
+    t.tap_at(60, ui::row(0)); // Install
     let ok = t.until(5.0, |t| t.read("sim.err").contains("apps: install stocks: ok"));
     t.check(ok && market::flash(t, "stocks/main.lua") == b"-- stocks", "Install installs it", |t| said(t));
     t.ctl(&["button=B", "advance=900", "button=-", "advance=300"]); // back to the store
@@ -78,7 +79,7 @@ pub fn run(t: &mut T) {
     // No marketplace address (or no Wi-Fi): the store says so.
     t.wipe();
     t.boot();
-    t.tap_at(60, 44); // the only row: Get apps
+    t.tap_at(60, ui::row(0)); // the only row: Marketplace
     t.advance(300);
     let said = store_log(t);
     t.check(said.ends_with("no marketplace address"), "without a marketplace the store says why", |_| said.clone());

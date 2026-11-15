@@ -32,7 +32,7 @@ _Static_assert(APPS_NAME_MAX == VFS_APP_NAME_MAX, "index names are app names");
 _Static_assert(APPS_PATH_MAX == VFS_FILE_NAME_MAX, "index paths are file names");
 _Static_assert(APPS_FILE_MAX == VFS_FILE_MAX, "index files are files the board loads");
 
-#define RECHECK_MS (60 * 60 * 1000)     /* "Get apps" checks again when the index is older */
+#define RECHECK_MS (60 * 60 * 1000)     /* "Marketplace" checks again when the index is older */
 
 static const char *TAG = "apps";
 

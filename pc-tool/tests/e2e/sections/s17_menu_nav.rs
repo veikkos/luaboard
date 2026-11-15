@@ -1,13 +1,18 @@
 //! Apps, the home menu, the buttons and touch events, Settings.
 
+use crate::harness::ui::{self, row, LAST, ROW_H, SETTINGS};
 use crate::harness::{grep, T};
 
 /// The menu's header has a light-blue line along its bottom edge (y = 28).
 const MENU_PX: &str = "local c = disp.get(100, 28) return (c >> 16) < 120 and (c & 255) > 200";
-const GRAY: &str =
-    "local c = disp.get(6, 40) local r, g, b = c >> 16, (c >> 8) & 255, c & 255 return r > 70 and g > 80 and b > 95 and b < 130";
-const SETGRAY: &str =
-    "local c = disp.get(6, 195) local r, g, b = c >> 16, (c >> 8) & 255, c & 255 return r > 70 and g > 80 and b > 95 and b < 130";
+
+/// Lua: is the pixel at the left edge of the row at y gray (pressed)?
+fn gray(y: i32) -> String {
+    format!(
+        "local c = disp.get(6, {y}) local r, g, b = c >> 16, (c >> 8) & 255, c & 255 \
+         return r > 70 and g > 80 and b > 95 and b < 130"
+    )
+}
 
 // touch.on(): the system tells a press from a long press, one event per touch
 const EV_LUA: &str = r#"ev = {}
@@ -34,7 +39,7 @@ fn settings_back(t: &mut T) {
     // Two drags up: past the end however many rows Settings has, Back last.
     for _ in 0..2 {
         t.ctl(&[
-            "touch=60,195",
+            &format!("touch=60,{LAST}"),
             "advance=50",
             "touch=60,105",
             "advance=50",
@@ -44,7 +49,7 @@ fn settings_back(t: &mut T) {
             "advance=250",
         ]);
     }
-    t.tap_at(60, 195);
+    t.tap_at(60, LAST);
 }
 
 /// The screen's state from `info`: "on" or "off".
@@ -242,26 +247,26 @@ pub fn run(t: &mut T) {
 
     // the menu by touch only: hold an app for its options, the error screen
     t.wait_lua(2.0, MENU_PX);
-    t.ctl(&["touch=60,45", "advance=100"]);
-    let ok = t.eval(GRAY) == "true";
+    t.ctl(&[&format!("touch=60,{}", row(0)), "advance=100"]);
+    let ok = t.eval(&gray(row(0))) == "true";
     t.check(ok, "a row shows pressed (gray) under the finger", |t| format!("pressed: {}", t.eval("disp.get(6, 40)")));
-    t.ctl(&["touch=60,75", "advance=100"]); // slid: no longer a tap, not pressed
-    let ok = t.eval(GRAY) == "false";
+    t.ctl(&[&format!("touch=60,{}", row(1)), "advance=100"]); // slid: no longer a tap, not pressed
+    let ok = t.eval(&gray(row(0))) == "false";
     t.check(ok, "... not once the finger slides", |_| "pressed after slide".into());
     t.ctl(&["touch=-", "advance=250"]);
-    t.ctl(&["touch=60,200", "advance=1000"]); // hold Settings (nothing to do on a hold) ...
-    let ok = t.eval(SETGRAY) == "true";
-    t.check(ok, "a held row stays pressed", |t| format!("held row: {}", t.eval("disp.get(6, 195)")));
+    t.ctl(&[&format!("touch=60,{SETTINGS}"), "advance=1000"]); // hold Settings (nothing to do on a hold) ...
+    let ok = t.eval(&gray(SETTINGS)) == "true";
+    t.check(ok, "a held row stays pressed", |t| format!("held row: {}", t.eval(&format!("disp.get(6, {SETTINGS})"))));
     t.ctl(&["touch=-", "advance=250"]); // ... and let go: it opens, like a tap
-    t.tap_at(256, 45); // in Settings: the bar (at home this would open hello)
+    t.tap_at(256, row(0)); // in Settings: the bar (at home this would open hello)
     let ok = t.eval("disp.brightness()") == "100" && t.e(&["info"]).contains("running: -");
     t.check(ok, "letting go of a held row acts like a tap", |t| {
         format!("hold-up: {} {}", t.eval("disp.brightness()"), running(t))
     });
-    t.tap_at(239, 45); // brightness back to 80, Back
+    t.tap_at(239, row(0)); // brightness back to 80, Back
     settings_back(t);
-    hold_at(t, 60, 50); // first row: hello -> its options
-    t.tap_at(60, 116); // options of a RAM app (24 px rows): Open, Clear data, Uninstall, Back
+    hold_at(t, 60, row(0)); // first row: hello -> its options
+    t.tap_at(60, row(3)); // options of a RAM app: Open, Clear data, Uninstall, Back
     t.press("C"); // home again: C moves to paint, B opens it
     t.press("B");
     let ok = t.e(&["info"]).contains("running: paint/main.lua");
@@ -274,26 +279,26 @@ pub fn run(t: &mut T) {
     let ok = t.until_sim(2.0, |t| t.eval(MENU_PX) == "true" && t.e(&["info"]).contains("running: -"));
     t.check(ok, "holding the error screen goes back to the menu", |_| "error screen hold".into());
     t.e(&["uninstall", "boom"]);
-    t.tap_at(60, 200); // tap Settings (bottom row)
+    t.tap_at(60, SETTINGS); // tap Settings (bottom row)
     t.press("B"); // brightness: edit, 80 -> 60, save
     t.press("A");
     t.press("A");
     t.press("B");
     let v = t.eval("disp.brightness()");
     t.check(v == "60", "brightness set in Settings", |_| format!("brightness: {v}"));
-    t.tap_at(256, 45); // touch: the bar's right end
+    t.tap_at(256, row(0)); // touch: the bar's right end
     let v = t.eval("disp.brightness()");
     t.check(v == "100", "tapping the brightness bar sets it", |_| format!("bar tap: {v}"));
-    t.tap_at(210, 45); // half way along
+    t.tap_at(210, row(0)); // half way along
     let b = t.eval("disp.brightness()");
     let ok = percent(&b).is_some_and(|n| (45..=60).contains(&n));
     t.check(ok, &format!("... to where it's tapped ({b}%)"), |_| format!("bar middle: {b}"));
     t.ctl(&[
-        "touch=180,45",
+        &format!("touch=180,{}", row(0)),
         "advance=50",
-        "touch=200,45",
+        &format!("touch=200,{}", row(0)),
         "advance=50",
-        "touch=240,45",
+        &format!("touch=240,{}", row(0)),
         "advance=50",
         "touch=-",
         "advance=250",
@@ -301,28 +306,28 @@ pub fn run(t: &mut T) {
     let b = t.eval("disp.brightness()");
     let ok = percent(&b).is_some_and(|n| (75..=85).contains(&n));
     t.check(ok, &format!("dragging along the brightness bar sets it ({b}%)"), |_| format!("bar drag: {b}"));
-    t.tap_at(290, 45); // the % label (like the name): selects the row only
+    t.tap_at(290, row(0)); // the % label (like the name): selects the row only
     let v = t.eval("disp.brightness()");
     t.check(v == b, "the % label isn't part of the bar", |_| format!("label: {v}"));
     t.press("C"); // not in the edit mode: C moves down instead of brightening
     let v = t.eval("disp.brightness()");
     t.check(v == b, "tapping Brightness doesn't start the button edit mode", |_| format!("edit mode: {v}"));
-    t.tap_at(60, 195); // Autostart: the picker (Off, paint, Back)
-    t.tap_at(60, 75); // second row: paint
+    t.tap_at(60, row(5)); // Autostart: the picker (Off, paint, Back)
+    t.tap_at(60, row(1)); // second row: paint
     let v = t.e(&["autorun"]);
     t.check(v.contains("AUTORUN paint"), "autostart picked by touch", |_| format!("picker: {v}"));
-    t.tap_at(60, 195); // the picker again, first row: off
-    t.tap_at(60, 45);
+    t.tap_at(60, row(5)); // the picker again, first row: off
+    t.tap_at(60, row(0));
     let v = t.e(&["autorun"]);
     t.check(v.contains("AUTORUN off"), "autostart off by touch", |_| format!("picker off: {v}"));
     // the screen sleeps: after the Screen off time, by Sleep now, by a long press of the power key
-    t.tap_at(60, 105); // Screen off: never -> after 1 min
+    t.tap_at(60, row(2)); // Sleep after: never -> after 1 min
     t.advance(59_000);
     let on = screen(t) == "on";
     t.advance(2_000);
     let ok = on && screen(t) == "off";
     t.check(ok, "the screen goes off after the Screen off time", |t| format!("screen off: {}", screen(t)));
-    t.tap_at(60, 105); // wakes it; not a tap on Screen off (that would change it)
+    t.tap_at(60, row(2)); // wakes it; not a tap on Sleep after (that would change it)
     let ok = screen(t) == "on";
     t.check(ok, "a tap wakes the screen and does nothing else", |t| format!("wake tap: {}", screen(t)));
     t.write("keep.lua", "disp.keep_awake(true)\nfunction loop() end\n");
@@ -341,17 +346,17 @@ pub fn run(t: &mut T) {
     t.check(ok, "... and ends with the app", |t| format!("keep_awake after stop: {}", screen(t)));
     t.tap_at(160, 120); // wake (on the home menu: only that)
     t.e(&["uninstall", "keep"]);
-    t.tap_at(60, 200); // Settings again
+    t.tap_at(60, SETTINGS); // Settings again
     for _ in 0..5 {
-        t.tap_at(60, 105); // 5, 15, 30, 60 min, never
+        t.tap_at(60, row(2)); // 5, 15, 30, 60 min, never
     }
     t.advance(61_000);
     let ok = screen(t) == "on";
     t.check(ok, "Screen off back to never", |t| format!("never: {}", screen(t)));
     // Volume: the same bar as Brightness, right under it
-    t.tap_at(256, 75); // the bar's right end
+    t.tap_at(256, row(1)); // the bar's right end
     let full = t.eval("sound.volume()");
-    t.tap_at(162, 75); // its left end: off (brightness stops at 10 %)
+    t.tap_at(162, row(1)); // its left end: off (brightness stops at 10 %)
     let off = t.eval("sound.volume()");
     t.press("B"); // with the buttons: edit, 0 -> 20, save
     t.press("C");
@@ -360,7 +365,7 @@ pub fn run(t: &mut T) {
     let edited = t.eval("sound.volume()");
     let ok = full == "100" && off == "0" && edited == "20";
     t.check(ok, "Volume is a bar too: tap it, or B then A and C", |_| format!("volume: {full} {off} {edited}"));
-    t.tap_at(60, 165); // Sleep now
+    t.tap_at(60, row(4)); // Sleep now
     let off = screen(t) == "off";
     t.ctl(&["power=short", "advance=300"]); // wakes it, doesn't go home
     let ok = off && screen(t) == "on" && t.eval(MENU_PX) == "true";
@@ -374,7 +379,7 @@ pub fn run(t: &mut T) {
     let ok = t.eval(MENU_PX) == "true";
     t.check(ok, "Settings' Back row by touch", |_| "settings back".into());
     // With the buttons: down through every row to Back (the information rows are skipped)
-    t.tap_at(60, 200); // Settings: nine rows to change before Back
+    t.tap_at(60, SETTINGS); // Settings: nine rows to change before Back
     for _ in 0..9 {
         t.press("C");
     }
@@ -383,8 +388,8 @@ pub fn run(t: &mut T) {
     t.press("B");
     let ok = t.eval(MENU_PX) == "true" && !t.read("sim.err").contains("crash");
     t.check(ok, "... and B there leaves Settings", |_| "B on Back".into());
-    t.tap_at(60, 200); // brightness back to 60 (for the reboot check)
-    t.tap_at(220, 45);
+    t.tap_at(60, SETTINGS); // brightness back to 60 (for the reboot check)
+    t.tap_at(220, row(0));
     settings_back(t);
     t.ctl(&["battery=55"]);
     let ok = t.until(2.0, |t| t.eval("sys.battery()") == "55\ttrue\ttrue");
@@ -416,18 +421,12 @@ pub fn run(t: &mut T) {
     t.e(&["stop"]);
     t.until_sim(2.0, |t| t.eval(MENU_PX) == "true");
     t.advance(300); // the menu sees the new apps
-    t.ctl(&[
-        "touch=60,170",
-        "advance=50",
-        "touch=60,140",
-        "advance=50",
-        "touch=60,110",
-        "advance=50",
-        "touch=60,80",
-        "advance=50",
-    ]);
+    let y0 = row(ui::HOME_ROWS - 3); // an app row, above the divider
+    for k in 0..4 {
+        t.ctl(&[&format!("touch=60,{}", y0 - k * ROW_H), "advance=50"]);
+    }
     t.ctl(&["touch=-", "advance=250"]);
-    t.tap_at(60, 45); // the first row shown: 3 rows (90 px) down the list
+    t.tap_at(60, row(0)); // the first row shown: 3 rows down the list
     let ok = t.e(&["info"]).contains("running: list3/");
     t.check(ok, "dragging a list scrolls it a row per row height", |t| format!("list drag: {}", running(t)));
     t.stop();

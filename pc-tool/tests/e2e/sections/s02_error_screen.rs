@@ -1,7 +1,7 @@
 //! A runtime error shows the red error screen, also for a broken autostart
 //! app at boot.
 
-use crate::harness::T;
+use crate::harness::{ui, T};
 
 pub fn run(t: &mut T) {
     t.say("== error screen on the device");
@@ -49,17 +49,21 @@ pub fn run(t: &mut T) {
     t.boot(); // the autostart app won't run: the menu, not its error
     let shot = t.shot("screen.ppm");
     let (running, red) = (t.info("running"), shot.red_pixels());
-    let bright = |y0: usize| shot.count(0..200, y0..y0 + 28, |r, g, b| r > 200 && g > 200 && b > 200);
-    let (future, plain) = (bright(32), bright(62)); // the rows, sorted by title
+    let bright = |y0: i32| {
+        shot.count(0..200, y0 as usize..(y0 + ui::ROW_H - ui::ROW_GAP) as usize, |r, g, b| {
+            r > 200 && g > 200 && b > 200
+        })
+    };
+    let (future, plain) = (bright(ui::row_top(0)), bright(ui::row_top(1))); // the rows, sorted by title
     t.check(running == "-" && red < 5000, "an autostart app it won't run: the menu at boot", |_| {
         format!("running {running}, red pixels {red}")
     });
     t.check(future == 0 && plain > 50, "its title is greyed", |_| {
         format!("bright pixels: Future {future}, Plain {plain}")
     });
-    t.tap_at(60, 47);
+    t.tap_at(60, ui::row(0));
     let (running, red) = (t.info("running"), t.shot("screen.ppm").red_pixels());
-    t.tap_at(60, 44); // the options' first row: Autostart, as there is no Open
+    t.tap_at(60, ui::row(0)); // the options' first row: Autostart, as there is no Open
     let autorun = t.info("autorun");
     t.check(running == "-" && red < 5000 && autorun == "-", "a tap opens its options, without Open", |_| {
         format!("running {running}, red pixels {red}, autorun after the first row: {autorun}")

@@ -14,5 +14,5 @@ void menu_show(void);
 void menu_toast(const char *msg);
 /** Call from the main loop: buttons, redraws, leaving apps. */
 void menu_tick(void);
-/** The menu is installing apps from the marketplace (App updates, Get apps). */
+/** The menu is installing apps from the marketplace (App updates, Marketplace). */
 bool menu_installing(void);

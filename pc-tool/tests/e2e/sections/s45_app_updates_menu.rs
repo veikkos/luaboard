@@ -2,14 +2,14 @@
 //! "App updates (N)" row, and its screen (Update all, one app, a failure).
 
 use super::market::{self, app_json, first_check, said};
-use crate::harness::T;
+use crate::harness::{ui, T};
 
 const ACCENT: (i32, i32, i32) = (80, 180, 255);
 const DIM: (i32, i32, i32) = (130, 142, 158);
 
 /// Home rows are 30 px from y 32; the tag sits at the right, 11 px down.
 fn tag_pixels(t: &T, row: usize) -> usize {
-    let y = 32 + row * 30 + 11;
+    let y = ui::value_top(row as i32) as usize;
     let near = |v: u8, w: i32| (v as i32 - w).abs() < 30;
     t.shot("home.ppm").count(230..308, y..y + 8, |r, g, b| near(r, ACCENT.0) && near(g, ACCENT.1) && near(b, ACCENT.2))
 }
@@ -49,8 +49,8 @@ pub fn run(t: &mut T) {
         format!("tag pixels: dev {on_dev}, dev2 {on_dev2}, hello {on_hello}")
     });
 
-    t.tap_at(60, 170); // App updates
-    t.tap_at(60, 44); // Update all
+    t.tap_at(60, ui::fixed(1)); // App updates
+    t.tap_at(60, ui::row(0)); // Update all
     let finished = t.until(5.0, done);
     let log = t.read("sim.err");
     let line = log.lines().find(|l| l.contains("menu: app updates done")).unwrap_or("").to_string();
@@ -70,7 +70,7 @@ pub fn run(t: &mut T) {
     // The options screen of an app with a long author and a dev stamp: the
     // "version ..., by ..." line stays on the screen.
     t.ctl(&["button=B", "advance=900", "button=-", "advance=300"]); // back home (B held)
-    t.ctl(&["touch=60,44", "advance=900", "touch=-", "advance=300"]); // hold Aaa: its options
+    t.ctl(&[&format!("touch=60,{}", ui::row(0)), "advance=900", "touch=-", "advance=300"]); // hold Aaa: its options
     let near = |v: u8, w: i32| (v as i32 - w).abs() < 12;
     let past =
         t.shot("opts.ppm").count(304..320, 32..218, |r, g, b| near(r, DIM.0) && near(g, DIM.1) && near(b, DIM.2));

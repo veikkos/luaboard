@@ -27,6 +27,46 @@ pub const E2E_TIME: u64 = 1793971800;
 pub const WINDOWS: bool = cfg!(windows);
 pub const EXE: &str = std::env::consts::EXE_SUFFIX;
 
+/// The menu's layout, the same numbers as the layout block of app/src/menu.c:
+/// change one there, change it here. Taps go to the middle of a row.
+pub mod ui {
+    pub const W: i32 = 320;
+    pub const H: i32 = 240;
+    pub const HEAD_H: i32 = 30;
+    pub const FOOT_H: i32 = 22;
+    pub const ROW_H: i32 = 26;
+    pub const ROW_GAP: i32 = 2;
+    pub const PAD: i32 = 14;
+    pub const DIVIDER_H: i32 = 4;
+    pub const FONT_H: i32 = 7;
+    pub const LIST_Y: i32 = HEAD_H + 2;
+    pub const FOOT_Y: i32 = H - FOOT_H;
+    /// The rows a list screen shows.
+    pub const ROWS: i32 = (FOOT_Y - LIST_Y) / ROW_H;
+    /// ... and home: the apps and Marketplace, then the fixed rows.
+    pub const HOME_ROWS: i32 = (FOOT_Y - LIST_Y - DIVIDER_H) / ROW_H;
+
+    /// Row i of a list (0: the first shown), its top.
+    pub const fn row_top(i: i32) -> i32 {
+        LIST_Y + i * ROW_H
+    }
+    /// ... and its middle, where a tap goes.
+    pub const fn row(i: i32) -> i32 {
+        row_top(i) + (ROW_H - ROW_GAP) / 2
+    }
+    /// The last row a list screen shows.
+    pub const LAST: i32 = row(ROWS - 1);
+    /// Home's fixed rows, counted from the bottom: 0 Settings, 1 the one above.
+    pub const fn fixed(k: i32) -> i32 {
+        FOOT_Y - (k + 1) * ROW_H + (ROW_H - ROW_GAP) / 2
+    }
+    pub const SETTINGS: i32 = fixed(0);
+    /// A small value on the right of row i: its top (as wide as it is high).
+    pub const fn value_top(i: i32) -> i32 {
+        row_top(i) + (ROW_H - ROW_GAP - FONT_H + 1) / 2
+    }
+}
+
 /// What a section shares with the runner: its output and counts, and the
 /// processes to kill if it runs over its time.
 #[derive(Default)]

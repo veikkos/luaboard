@@ -6,7 +6,7 @@
 
 void test_qr(int *total, int *failed);
 
-/* The QR code on an app's Get apps screen (its README address) fits the
+/* The QR code on an app's Marketplace screen (its README address) fits the
    room it has there, for the longest app name (23 characters). */
 void test_qr(int *total, int *failed)
 {

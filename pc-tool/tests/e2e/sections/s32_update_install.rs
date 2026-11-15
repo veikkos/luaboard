@@ -7,11 +7,11 @@ use std::fs;
 use super::ota::{cp, has_app, info, sha256, Raw};
 use super::update::{bin_url, boot, releases, wifi_up};
 use crate::fakes::releases::manifest;
-use crate::harness::{EXE, T};
+use crate::harness::{ui, EXE, T};
 
 /// Home: the update row (above Settings), then Install on its confirm screen.
-const ROW: (i32, i32) = (60, 170);
-const INSTALL: (i32, i32) = (60, 44);
+const ROW: (i32, i32) = (60, ui::fixed(1));
+const INSTALL: (i32, i32) = (60, ui::row(0));
 /// The version the device runs before the update. No build is ever this
 /// one: the image installed is a copy of the simulator, and on a release's
 /// tag build that copy calls itself the tag (such as v1.0.0).

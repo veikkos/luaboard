@@ -1,7 +1,7 @@
 //! Off on USB power: `sys.off` is acted out by the firmware, so the PC link
 //! and code that was only uploaded stay.
 
-use crate::harness::T;
+use crate::harness::{ui, T};
 
 const SCRIPT: &str = r#"print("usboff", sys.info().boot)
 function loop() end
@@ -69,9 +69,9 @@ pub fn run(t: &mut T) {
     // otherwise only be left by unplugging). Letting go taps nothing.
     t.eval("sys.off()");
     t.advance(200);
-    t.ctl(&["touch=60,60", "power=short", "advance=300", "touch=-", "advance=300"]);
+    t.ctl(&[&format!("touch=60,{}", ui::row(0)), "power=short", "advance=300", "touch=-", "advance=300"]);
     let (running, screen) = (field(t, "running"), field(t, "screen"));
-    t.tap_at(60, 60); // the app's tile: a tap of its own does start it
+    t.tap_at(60, ui::row(0)); // the app's row: a tap of its own does start it
     let tapped = field(t, "running");
     t.check(
         running == "-" && screen == "on" && tapped == "usboff/main.lua",

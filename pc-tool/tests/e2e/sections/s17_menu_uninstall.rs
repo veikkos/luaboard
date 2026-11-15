@@ -1,6 +1,6 @@
 //! Apps: reinstall while running, uninstall from the menu.
 
-use crate::harness::{grep, T};
+use crate::harness::{grep, ui, T};
 
 const MENU_PX: &str = "local c = disp.get(100, 28) return (c >> 16) < 120 and (c & 255) > 200";
 
@@ -24,8 +24,8 @@ pub fn run(t: &mut T) {
         let running: Vec<String> = t.e(&["info"]).lines().filter(|l| l.contains("running")).map(String::from).collect();
         format!("install while running: v={}, {}", t.eval("v"), running.join("\n"))
     });
-    t.press_for("B", 1000); // back to the menu: hello, live, paint, Get apps, Settings
-    t.tap_at(60, 200); // Settings...
+    t.press_for("B", 1000); // back to the menu: hello, live, paint, Marketplace, Settings
+    t.tap_at(60, ui::SETTINGS); // Settings...
     t.press_for("B", 1000); // ...back home, up three: live
     t.press("A");
     t.press("A");

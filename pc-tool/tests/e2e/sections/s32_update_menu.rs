@@ -5,11 +5,11 @@
 use super::ota::{info, Raw};
 use super::update::{bin_url, boot, next_check, releases, wifi_up};
 use crate::fakes::releases::manifest;
-use crate::harness::T;
+use crate::harness::{ui, T};
 
 /// Home: where the update row is when there is one (with two apps, nothing
 /// else is there).
-const ROW: (i32, i32) = (60, 170);
+const ROW: (i32, i32) = (60, ui::fixed(1));
 
 /// A `luaboard raw` session that gets the device's events (it has said PONG).
 fn events(t: &T) -> Raw {
@@ -41,13 +41,30 @@ fn tap_row(t: &mut T) -> String {
     evts_in(&raw.finish(), "update offer").join(" / ")
 }
 
-/// Settings > Check for updates, then home again (hold B).
+/// Settings (from home), then its row i, dragging the list up to it when
+/// it is below the rows that show.
+fn settings_row(t: &mut T, i: i32) {
+    t.tap_at(60, ui::SETTINGS);
+    let up = i - (ui::ROWS - 1);
+    if up > 0 {
+        let (from, to) = (ui::row(ui::ROWS - 2), ui::row(ui::ROWS - 2) - up * ui::ROW_H);
+        t.ctl(&[
+            &format!("touch=60,{from}"),
+            "advance=50",
+            &format!("touch=60,{to}"),
+            "advance=50",
+            "touch=-",
+            "advance=250",
+        ]);
+        t.tap_at(60, ui::LAST);
+    } else {
+        t.tap_at(60, ui::row(i));
+    }
+}
+
+/// Settings > Check for updates (its seventh row), then home again (hold B).
 fn toggle_setting(t: &mut T) {
-    // Settings; Check for updates is its seventh row, one below the six that
-    // show: drag the list up a row, then it's the last one shown.
-    t.tap_at(60, 200);
-    t.ctl(&["touch=60,150", "advance=50", "touch=60,120", "advance=50", "touch=-", "advance=250"]);
-    t.tap_at(60, 195);
+    settings_row(t, 6);
     t.press_for("B", 1000);
 }
 
@@ -81,7 +98,7 @@ pub fn run(t: &mut T) {
     });
 
     let raw = events(t);
-    t.tap_at(60, 68); // Back, the second of the screen's rows
+    t.tap_at(60, ui::row(1)); // Back, the second of the screen's rows
     let ok = t.until(2.0, |_| !evts(&raw, "menu").is_empty());
     raw.finish();
     t.check(ok, "Back leaves the confirm screen", |_| "no menu event".into());
@@ -124,7 +141,7 @@ pub fn run(t: &mut T) {
     let upd = info(t, "update");
     let offer = tap_row(t);
     let raw = events(t);
-    t.tap_at(60, 44); // Back, the screen's only row
+    t.tap_at(60, ui::row(0)); // Back, the screen's only row
     let back = t.until(2.0, |_| !evts(&raw, "menu").is_empty());
     raw.finish();
     let ok = checked && upd == "manual" && offer == "update offer manual" && back && info(t, "slot") == "ota_0";
@@ -134,11 +151,7 @@ pub fn run(t: &mut T) {
 
     // Settings > Check now: a check at once, not at the next one's time.
     rel.set_manifest(&manifest("v1.2.0", &bin_url(&rel, "v1.2.0"), &img, 2, 1));
-    // Settings; Check now is its eighth row: drag the list up two rows, then
-    // it's the last one shown.
-    t.tap_at(60, 200);
-    t.ctl(&["touch=60,150", "advance=50", "touch=60,90", "advance=50", "touch=-", "advance=250"]);
-    t.tap_at(60, 195);
+    settings_row(t, 7); // Settings > Check now, its eighth row
     let ok = t.until(5.0, |t| t.read("sim.err").contains("menu: check now: firmware v1.2.0"));
     t.check(ok, "Check now checks at once and says what it found", |t| {
         t.read("sim.err").lines().rfind(|l| l.contains(" menu: ")).unwrap_or("").to_string()

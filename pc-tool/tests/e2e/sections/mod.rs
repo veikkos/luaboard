@@ -42,7 +42,7 @@ mod s41_png;
 mod s43_app_stage;
 mod s44_app_updates;
 mod s45_app_updates_menu;
-mod s46_get_apps;
+mod s46_marketplace;
 mod s48_secrets_push;
 mod s49_sim_wifi;
 pub mod update;
@@ -88,7 +88,7 @@ pub const ALL: &[(&str, Section)] = &[
     ("43-app-stage", s43_app_stage::run),
     ("44-app-updates", s44_app_updates::run),
     ("45-app-updates-menu", s45_app_updates_menu::run),
-    ("46-get-apps", s46_get_apps::run),
+    ("46-marketplace", s46_marketplace::run),
     ("48-secrets-push", s48_secrets_push::run),
     ("49-sim-wifi", s49_sim_wifi::run),
 ];

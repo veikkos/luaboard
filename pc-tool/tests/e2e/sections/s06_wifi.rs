@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use crate::harness::{grep, E2E_TIME, WINDOWS};
 
-use crate::harness::T;
+use crate::harness::{ui, T};
 use crate::sections::ota::Raw;
 
 pub fn run(t: &mut T) {
@@ -31,11 +31,15 @@ pub fn run(t: &mut T) {
     t.wifi_up();
     let ok = t.until_sim(3.0, |t| wi(t, w, &["ping"]).contains("not paired"));
     t.check(ok, "device reachable over Wi-Fi", |_| "no TCP connection".into());
-    // The menu's Wi-Fi icon shows the signal: its arcs (inner, middle, outer) at
-    // x 300 (no battery icon on the SE), lit or dim; the header redraws every 5 s.
+    // The menu's Wi-Fi icon shows the signal: its arcs (inner, middle, outer)
+    // along its middle, 17 px wide at the header's right margin (no battery
+    // icon on the SE), lit or dim; the header redraws every 5 s.
+    let cx = ui::W - ui::PAD - 17 + 7;
     let arcs = |t: &mut T, dbm: i32| {
         t.ctl(&[&format!("wifi_rssi={dbm}"), "advance=5200"]);
-        t.eval("local function lit(y) return (disp.get(300, y) >> 16) > 200 end return lit(16), lit(13), lit(10)")
+        t.eval(&format!(
+            "local function lit(y) return (disp.get({cx}, y) >> 16) > 200 end return lit(16), lit(13), lit(10)"
+        ))
     };
     let (strong, fair, weak) = (arcs(t, -50), arcs(t, -75), arcs(t, -90));
     let ok = strong == "true\ttrue\ttrue" && fair == "true\tfalse\tfalse" && weak == "false\tfalse\tfalse";
@@ -44,13 +48,13 @@ pub fn run(t: &mut T) {
     });
     t.ctl(&["wifi_rssi=-52"]);
     // The access point gone: once a try to join has failed, a red cross on the icon
-    const CROSS: &str = "local c = disp.get(304, 16) return (c >> 16) > 200 and (c >> 8) & 255 < 120";
+    let cross = format!("local c = disp.get({}, 16) return (c >> 16) > 200 and (c >> 8) & 255 < 120", cx + 4);
     t.ctl(&["wifi=0", "advance=8000"]);
-    let away = t.eval(CROSS);
+    let away = t.eval(&cross);
     t.ctl(&["wifi=1"]);
     let ok = away == "true" && t.until_sim(40.0, |t| t.eval("net.wifi()").starts_with("connected"));
     t.ctl(&["advance=5200"]);
-    let back = t.eval(CROSS);
+    let back = t.eval(&cross);
     t.check(ok && back == "false", "a network that can't be joined shows a cross, gone once it's back", |_| {
         format!("cross away/back: {away}/{back}")
     });

@@ -44,13 +44,34 @@ static const int s_turn_choices[] = { 0, 5, 15, 30, 60 };     /* Turn off after:
 enum { O_OPEN, O_AUTOSTART, O_CLEAR, O_UNINSTALL, O_BACK, O_COUNT };   /* app options (hold B on an app) */
 enum { U_INSTALL, U_BACK, U_COUNT };                              /* the firmware update's confirm screen */
 
-#define HEAD_H   30
-#define FOOT_H   22
-#define ROW_H    30
-#define OPT_ROW_H 24        /* app options: compact rows, so the app's info fits below five of them */
-#define ROWS     ((BOARD_LCD_H - HEAD_H - FOOT_H) / ROW_H)
-#define SET_Y    (BOARD_LCD_H - FOOT_H - ROW_H)       /* home: the Settings row, below a divider */
-#define AROWS    ((BOARD_LCD_H - HEAD_H - FOOT_H) / OPT_ROW_H)   /* app updates: rows shown */
+/* ------------------------------------------------------------ layout
+   Every screen of the menu is laid out from these: one row height, one
+   margin, one line height. Change one and all the screens follow. The e2e
+   tests tap rows by the same numbers (pc-tool/tests/e2e/harness.rs, `ui`).
+   The app options screen is the tightest: its info has to fit below five
+   rows (the e2e tests check that it does), and so does the QR code on a
+   Marketplace app's screen. */
+#define HEAD_H     30       /* the header: title, time, Wi-Fi, battery */
+#define FOOT_H     22       /* the hints above the buttons */
+#define ROW_H      26       /* a list row, on every screen */
+#define ROW_GAP    2        /* between two rows' backgrounds */
+#define INSET      4        /* a row's background from the screen's edges */
+#define PAD        14       /* text from the screen's edges, in rows, below them and in the header */
+#define LINE_H     12       /* a line of small text */
+#define GAP        8        /* between a list and the text below it */
+#define PARA       4        /* between paragraphs of that text */
+#define DIVIDER_H  4        /* home: the room for the line above the fixed rows */
+
+#define FONT_H     7                                 /* the 5x7 font at scale 1 ... */
+#define CHAR_W     6                                 /* ... and a character with its space */
+#define LIST_Y     (HEAD_H + 2)                      /* a list's first row */
+#define FOOT_Y     (BOARD_LCD_H - FOOT_H)
+#define ROW_BG     (ROW_H - ROW_GAP)                 /* a row's background, its height */
+#define ROW_TEXT(y)  ((y) + (ROW_BG - 2 * FONT_H) / 2)    /* a row's label (scale 2), its top */
+#define ROW_SMALL(y) ((y) + (ROW_BG - FONT_H + 1) / 2)    /* a row's value (scale 1), its top */
+#define ROWS       ((FOOT_Y - LIST_Y) / ROW_H)       /* the rows a screen shows */
+#define HOME_ROWS  ((FOOT_Y - LIST_Y - DIVIDER_H) / ROW_H)   /* ... home, with its divider */
+#define BELOW(n)   (LIST_Y + (n) * ROW_H + GAP)     /* the text under a list of n rows */
 
 static view_t s_view = V_APP;
 /* The home list's apps, sorted by the name shown. */
@@ -73,6 +94,7 @@ static int s_npick, s_psel, s_ptop;
 #define PICK_BACK (-2)
 #define BAR_X     160                  /* settings: the brightness and volume bars */
 #define BAR_W     100
+#define BAR_H     10
 static char s_oapp[VFS_APP_NAME_MAX];  /* options: the app */
 static int s_orows[O_COUNT], s_norows, s_osel;
 static bool s_armed;                   /* options: Clear data / Uninstall pressed once, waiting for the confirm */
@@ -99,7 +121,7 @@ static int s_shown_i = -1;
 static struct { char app[VFS_APP_NAME_MAX]; char why[40]; } s_failed[VFS_MAX_APPS];
 static int s_nfailed;
 static view_t s_after = V_APPUPD;      /* where the screen goes when the installs are done */
-/* Get apps: the index's apps by title; the app whose screen is open. */
+/* Marketplace: the index's apps by title; the app whose screen is open. */
 static int s_store[APPS_INDEX_MAX_APPS];
 static int s_nstore, s_tsel, s_ttop;
 static const char *s_store_text;       /* the index text the list was built from */
@@ -118,7 +140,7 @@ static char s_picked[VFS_APP_NAME_MAX];   /* installed from the store: selected 
 #define C_WARN     gfx_rgb(255, 190, 90)
 #define C_DANGER   gfx_rgb(150, 40, 40)
 #define C_KEY      gfx_rgb(255, 120, 80)    /* the orange of the printed button marks */
-#define C_TINT     gfx_rgb(24, 44, 66)      /* the home's Get apps row: an action, not an app */
+#define C_TINT     gfx_rgb(24, 44, 66)      /* the home's Marketplace row: an action, not an app */
 
 /* ------------------------------------------------------------ drawing */
 
@@ -147,7 +169,7 @@ static void fit(char *out, size_t cap, const char *s, int maxw, int scale)
 
 /* ------------------------------------------------- status bar icons */
 
-#define ICON_MID 15                            /* the icons' vertical middle in the header */
+#define ICON_MID (HEAD_H / 2)                  /* the icons' (and texts') vertical middle in the header */
 
 /* Wi-Fi as phones show it: a dot and three arcs, lit by signal strength
    (bars 0..3; the unlit ones dim). bars < 0: it can't join the network:
@@ -228,8 +250,8 @@ static void draw_header(const char *title)
     if (batt >= 0) snprintf(pct, sizeof pct, "%d%%", batt);
 
     /* Laid out from the right edge: battery %, battery, Wi-Fi, time. */
-    const int gap = 8, ty = ICON_MID - 3;
-    int x = w - 10;
+    const int gap = 8, ty = ICON_MID - FONT_H / 2;
+    int x = w - PAD;
     if (batt >= 0) {
         x -= gfx_text_width(pct, 1);
         gfx_text(x, ty, pct, C_TEXT, 1, NULL);
@@ -248,18 +270,17 @@ static void draw_header(const char *title)
         x -= gap;
     }
     char t[48];
-    fit(t, sizeof t, title, x - 10 - 6, 2);
-    gfx_text(10, 8, t, C_TEXT, 2, NULL);
+    fit(t, sizeof t, title, x - PAD - 6, 2);
+    gfx_text(PAD, ICON_MID - FONT_H, t, C_TEXT, 2, NULL);
     s_header_at = hw_millis();
 }
 
-/* Hints above the three buttons: A (left), B (middle), C (right). */
 /* A list's Back row: a left chevron and "Back", in the text colour like the
    rows that do something (dim is for information you can't select). The
-   text's top is at ty, scale 2. */
-static void back_label(int ty)
+   row's top is at y. */
+static void back_label(int y)
 {
-    int x = 14, cy = ty + 7;
+    int x = PAD, ty = ROW_TEXT(y), cy = ty + FONT_H;
     for (int t = 0; t < 2; t++) {
         gfx_line(x + 7 + t, cy - 6, x + 1 + t, cy, C_TEXT);
         gfx_line(x + 1 + t, cy, x + 7 + t, cy + 6, C_TEXT);
@@ -267,34 +288,46 @@ static void back_label(int ty)
     gfx_text(x + 16, ty, "Back", C_TEXT, 2, NULL);
 }
 
+/* Hints above the three buttons: A (left), B (middle), C (right). */
 static void draw_footer(const char *a, const char *b, const char *c)
 {
-    int w = gfx_width(), y = BOARD_LCD_H - FOOT_H;
-    gfx_fill_rect(0, y, w, FOOT_H, C_BG);
-    gfx_fill_rect(0, y, w, 1, gfx_rgb(40, 52, 68));
+    int w = gfx_width(), ty = FOOT_Y + (FOOT_H - FONT_H) / 2;
+    gfx_fill_rect(0, FOOT_Y, w, FOOT_H, C_BG);
+    gfx_fill_rect(0, FOOT_Y, w, 1, gfx_rgb(40, 52, 68));
     if (s_toast_until && (int32_t)(hw_millis() - s_toast_until) < 0) {
-        text_center(w / 2, y + 7, s_toast, C_WARN, 1);
+        text_center(w / 2, ty, s_toast, C_WARN, 1);
         return;
     }
-    text_center(w / 6, y + 7, a ? a : "", C_KEY, 1);
-    text_center(w / 2, y + 7, b ? b : "", C_KEY, 1);
-    text_center(w * 5 / 6, y + 7, c ? c : "", C_KEY, 1);
+    text_center(w / 6, ty, a ? a : "", C_KEY, 1);
+    text_center(w / 2, ty, b ? b : "", C_KEY, 1);
+    text_center(w * 5 / 6, ty, c ? c : "", C_KEY, 1);
+}
+
+/* A row's label on the left and its value (small, dim or coloured) on the
+   right, the label cut so that the two don't meet. */
+static void row_label(int y, const char *label, gfx_color_t c)
+{
+    gfx_text(PAD, ROW_TEXT(y), label, c, 2, NULL);
+}
+
+static void row_value(int y, const char *value, gfx_color_t c)
+{
+    text_right(gfx_width() - PAD, ROW_SMALL(y), value, c, 1);
 }
 
 /* A list row's background: gray while pressed, else `selc` if selected. */
-static void row_bg(int i, int y, int h, bool sel, gfx_color_t selc)
+static void row_bg(int i, int y, bool sel, gfx_color_t selc)
 {
     bool pressed = s_press == i && s_press_view == s_view;
-    if (pressed || sel) gfx_fill_rect(4, y, gfx_width() - 8, h - 2, pressed ? C_PRESS : selc);
+    if (pressed || sel) gfx_fill_rect(INSET, y, gfx_width() - 2 * INSET, ROW_BG, pressed ? C_PRESS : selc);
 }
 
 /* A list under the header: rows top..top+rows-1 of n, each drawn by `text`
    over its background, with scroll marks when there are more. */
 typedef struct {
-    int n, rows, row_h, top;
+    int n, rows, top;
     int sel;                    /* the selected row, -1 none */
     gfx_color_t selc;           /* ... its background */
-    int more_y;                 /* where the "v" mark goes */
     void (*text)(int i, int y, bool sel);
 } list_t;
 
@@ -311,16 +344,16 @@ static void list_scroll(int *top, int sel, int n, int rows)
 static void list_marks(const list_t *l)
 {
     int w = gfx_width();
-    if (l->top > 0) text_right(w - 4, HEAD_H + 2, "^", C_DIM, 1);
-    if (l->top + l->rows < l->n) text_right(w - 4, l->more_y, "v", C_DIM, 1);
+    if (l->top > 0) text_right(w - INSET, LIST_Y, "^", C_DIM, 1);
+    if (l->top + l->rows < l->n) text_right(w - INSET, LIST_Y + l->rows * ROW_H - ROW_GAP - FONT_H, "v", C_DIM, 1);
 }
 
 static void list_row(const list_t *l, int i)
 {
     int r = i - l->top;
     if (r < 0 || r >= l->rows || i >= l->n) return;
-    int y = HEAD_H + 2 + r * l->row_h;
-    row_bg(i, y, l->row_h, i == l->sel, l->selc);
+    int y = LIST_Y + r * ROW_H;
+    row_bg(i, y, i == l->sel, l->selc);
     l->text(i, y, i == l->sel);
 }
 
@@ -335,7 +368,7 @@ static void list_redraw_row(const list_t *l, int i)
 {
     int r = i - l->top;
     if (r < 0 || r >= l->rows || i >= l->n) return;
-    gfx_fill_rect(0, HEAD_H + 2 + r * l->row_h, gfx_width(), l->row_h - 2, C_BG);
+    gfx_fill_rect(0, LIST_Y + r * ROW_H, gfx_width(), ROW_BG, C_BG);
     list_row(l, i);
     list_marks(l);
 }
@@ -343,8 +376,8 @@ static void list_redraw_row(const list_t *l, int i)
 /* The row (index into the list) at y, -1 for none. */
 static int list_row_at(list_t l, int y)
 {
-    if (y < HEAD_H + 2) return -1;
-    int r = (y - HEAD_H - 2) / l.row_h;
+    if (y < LIST_Y) return -1;
+    int r = (y - LIST_Y) / ROW_H;
     return r < l.rows && l.top + r < l.n ? l.top + r : -1;
 }
 
@@ -374,16 +407,17 @@ static bool list_drag(int *top, int *sel, int n, int rows, const btn_event_t *e)
    release is known), and Settings, at the bottom. The apps scroll above. */
 static bool has_update(void) { return s_upd_ver[0] != 0; }
 static bool has_appupd(void) { return s_appupd_n > 0; }
-static int list_n(void) { return s_napps + 1; }   /* the apps and Get apps */
-static int getapps_index(void) { return s_napps; }
+static int list_n(void) { return s_napps + 1; }   /* the apps and Marketplace */
+static int market_index(void) { return s_napps; }
 static int appupd_index(void) { return has_appupd() ? list_n() : -1; }
 static int upd_index(void) { return has_update() ? list_n() + has_appupd() : -1; }
 static int set_index(void) { return list_n() + has_appupd() + has_update(); }
 static int home_count(void) { return set_index() + 1; }
 static int fixed_rows(void) { return 1 + has_appupd() + has_update(); }
-static int app_rows(void) { return ROWS - fixed_rows(); }
-static int fixed_y(int i) { return SET_Y - (set_index() - i) * ROW_H; }   /* a fixed row's top */
-static int divider_y(void) { return SET_Y - (fixed_rows() - 1) * ROW_H - 3; }
+static int app_rows(void) { return HOME_ROWS - fixed_rows(); }
+/* The fixed rows sit on the footer, Settings the lowest; a fixed row's top. */
+static int fixed_y(int i) { return FOOT_Y - (set_index() - i + 1) * ROW_H; }
+static int divider_y(void) { return FOOT_Y - fixed_rows() * ROW_H - (DIVIDER_H + ROW_GAP) / 2; }
 
 /* The name the menu shows: the title from app.json, else the folder name. */
 static const char *app_title(int i) { return s_apps[i].title[0] ? s_apps[i].title : s_apps[i].app.name; }
@@ -416,21 +450,21 @@ static void reload_apps(void)
     if (s_sel < 0) s_sel = 0;
 }
 
-/* The Get apps row: a plus and the words in the accent colour, on a tint,
+/* The Marketplace row: a plus and the word in the accent colour, on a tint,
    so it doesn't read as an app. */
-static void getapps_text(int i, int y, bool sel)
+static void market_text(int i, int y, bool sel)
 {
-    int w = gfx_width(), cx = 22, cy = y + 13;
+    int w = gfx_width(), cx = PAD + 6, cy = y + ROW_BG / 2;   /* the plus: 13 px wide, from PAD */
     bool pressed = s_press == i && s_press_view == s_view;
-    if (!sel && !pressed) gfx_fill_rect(4, y, w - 8, ROW_H - 2, C_TINT);
+    if (!sel && !pressed) gfx_fill_rect(INSET, y, w - 2 * INSET, ROW_BG, C_TINT);
     gfx_fill_rect(cx - 6, cy - 1, 13, 3, C_ACCENT);
     gfx_fill_rect(cx - 1, cy - 6, 3, 13, C_ACCENT);
-    gfx_text(36, y + 7, "Get apps", C_ACCENT, 2, NULL);
+    gfx_text(PAD + 22, ROW_TEXT(y), "Marketplace", C_ACCENT, 2, NULL);
 }
 
 static void home_text(int i, int y, bool sel)
 {
-    if (i == getapps_index()) { getapps_text(i, y, sel); return; }
+    if (i == market_index()) { market_text(i, y, sel); return; }
     int w = gfx_width();
     vfs_app_t *a = &s_apps[i].app;
     const char *tag = a->state == VFS_RAM ? "not installed" : a->state == VFS_MODIFIED ? "modified" : "";
@@ -438,44 +472,46 @@ static void home_text(int i, int y, bool sel)
     bool warn = a->state != VFS_INSTALLED;
     if (s_apps[i].api_bad) { tag = "won't run"; warn = true; }
     if (app_update_for(a->name)) { tag = "update"; warn = false; }   /* (an update fixes a "won't run") */
-    if (*tag) text_right(w - 14, y + 11, tag, warn ? C_WARN : C_ACCENT, 1);
+    if (*tag) row_value(y, tag, warn ? C_WARN : C_ACCENT);
     char t[48];
-    fit(t, sizeof t, app_title(i), w - 36 - (*tag ? gfx_text_width(tag, 1) + 8 : 0), 2);
-    gfx_text(14, y + 7, t, s_apps[i].api_bad ? C_DIM : C_TEXT, 2, NULL);   /* greyed: kept, but off */
+    fit(t, sizeof t, app_title(i), w - 2 * PAD - 8 - (*tag ? gfx_text_width(tag, 1) + 8 : 0), 2);
+    row_label(y, t, s_apps[i].api_bad ? C_DIM : C_TEXT);   /* greyed: kept, but off */
 }
 
 static list_t home_list(void)
 {
-    return (list_t){ .n = list_n(), .rows = app_rows(), .row_h = ROW_H, .top = s_top,
-                     .sel = s_sel < list_n() ? s_sel : -1, .selc = C_SEL, .more_y = divider_y() - 11, .text = home_text };
+    return (list_t){ .n = list_n(), .rows = app_rows(), .top = s_top,
+                     .sel = s_sel < list_n() ? s_sel : -1, .selc = C_SEL, .text = home_text };
+}
+
+/* A fixed row at home: its background, and its label in colour c. */
+static void home_fixed_row(int i, const char *label, gfx_color_t c)
+{
+    int y = fixed_y(i);
+    gfx_fill_rect(0, y, gfx_width(), ROW_BG, C_BG);
+    row_bg(i, y, s_sel == i, C_SEL);
+    row_label(y, label, c);
 }
 
 static void home_settings_row(void)
 {
-    bool sel = s_sel == set_index();
-    gfx_fill_rect(0, SET_Y, gfx_width(), ROW_H - 2, C_BG);
-    row_bg(set_index(), SET_Y, ROW_H, sel, C_SEL);
-    gfx_text(14, SET_Y + 7, "Settings", sel ? C_TEXT : C_DIM, 2, NULL);
+    home_fixed_row(set_index(), "Settings", s_sel == set_index() ? C_TEXT : C_DIM);
 }
 
 static void home_update_row(void)
 {
-    int y = fixed_y(upd_index());
-    gfx_fill_rect(0, y, gfx_width(), ROW_H - 2, C_BG);
-    row_bg(upd_index(), y, ROW_H, s_sel == upd_index(), C_SEL);
-    if (update_available()) gfx_text(14, y + 7, "Update available", C_ACCENT, 2, NULL);   /* the version is on its screen */
-    else gfx_text(14, y + 7, "Manual update needed", C_WARN, 2, NULL);
+    if (update_available()) home_fixed_row(upd_index(), "Update available", C_ACCENT);   /* the version is on its screen */
+    else home_fixed_row(upd_index(), "Manual update needed", C_WARN);
 }
 
 static void home_appupd_row(void)
 {
-    int y = fixed_y(appupd_index());
     char t[32];
     snprintf(t, sizeof t, "App updates (%d)", s_appupd_n);
-    gfx_fill_rect(0, y, gfx_width(), ROW_H - 2, C_BG);
-    row_bg(appupd_index(), y, ROW_H, s_sel == appupd_index(), C_SEL);
-    gfx_text(14, y + 7, t, C_ACCENT, 2, NULL);
+    home_fixed_row(appupd_index(), t, C_ACCENT);
 }
+
+static int text_wrap(int y, const char *s, int lines, gfx_color_t c);
 
 static void draw_home(void)
 {
@@ -485,13 +521,10 @@ static void draw_home(void)
     list_scroll(&s_top, s_sel, list_n(), app_rows());
     list_t l = home_list();
     list_draw(&l);
-    if (s_napps == 0) {
-        int y = HEAD_H + 2 + ROW_H + 10;
-        gfx_text(14, y, "No apps installed yet. Get some from the", C_DIM, 1, NULL);
-        gfx_text(14, y + 14, "marketplace above, or install one from a", C_DIM, 1, NULL);
-        gfx_text(14, y + 28, "computer: luaboard install DIR", C_DIM, 1, NULL);
-    }
-    gfx_fill_rect(10, divider_y(), w - 20, 1, gfx_rgb(52, 66, 86));   /* divider, then the fixed rows */
+    if (s_napps == 0)
+        text_wrap(BELOW(1), "No apps installed yet. Get some from the Marketplace above, or install one from a "
+                            "computer: luaboard install DIR", 4, C_DIM);
+    gfx_fill_rect(PAD, divider_y(), w - 2 * PAD, 1, gfx_rgb(52, 66, 86));   /* divider, then the fixed rows */
     if (has_appupd()) home_appupd_row();
     if (has_update()) home_update_row();
     home_settings_row();
@@ -553,9 +586,9 @@ static void bar_cancel(const bar_t *b)
 /* A bar row's bar and value at y: the value being chosen if it's this row's. */
 static void bar_draw(const bar_t *b, int y, bool sel, char *v, size_t cap)
 {
-    int value = sel && (s_editing || s_dragging) ? s_edit_val : b->get();
-    gfx_rect(BAR_X, y + 9, BAR_W, 10, C_DIM, false);
-    gfx_fill_rect(BAR_X + 2, y + 11, (BAR_W - 4) * value / 100, 6, C_ACCENT);
+    int value = sel && (s_editing || s_dragging) ? s_edit_val : b->get(), by = y + (ROW_BG - BAR_H) / 2;
+    gfx_rect(BAR_X, by, BAR_W, BAR_H, C_DIM, false);
+    gfx_fill_rect(BAR_X + 2, by + 2, (BAR_W - 4) * value / 100, BAR_H - 4, C_ACCENT);
     if (value) snprintf(v, cap, "%d%%", value);
     else snprintf(v, cap, "off");
 }
@@ -569,8 +602,8 @@ static void settings_text(int i, int y, bool sel)
         [S_TIME] = "Time", [S_VERSION] = "Version",
         [S_STORAGE] = "Storage", [S_WIFI] = "Wi-Fi", [S_BACK] = "Back",
     };
-    if (i == S_BACK) back_label(y + 7);
-    else gfx_text(14, y + 7, labels[i], S_INFO(i) ? C_DIM : C_TEXT, 2, NULL);
+    if (i == S_BACK) back_label(y);
+    else row_label(y, labels[i], S_INFO(i) ? C_DIM : C_TEXT);
     char v[48] = "";
     gfx_color_t c = C_TEXT;
     if (bar_of(i)) bar_draw(bar_of(i), y, sel, v, sizeof v);
@@ -610,16 +643,15 @@ static void settings_text(int i, int y, bool sel)
     default: break;
     }
     char f[48];
-    int label_end = 14 + (i == S_BACK ? 0 : gfx_text_width(labels[i], 2)) + 10;   /* the value stays clear of it */
-    fit(f, sizeof f, v, w - 14 - label_end, 1);
-    if (*f) text_right(w - 14, y + 11, f, S_INFO(i) ? C_DIM : c, 1);
+    int label_end = PAD + (i == S_BACK ? 0 : gfx_text_width(labels[i], 2)) + 10;   /* the value stays clear of it */
+    fit(f, sizeof f, v, w - PAD - label_end, 1);
+    if (*f) row_value(y, f, S_INFO(i) ? C_DIM : c);
 }
 
 static list_t settings_list(void)
 {
-    return (list_t){ .n = S_COUNT, .rows = ROWS, .row_h = ROW_H, .top = s_stop, .sel = s_ssel,
-                     .selc = s_editing ? gfx_rgb(90, 60, 20) : C_SEL, .more_y = BOARD_LCD_H - FOOT_H - 14,
-                     .text = settings_text };
+    return (list_t){ .n = S_COUNT, .rows = ROWS, .top = s_stop, .sel = s_ssel,
+                     .selc = s_editing ? gfx_rgb(90, 60, 20) : C_SEL, .text = settings_text };
 }
 
 static void draw_settings(void)
@@ -655,16 +687,15 @@ static void pick_text(int k, int y, bool sel)
     char t[48], f[48];
     if (c == PICK_BACK) snprintf(t, sizeof t, "Back");
     else autostart_label(c, t, sizeof t);
-    fit(f, sizeof f, t, w - 70, 2);
-    if (c == PICK_BACK) back_label(y + 7);
-    else gfx_text(14, y + 7, f, C_TEXT, 2, NULL);
-    if (c == autostart_index()) text_right(w - 14, y + 11, "chosen", C_ACCENT, 1);
+    fit(f, sizeof f, t, w - 2 * PAD - gfx_text_width("chosen", 1) - 8, 2);
+    if (c == PICK_BACK) back_label(y);
+    else row_label(y, f, C_TEXT);
+    if (c == autostart_index()) row_value(y, "chosen", C_ACCENT);
 }
 
 static list_t pick_list(void)
 {
-    return (list_t){ .n = s_npick, .rows = ROWS, .row_h = ROW_H, .top = s_ptop, .sel = s_psel,
-                     .selc = C_SEL, .more_y = BOARD_LCD_H - FOOT_H - 14, .text = pick_text };
+    return (list_t){ .n = s_npick, .rows = ROWS, .top = s_ptop, .sel = s_psel, .selc = C_SEL, .text = pick_text };
 }
 
 static void draw_pick(void)
@@ -762,8 +793,8 @@ static int text_wrap_cols(int y, const char *s, int lines, gfx_color_t c, int co
         int n = (int)((b > s ? b : e) - s);
         if (l == lines - 1 && *e) snprintf(line, sizeof line, "%.*s..", (int)(text_skip(s, cols - 2) - s), s);
         else snprintf(line, sizeof line, "%.*s", n, s);
-        gfx_text(14, y, line, c, 1, NULL);
-        y += 12;
+        gfx_text(PAD, y, line, c, 1, NULL);
+        y += LINE_H;
         s += n;
         while (*s == ' ') s++;
     }
@@ -773,63 +804,57 @@ static int text_wrap_cols(int y, const char *s, int lines, gfx_color_t c, int co
 /* The same, as wide as the screen. */
 static int text_wrap(int y, const char *s, int lines, gfx_color_t c)
 {
-    return text_wrap_cols(y, s, lines, c, (gfx_width() - 28) / 6);
+    return text_wrap_cols(y, s, lines, c, (gfx_width() - 2 * PAD) / CHAR_W);
+}
+
+/* One line of small text below a list, cut to the screen. Returns the y below it. */
+static int text_line(int y, const char *s, gfx_color_t c)
+{
+    char shown[160];
+    fit(shown, sizeof shown, s, gfx_width() - 2 * PAD, 1);
+    gfx_text(PAD, y, shown, c, 1, NULL);
+    return y + LINE_H;
 }
 
 static void options_text(int r, int y, bool sel)
 {
-    int w = gfx_width(), id = s_orows[r];
+    int id = s_orows[r];
     bool armed = options_armed(r), autostart = !strcmp(settings_autostart(), s_oapp);
     const char *label = id == O_OPEN ? "Open" : id == O_AUTOSTART ? "Autostart"
                       : id == O_CLEAR ? (armed ? "Clear data?" : "Clear data")
                       : id == O_UNINSTALL ? (armed ? "Uninstall?" : "Uninstall") : "Back";
-    if (id == O_BACK) back_label(y + 4);
-    else gfx_text(14, y + 4, label, C_TEXT, 2, NULL);
-    if (id == O_AUTOSTART) text_right(w - 14, y + 8, autostart ? "on" : "off", autostart ? C_ACCENT : C_TEXT, 1);
-    if (armed) text_right(w - 14, y + 8, "tap again", C_TEXT, 1);
+    if (id == O_BACK) back_label(y);
+    else row_label(y, label, C_TEXT);
+    if (id == O_AUTOSTART) row_value(y, autostart ? "on" : "off", autostart ? C_ACCENT : C_TEXT);
+    if (armed) row_value(y, "tap again", C_TEXT);
 }
 
 static list_t options_list(void)
 {
-    return (list_t){ .n = s_norows, .rows = s_norows, .row_h = OPT_ROW_H, .sel = s_osel,
+    return (list_t){ .n = s_norows, .rows = s_norows, .sel = s_osel,
                      .selc = options_armed(s_osel) ? C_DANGER : C_SEL, .text = options_text };
 }
 
 static void draw_options(void)
 {
-    int w = gfx_width();
     int ai = app_index(s_oapp);
     if (ai < 0) return;
-    vfs_app_t *a = &s_apps[ai].app;
     app_meta_load(s_oapp, &s_ometa);                  /* may have been reinstalled */
     build_options();
     gfx_fill(C_BG);
     draw_header(s_ometa.title[0] ? s_ometa.title : s_oapp);
     list_t l = options_list();
     list_draw(&l);
-    /* About the app: description (2 lines), version and author, files */
+    /* About the app: what it does (3 lines), version and author, and why it won't run */
     char line[160];
-    int y = HEAD_H + 2 + s_norows * OPT_ROW_H + 8, cols = (w - 28) / 6;
-    y = text_wrap(y, s_ometa.description, 2, C_TEXT);
+    int y = text_wrap(BELOW(s_norows), s_ometa.description, 3, C_TEXT);
     if (s_ometa.version[0] || s_ometa.author[0]) {
         snprintf(line, sizeof line, "%s%s%s%s", s_ometa.version[0] ? "version " : "", s_ometa.version,
                  s_ometa.version[0] && s_ometa.author[0] ? ", by " : s_ometa.author[0] ? "by " : "", s_ometa.author);
-        char shown[sizeof line];
-        fit(shown, sizeof shown, line, w - 28, 1);              /* a dev build's version is long */
-        gfx_text(14, y, shown, C_DIM, 1, NULL);
-        y += 12;
+        y = text_line(y, line, C_DIM);                          /* a dev build's version is long */
     }
     char why[80];
-    if (app_meta_api_problem(&s_ometa, why, sizeof why)) {
-        snprintf(line, sizeof line, "%.*s", cols, why);
-        gfx_text(14, y, line, C_WARN, 1, NULL);
-        y += 12;
-    }
-    if (y > HEAD_H + 2 + s_norows * OPT_ROW_H + 8) y += 4;
-    snprintf(line, sizeof line, "%s: %d file%s, %zu KB, %s", s_oapp, a->files, a->files == 1 ? "" : "s",
-             (a->bytes + 1023) / 1024, a->state == VFS_INSTALLED ? "installed"
-             : a->state == VFS_RAM ? "not installed" : "newer uploads");
-    gfx_text(14, y, line, a->state == VFS_INSTALLED ? C_DIM : C_WARN, 1, NULL);
+    if (app_meta_api_problem(&s_ometa, why, sizeof why)) text_line(y, why, C_WARN);
     if (s_armed) draw_footer("cancel", s_orows[s_osel] == O_CLEAR ? "clear data" : "uninstall", "cancel");
     else draw_footer("up", "select  (hold: back)", "down");
     gfx_flush();
@@ -866,14 +891,13 @@ static int update_row_id(int r) { return update_available() ? r : U_BACK; }
 static void update_text(int r, int y, bool sel)
 {
     (void)sel;
-    if (update_row_id(r) == U_BACK) back_label(y + 4);
-    else gfx_text(14, y + 4, "Install", C_TEXT, 2, NULL);
+    if (update_row_id(r) == U_BACK) back_label(y);
+    else row_label(y, "Install", C_TEXT);
 }
 
 static list_t update_list(void)
 {
-    return (list_t){ .n = update_rows(), .rows = update_rows(), .row_h = OPT_ROW_H, .sel = s_usel, .selc = C_SEL,
-                     .text = update_text };
+    return (list_t){ .n = update_rows(), .rows = update_rows(), .sel = s_usel, .selc = C_SEL, .text = update_text };
 }
 
 /* Install and Back; below them the release: version and size, its notes,
@@ -888,24 +912,23 @@ static void draw_update(void)
     draw_header("Firmware update");
     list_t l = update_list();
     list_draw(&l);
-    int y = HEAD_H + 2 + update_rows() * OPT_ROW_H + 8;
+    int y = BELOW(update_rows());
     if (!u) {
         y = text_wrap(y, "There is a newer firmware, but this version can't install it by itself.", 2, C_TEXT);
-        text_wrap(y + 4, "Install it from a computer. How: " UPDATE_HELP_URL, 3, C_DIM);
+        text_wrap(y + PARA, "Install it from a computer. How: " UPDATE_HELP_URL, 3, C_DIM);
         draw_footer("up", "select  (hold: back)", "down");
         gfx_flush();
         return;
     }
-    char line[300], f[80], names[200], titles[240];
+    char line[300], names[200], titles[240];
     unsigned tenths = (unsigned)((u->size * 10 + 512 * 1024) / (1024 * 1024));   /* MB, one decimal */
     snprintf(line, sizeof line, "%s, %u.%u MB (now %s)", u->version, tenths / 10, tenths % 10, fw_version());
-    fit(f, sizeof f, line, gfx_width() - 28, 1);
-    gfx_text(14, y, f, C_TEXT, 1, NULL);
-    y = text_wrap(y + 12, u->notes, 2, C_DIM);
+    y = text_line(y, line, C_TEXT);
+    y = text_wrap(y, u->notes, 2, C_DIM);
     wont_run(u, names, sizeof names, titles, sizeof titles);
     if (titles[0]) {
         snprintf(line, sizeof line, "Won't run after it: %s", titles);
-        text_wrap(y + 4, line, 2, C_WARN);
+        text_wrap(y + PARA, line, 2, C_WARN);
     }
     draw_footer("up", "select  (hold: back)", "down");
     gfx_flush();
@@ -960,8 +983,8 @@ static void appupd_text(int r, int y, bool sel)
 {
     (void)sel;
     int w = gfx_width();
-    if (appupd_is_back(r)) { back_label(y + 4); return; }
-    if (r == 0) { gfx_text(14, y + 4, "Update all", C_TEXT, 2, NULL); return; }
+    if (appupd_is_back(r)) { back_label(y); return; }
+    if (r == 0) { row_label(y, "Update all", C_TEXT); return; }
     const apps_entry_t *e = app_update_at(r - 1);
     if (!e) return;
     char right[64], shown[64], t[48];
@@ -974,27 +997,26 @@ static void appupd_text(int r, int y, bool sel)
         snprintf(right, sizeof right, "%s -> %s", m.version[0] ? m.version : "?", e->version);
     }
     fit(shown, sizeof shown, right, w / 2, 1);
-    text_right(w - 14, y + 8, shown, why ? C_WARN : C_DIM, 1);
-    fit(t, sizeof t, e->title[0] ? e->title : e->name, w - 36 - gfx_text_width(shown, 1) - 8, 2);
-    gfx_text(14, y + 4, t, C_TEXT, 2, NULL);
+    row_value(y, shown, why ? C_WARN : C_DIM);
+    fit(t, sizeof t, e->title[0] ? e->title : e->name, w - 2 * PAD - 8 - gfx_text_width(shown, 1) - 8, 2);
+    row_label(y, t, C_TEXT);
 }
 
 static list_t appupd_list(void)
 {
-    return (list_t){ .n = appupd_rows(), .rows = AROWS, .row_h = OPT_ROW_H, .top = s_atop, .sel = s_asel,
-                     .selc = C_SEL, .more_y = BOARD_LCD_H - FOOT_H - 11, .text = appupd_text };
+    return (list_t){ .n = appupd_rows(), .rows = ROWS, .top = s_atop, .sel = s_asel, .selc = C_SEL,
+                     .text = appupd_text };
 }
 
 static void draw_appupd(void)
 {
     if (s_asel >= appupd_rows()) s_asel = appupd_rows() - 1;
-    list_scroll(&s_atop, s_asel, appupd_rows(), AROWS);
+    list_scroll(&s_atop, s_asel, appupd_rows(), ROWS);
     gfx_fill(C_BG);
     draw_header("App updates");
     list_t l = appupd_list();
     list_draw(&l);
-    if (!app_update_count())
-        text_wrap(HEAD_H + 2 + OPT_ROW_H + 8, "Every app from the marketplace is up to date.", 2, C_DIM);
+    if (!app_update_count()) text_wrap(BELOW(1), "Every app from the marketplace is up to date.", 2, C_DIM);
     draw_footer("up", "select  (hold: back)", "down");
     gfx_flush();
 }
@@ -1038,7 +1060,7 @@ static void appupd_next(void)
     }
     s_updating = false;
     char msg[64];
-    if (s_after == V_STORE_APP) {                             /* one app, from Get apps */
+    if (s_after == V_STORE_APP) {                             /* one app, from the Marketplace */
         const char *why = failed_why(s_queue[0]);
         ESP_LOGI(TAG, "store install %s: %s", s_queue[0], why ? why : "ok");
         if (why) snprintf(msg, sizeof msg, "failed: %s", why);
@@ -1105,7 +1127,7 @@ static void appupd_event(act_t ev, const btn_event_t *e)
 {
     int n = appupd_rows();
     if (ev == M_DRAG || ev == M_DRAG_END) {
-        if (list_drag(&s_atop, &s_asel, n, AROWS, e)) draw_appupd();
+        if (list_drag(&s_atop, &s_asel, n, ROWS, e)) draw_appupd();
         return;
     }
     if (ev == M_TAP) {
@@ -1126,7 +1148,7 @@ static void appupd_event(act_t ev, const btn_event_t *e)
     }
 }
 
-/* ------------------------------------------------------------ get apps */
+/* ------------------------------------------------------------ marketplace */
 
 static void open_app(const char *name);
 static void redraw(void);
@@ -1194,22 +1216,21 @@ static void store_text(int r, int y, bool sel)
     (void)sel;
     int w = gfx_width();
     const apps_entry_t *e = store_at(r);
-    if (!e) { back_label(y + 7); return; }
+    if (!e) { back_label(y); return; }
     const char *tag = "";
     gfx_color_t c = C_DIM;
     if (app_update_for(e->name)) { tag = "update"; c = C_ACCENT; }
     else if (vfs_app_exists(e->name)) tag = "installed";
     else if (e->needs_setup) { tag = "(i)"; c = C_WARN; }
-    if (*tag) text_right(w - 14, y + 11, tag, c, 1);
+    if (*tag) row_value(y, tag, c);
     char t[48];
-    fit(t, sizeof t, e->title[0] ? e->title : e->name, w - 36 - (*tag ? gfx_text_width(tag, 1) + 8 : 0), 2);
-    gfx_text(14, y + 7, t, C_TEXT, 2, NULL);
+    fit(t, sizeof t, e->title[0] ? e->title : e->name, w - 2 * PAD - 8 - (*tag ? gfx_text_width(tag, 1) + 8 : 0), 2);
+    row_label(y, t, C_TEXT);
 }
 
 static list_t store_list(void)
 {
-    return (list_t){ .n = store_rows(), .rows = ROWS, .row_h = ROW_H, .top = s_ttop, .sel = s_tsel, .selc = C_SEL,
-                     .more_y = BOARD_LCD_H - FOOT_H - 11, .text = store_text };
+    return (list_t){ .n = store_rows(), .rows = ROWS, .top = s_ttop, .sel = s_tsel, .selc = C_SEL, .text = store_text };
 }
 
 static void draw_store(void)
@@ -1218,11 +1239,11 @@ static void draw_store(void)
     if (s_tsel >= store_rows()) s_tsel = store_rows() - 1;
     list_scroll(&s_ttop, s_tsel, store_rows(), ROWS);
     gfx_fill(C_BG);
-    draw_header("Get apps");
+    draw_header("Marketplace");
     list_t l = store_list();
     list_draw(&l);
     const char *msg = store_message(buf, sizeof buf);
-    if (msg) text_wrap(HEAD_H + 2 + ROW_H + 10, msg, 4, C_DIM);
+    if (msg) text_wrap(BELOW(1), msg, 4, C_DIM);
     draw_footer("up", "select  (hold: back)", "down");
     gfx_flush();
 }
@@ -1272,13 +1293,13 @@ static void store_app_text(int r, int y, bool sel)
 {
     (void)sel;
     const apps_entry_t *e = store_entry();
-    if (r == 1 || !e) back_label(y + 4);
-    else gfx_text(14, y + 4, store_action(e), C_TEXT, 2, NULL);
+    if (r == 1 || !e) back_label(y);
+    else row_label(y, store_action(e), C_TEXT);
 }
 
 static list_t store_app_list(void)
 {
-    return (list_t){ .n = 2, .rows = 2, .row_h = OPT_ROW_H, .sel = s_dsel, .selc = C_SEL, .text = store_app_text };
+    return (list_t){ .n = 2, .rows = 2, .sel = s_dsel, .selc = C_SEL, .text = store_app_text };
 }
 
 /* A QR code of text with its quiet zone, its right edge at xr, top at y.
@@ -1301,22 +1322,22 @@ static void draw_store_app(void)
 {
     const apps_entry_t *e = store_entry();
     if (!e) { s_view = V_STORE; build_store(); draw_store(); return; }   /* gone from the index meanwhile */
-    int w = gfx_width(), y = HEAD_H + 2 + 2 * OPT_ROW_H + 8, right = w - 6;
+    int w = gfx_width(), y = BELOW(2), right = w - PAD;
     gfx_fill(C_BG);
     draw_header(e->title[0] ? e->title : e->name);
     list_t l = store_app_list();
     list_draw(&l);
     char url[160], line[160], shown[160];
     snprintf(url, sizeof url, APPS_README_URL "%s", e->name);
-    if (e->needs_setup) right = draw_qr(w - 6, y - 2, url) - 6;
-    int cols = (right - 14) / 6;
+    if (e->needs_setup) right = draw_qr(w - PAD, y, url) - GAP;   /* the text on its left */
+    int cols = (right - PAD) / CHAR_W;
     snprintf(line, sizeof line, "by %s, %s, %s", e->author[0] ? e->author : "?", e->version,
              e->license[0] ? e->license : "no license");
-    fit(shown, sizeof shown, line, cols * 6, 1);
-    gfx_text(14, y, shown, C_DIM, 1, NULL);
-    y = text_wrap_cols(y + 14, e->description, e->needs_setup ? 4 : 8, C_TEXT, cols);
+    fit(shown, sizeof shown, line, cols * CHAR_W, 1);
+    gfx_text(PAD, y, shown, C_DIM, 1, NULL);
+    y = text_wrap_cols(y + LINE_H + PARA, e->description, e->needs_setup ? 4 : 8, C_TEXT, cols);
     if (e->needs_setup) {
-        y = text_wrap_cols(y + 6, "Setup needed: your own keys or a login. The steps:", 3, C_WARN, cols);
+        y = text_wrap_cols(y + PARA, "Setup needed: your own keys or a login. The steps:", 3, C_WARN, cols);
         text_wrap_cols(y, url + strlen("https://"), 3, C_DIM, cols);
     }
     draw_footer("up", "select  (hold: back)", "down");
@@ -1398,7 +1419,7 @@ static void store_sync(void)
 static const char *view_title(void)
 {
     return s_view == V_SETTINGS ? "Settings" : s_view == V_PICK ? "Autostart app" : s_view == V_UPDATE ? "Firmware update"
-         : s_view == V_APPUPD ? "App updates" : s_view == V_STORE ? "Get apps"
+         : s_view == V_APPUPD ? "App updates" : s_view == V_STORE ? "Marketplace"
          : s_view == V_OPTIONS ? (s_ometa.title[0] ? s_ometa.title : s_oapp) : FW_NAME;
 }
 
@@ -1419,7 +1440,7 @@ static void redraw(void)
 /* ------------------------------------------------------------ actions */
 
 /* Which fixed row is selected, so the selection stays on it when another
-   one comes or goes (the apps and Get apps above them keep their indexes). */
+   one comes or goes (the apps and Marketplace above them keep their indexes). */
 enum { SEL_LIST, SEL_APPUPD, SEL_UPD, SEL_SETTINGS };
 
 static int sel_fixed(void)
@@ -1533,7 +1554,7 @@ static void home_event(act_t ev, const btn_event_t *e)
         if (s_sel == set_index()) { s_view = V_SETTINGS; s_ssel = s_stop = 0; s_editing = s_dragging = false; draw_settings(); }
         else if (s_sel == upd_index()) open_update();
         else if (s_sel == appupd_index()) open_appupd();
-        else if (s_sel == getapps_index()) open_store();
+        else if (s_sel == market_index()) open_store();
         else if (s_apps[s_sel].api_bad && app_update_for(s_apps[s_sel].app.name)) open_appupd();   /* the fix for it */
         else if (!s_apps[s_sel].api_bad) open_app(s_apps[s_sel].app.name);
         else open_options();                            /* one this firmware won't run: why, and Uninstall */

@@ -19,7 +19,7 @@
  │                script_tick and menu_tick;            │
  │                boot: menu or autostart               │
  │ menu.c         home menu, app options, Settings      │
- │                App updates, Get apps (with QR codes) │
+ │                App updates, Marketplace, QR codes    │
  │ appmeta.c      app.json: title, description, ...     │
  │ buttons.c      touch strip → A/B/C, long-B; tap,     │
  │                hold, drag and swipe on the screen    │

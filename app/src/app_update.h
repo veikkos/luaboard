@@ -4,7 +4,7 @@
  * up, then daily, with the "check for updates" setting on) and kept in
  * PSRAM. Installed apps whose name is in it and whose app.json version is
  * older than the newest version this firmware runs have an update. The
- * menu offers those, and every app of the index under "Get apps".
+ * menu offers those, and every app of the index under "Marketplace".
  *
  * Events: "app updates n=<n>" when the number of apps with an update
  * changes, "apps check-failed <why>" when a check fails.
@@ -22,7 +22,7 @@ void app_update_init(void);
 void app_update_poll(void);
 /** The "check for updates" setting changed. */
 void app_update_setting_changed(void);
-/** The user opened "Get apps": check now if no index is known yet or the
+/** The user opened "Marketplace": check now if no index is known yet or the
  *  last check is over an hour old (Wi-Fi permitting, whatever the setting). */
 void app_update_check_now(void);
 /** Check now, whatever the schedule, the setting and the last check
