@@ -1,4 +1,4 @@
-# Serial protocol
+# Wire protocol
 
 The same protocol runs over two links at the same time:
 
@@ -6,30 +6,17 @@ The same protocol runs over two links at the same time:
   CoreS3's USB-C connector, `/dev/cu.usbmodem*` on macOS. There's no
   separate USB-UART chip, and the baud rate setting is ignored. In the
   simulator the same bytes go over a pseudo-terminal.
-* Wi-Fi: TCP port 3333 once the device has joined a network (see
-  `WIFI`). The device announces itself with mDNS as `luaboard.local`, service
-  `_luaboard._tcp` (TXT: `board`, `fw`, `api` (the Lua API version), `auth=key|none`; `auth` is as of when
-  the service was announced; `none` means the device isn't paired and the
-  Wi-Fi link takes no commands). The connection is encrypted; see
-  [Wi-Fi link](#wi-fi-link).
-  At most one client is logged in at a time, plus up to two that are still
-  logging in. A new connection only pushes out the oldest client that hasn't
-  logged in (`EVT bye another client connected`); a logged-in client is
-  replaced only when a newer client logs in (`EVT bye another client logged
-  in`), so a PC reconnecting after a network blip still wins over its own dead
-  connection, while someone without the key can't kick you off. A client that
-  hasn't logged in after 60 s is dropped (`EVT bye no login in time`), as is
-  one that stops reading for 2 s, and all of them when Wi-Fi is lost or turned
-  off. Clients address it as `tcp://host:port`. Connections from the device's
-  own scripts (`net.connect` to its own address) are refused: apps can't drive
-  the device.
+* Wi-Fi: TCP port 3333 once the device has joined a network (see `WIFI`),
+  addressed as `tcp://host:port`. The device announces itself with mDNS as
+  `luaboard.local`, service `_luaboard._tcp`, with TXT `board`, `fw`, `api`
+  (the Lua API version) and `auth=key|none` (paired or not, as of when it was
+  announced). The link is encrypted and needs pairing, see
+  [Wi-Fi link](#wi-fi-link). USB is trusted (physical access) and never needs
+  it.
 
 Replies go to the link that sent the command. `LOG` and `EVT` lines go to
 all links that may use the device, so a Wi-Fi client sees script output and
-errors even when commands come in over USB. A Wi-Fi client needs the
-device's pairing key, and an unpaired device takes no commands over Wi-Fi at
-all (see [Wi-Fi link](#wi-fi-link)); USB is trusted (physical access) and
-never needs it.
+errors even when commands come in over USB.
 
 The protocol is plain text and line based, so over USB you can also use it by
 hand from a terminal (`screen /dev/cu.usbmodemXXXX` or `screen /tmp/esp32-sim`).
@@ -38,9 +25,11 @@ Over Wi-Fi it is wrapped in encrypted frames, so a terminal won't do there.
 ## Framing
 
 * Host → device: one command per line, terminated by `\n` (`\r` is ignored).
-  Maximum line length is 2047 bytes; a longer line gets `ERR line too long
-  (max 2047)`. Command names are case-insensitive, as are the `WIFI`, `PAIR`
-  and `TIME` subcommands; other arguments are case-sensitive.
+  Maximum line length is 2047 bytes, and a longer line gets `ERR line too
+  long (max 2047)`. Command names are case-insensitive, and so are the words
+  after `WIFI`, `PAIR`, `TIME`, `TOUCH` and `KEY`. Everything else is
+  case-sensitive, the subcommands of `SECRET` and the `CANCEL` of `BROWSER`
+  included.
 * Device → host: lines terminated by `\n`. Every line starts with a tag:
 
 | Tag | Meaning |
@@ -68,7 +57,7 @@ raw payloads after `GET` and `FB` replies are the only non-line data.
 | `PING` | `OK PONG` | Use to sync after opening the port. |
 | `INFO` | `OK fw=.. ver=.. board=.. model=cores3\|cores3se lua=.. api=N apps=N flash=used/total ram=used/cap heap=used/limit running=<app/file or -> autorun=<app or -> ip=<addr or -> auth=key\|none time=<ISO 8601 or -> target=esp32s3\|sim slot=ota_0\|ota_1 ota=ok\|rolledback screen=on\|off reset=poweron\|sw\|panic\|task-wdt\|brownout\|... update=<version, manual or -> app_updates=N` | `flash`: the apps partition, `ram`: uploads not installed yet. `ver`: the build's `git describe`. `api`: the [Lua API version](LUA_API.md#api-version). `target`: what firmware images it takes (`sim`: the simulator). `slot` and `ota`: see [Firmware update](#firmware-update-ota). `screen`: off while the screen sleeps. `reset`: why the chip last started (`panic` and the `-wdt` ones are crashes, `brownout` a power dip). `update`: the newer release the device has found (such as `v1.1.0`), `-` if none, see [Release manifest](#release-manifest). `app_updates`: installed apps the [marketplace](https://github.com/veikkos/luaboard-marketplace) has a newer version of. |
 | `LS` | `FILE <app>/<file> <size> <crc32hex>` lines, then `OK <count>` | Every file as apps see it (an upload in RAM shadows the installed copy). |
-| `CRASH` | `FRAME <call>` lines, then `OK ver=<version> frames=N cause=<text>`, or `OK none` | The last crash, if the last reset was one: its cause, the firmware that crashed, and its stack trace, the innermost call first. On the board a call is an address (`0x4200a1b4`, for `addr2line` with that build's ELF); in the simulator a function name (`draw_footer+0xe0`). |
+| `CRASH` | `FRAME <call>` lines, then `OK ver=<version> frames=N cause=<text>`, or `OK none` | The last crash, if the last reset was one: its cause, the firmware that crashed, and its stack trace, the innermost call first. On the board a call is an address (`0x4200a1b4`, for `addr2line` with that build's ELF), and in the simulator a function name (`draw_footer+0xe0`). |
 | `APPS` | `APP <name> <files> <bytes> installed\|ram\|modified` lines, then `OK <count>` | `ram`: uploaded only, gone after a restart. `modified`: installed, with newer uploads in RAM. |
 | `INSTALL <app>` | `OK INSTALLED <app>` + `EVT installed <app>` | Writes the app's uploads to flash (LittleFS). Files already installed and not uploaded again stay. If the app is on the screen (running, or on its error screen), it's started again with the new code (`EVT started`). |
 | `UNINSTALL <app>` | `OK UNINSTALLED <app>` + `EVT uninstalled <app>` | Deletes it from RAM and flash and deletes its secrets, stored values and Bluetooth bonds (and stops it if running, clears it as autostart). Also works for a name with only secrets or stored values left. |
@@ -80,29 +69,29 @@ raw payloads after `GET` and `FB` replies are the only non-line data.
 | `TOUCH <x> <y>` | `OK TOUCH <x> <y>` | A finger from the PC, down (or moved) at `x` 0..319, `y` 0..279 of the touch area: `y` 240 and up is the A/B/C strip under the screen (A `x` < 130, B 130..199, C 200 and up). See [Remote touch](#remote-touch). |
 | `TOUCH UP` | `OK TOUCH UP` | That finger is let go. |
 | `KEY POWER` | `OK KEY POWER` | A short press of the power key: back to the home menu. |
-| `RM <name>` | `OK REMOVED <app>/<file>` | Deletes the file from RAM and flash. Name resolved like `RUN`, and must name a file (`<app>/<file>` or `<file>.lua`), not a bare app; otherwise `ERR no such file: <name>`. |
-| `RUN [name]` | `OK RUNNING <app>/<file>` + `EVT started <app>/<file>` | `<app>` runs its `main.lua`; `<app>/<file>` a given script; a bare `<file>.lua` is in the app last uploaded to or run. No name = `main.lua` of that app. Starts a fresh Lua VM. Load, syntax, top-level and `setup()` errors come back as `ERR` (and show on the error screen). |
+| `RM <name>` | `OK REMOVED <app>/<file>` | Deletes the file from RAM and flash. Name resolved like `RUN`, and must name a file (`<app>/<file>` or `<file>.lua`), not a bare app. Otherwise `ERR no such file: <name>`. |
+| `RUN [name]` | `OK RUNNING <app>/<file>` + `EVT started <app>/<file>` | `<app>` runs its `main.lua`, `<app>/<file>` a given script. A bare `<file>.lua` is in the app last uploaded to or run. No name = `main.lua` of that app. Starts a fresh Lua VM. Load, syntax, top-level and `setup()` errors come back as `ERR` (and show on the error screen). |
 | `STOP` | `OK STOPPED` (+ `EVT stopped` if a script was running) | The device goes back to its home menu. The VM is kept, so `EVAL` still sees its globals. |
 | `SAVE` | `OK SAVED <n> apps` | `INSTALL` for every app with uploads in RAM (restarting the one on the screen if it changed). |
 | `FORMAT` | `OK FORMATTED` | Stops the script, deletes all apps in RAM and flash, the autostart setting, all secrets and Bluetooth bonds. |
-| `TIME` | `OK synced=0\|1 utc=<seconds or -> local=<ISO 8601 or -> tz=<POSIX TZ> source=ntp\|rtc\|- last_sync=<utc or -> syncs=<n>` | The clock. At boot it's taken from the board's RTC chip (BM8563) if that kept its time (`source=rtc`); NTP (`pool.ntp.org`) sets it once Wi-Fi is up (`source=ntp`) and the chip is updated from it. Otherwise unknown (`-`). `local` is like `2026-11-06T15:30:00+02:00`. |
+| `TIME` | `OK synced=0\|1 utc=<seconds or -> local=<ISO 8601 or -> tz=<POSIX TZ> source=ntp\|rtc\|- last_sync=<utc or -> syncs=<n>` | The clock. At boot it's taken from the board's RTC chip (BM8563) if that kept its time (`source=rtc`). NTP (`pool.ntp.org`) sets it once Wi-Fi is up (`source=ntp`) and the chip is updated from it. Otherwise unknown (`-`). `local` is like `2026-11-06T15:30:00+02:00`. |
 | `TIME SYNC` | `OK SYNCING` or `ERR no network ...` | Ask the time server now (it's also asked every 6 hours by itself). `syncs` in `TIME` goes up when it has answered. |
 | `TZ [<posix tz>]` | `OK tz=<POSIX TZ>` | Show or set the time zone, a POSIX TZ string such as `EET-2EEST,M3.5.0/3,M10.5.0/4` (the default, Finland) or `UTC0`. Offsets are west-positive (UTC+2 is `-2`). Stored in NVS. `ERR not a POSIX TZ string ...` if it doesn't parse. |
-| `AUTORUN [<app>\|off\|-]` | `OK AUTORUN <app>\|off` | The app started at boot instead of the home menu (default off). Must be installed (`installed` or `modified`). Stored in NVS; also set from the device's Settings. |
+| `AUTORUN [<app>\|off\|-]` | `OK AUTORUN <app>\|off` | The app started at boot instead of the home menu (default off). Must be installed (`installed` or `modified`). Stored in NVS, and also set from the device's Settings. |
 | `EVAL <lua>` | `OK <results>` or `ERR <message>` | Runs in the current VM (one is created if needed). Tried as `return <lua>` first, like the Lua REPL. Several results are separated by tabs. Reply text is cut at 255 bytes. |
 | `WIFI` | `OK state=off\|connecting\|connected ssid=<hex or -> ip=<addr or -> rssi=<dBm> port=3333 host=luaboard.local client=0\|1` | Wi-Fi status. `rssi=0` when not connected. |
-| `WIFI SET <ssid-hex> [<password-hex>]` | `OK <status as above>` | Store the network in NVS and (re)connect. Name (1..32 bytes) and password (up to 64 bytes) are hex-encoded UTF-8 bytes, so spaces and any characters are safe; no password = open network. |
+| `WIFI SET <ssid-hex> [<password-hex>]` | `OK <status as above>` | Store the network in NVS and (re)connect. Name (1..32 bytes) and password (up to 64 bytes) are hex-encoded UTF-8 bytes, so spaces and any characters are safe. No password = open network. |
 | `WIFI OFF` | `OK <status>` | Forget the network, Wi-Fi off. |
 | `PAIR` | `OK paired=on id=<16 hex>` or `OK paired=off` | Is the Wi-Fi link paired, and the key's id. |
-| `PAIR NEW` | `OK PAIR <id> <key: 64 hex>` | A new random key (and id) for the Wi-Fi link; every Wi-Fi client is dropped (`EVT bye paired anew`). USB only. |
+| `PAIR NEW` | `OK PAIR <id> <key: 64 hex>` | A new random key (and id) for the Wi-Fi link. Every Wi-Fi client is dropped (`EVT bye paired anew`). USB only. |
 | `PAIR KEY` | `OK PAIR <id> <key: 64 hex>` | The current key, to pair another computer. `ERR not paired ...` without one. USB only. |
-| `PAIR OFF` | `OK paired=off` | Forget the key: the Wi-Fi link takes no commands; Wi-Fi clients are dropped. USB only: over Wi-Fi every `PAIR` subcommand gets `ERR pairing only works over USB`. |
+| `PAIR OFF` | `OK paired=off` | Forget the key: the Wi-Fi link takes no commands, and Wi-Fi clients are dropped. USB only: over Wi-Fi every `PAIR` subcommand gets `ERR pairing only works over USB`. |
 | `HELP` | `OK <command list>` | |
 
 Files are named `<app>/<file>`: app names 1..23 and file names 1..31
-characters from `[A-Za-z0-9_.-]`, not starting with `.`; file names can't end
+characters from `[A-Za-z0-9_.-]`, not starting with `.`. File names can't end
 in `.tmp` (the device's name for a file while it's written). Limits: 256 KiB per
-file; uploads not installed yet: 64 files, 512 KiB in RAM; installed apps: the
+file. Uploads not installed yet: 64 files, 512 KiB in RAM. Installed apps: the
 ~9.9 MiB apps partition (at most 64 apps are listed).
 
 ### Upload (`PUT`)
@@ -122,10 +111,10 @@ Errors after the payload: `ERR crc mismatch: got <crc> expected <crc>`,
 
 The CRC is CRC-32/IEEE (the zlib/PNG one) of the payload, in hex. If the
 payload stops for 3 s, the device answers `ERR upload timeout (<got>/<size>
-bytes)` and drops the upload; the session stays logged in. The rest of the
-payload may still be on its way, so the device drops what arrives until the
-link has been quiet for 0.5 s; only then does it read commands again. Uploads only change RAM; send `INSTALL` or `SAVE` to make them
-persistent.
+bytes)` and drops the upload, but the session stays logged in. The rest of
+the payload may still be on its way, so the device drops what arrives until
+the link has been quiet for 0.5 s. Only then does it read commands again.
+Uploads only change RAM, so send `INSTALL` or `SAVE` to make them persistent.
 
 ### Firmware update (`OTA`)
 
@@ -151,7 +140,7 @@ that slot to boot, answers `OK UPDATED <version>` and reboots. Installed apps,
 settings, secrets and Wi-Fi stay: they live in partitions an update doesn't
 touch. Errors after the image: `ERR sha256 mismatch: the image arrived
 damaged`, `ERR not a firmware image for this device (...)`, `ERR not luaboard
-firmware (...)`, `ERR writing the slot failed: ...`; the device then keeps
+firmware (...)`, `ERR writing the slot failed: ...`. The device then keeps
 running the old firmware and starts again the app the update stopped (or
 goes back to its menu). Before `OK READY`:
 `ERR usage: OTA <size> <sha256hex>`, `ERR image size <n> out of range (the slot
@@ -182,7 +171,7 @@ The old firmware then reports `ota=rolledback` in `INFO` and `EVT ota
 rolled-back`.
 
 On a USB link the port goes away during the reboot (the chip's USB
-re-enumerates), and a Wi-Fi client is dropped; the simulator keeps its serial
+re-enumerates), and a Wi-Fi client is dropped. The simulator keeps its serial
 port, so its clients see the `EVT boot` of the new firmware.
 
 Pulling a release from the device's own menu (Install on the update screen)
@@ -220,8 +209,8 @@ and `app/src/app_config.h`, and attaches it to every release.
 | Field | Meaning |
 |---|---|
 | `format` | 1, the manifest's first field. A firmware that meets a later format installs nothing from it (below). |
-| `version` | The release tag; what `INFO` `ver` shows once it runs. |
-| `board` | The board the image is for; a device ignores other boards' releases. |
+| `version` | The release tag (what `INFO` `ver` shows once it runs). |
+| `board` | The board the image is for. A device ignores other boards' releases. |
 | `url` | The app image (what `OTA` takes), over HTTPS. |
 | `size`, `sha256` | Checked while downloading, as for `OTA`. |
 | `lua_api`, `lua_api_min` | The Lua API range the release's firmware runs, `APP_LUA_API_MIN` to `APP_LUA_API`. |
@@ -247,17 +236,17 @@ The first release (0.9.0) takes a manifest only within these limits, so every ma
 of format 1 must stay within them (`tools/release.cmake` checks the ones it
 can):
 
-* the whole answer at most 4096 bytes (`UPDATE_MANIFEST_MAX`);
-* `version` and `board` under 32 bytes, `url` under 256 bytes;
-* `url` starting with `https://`;
+* the whole answer at most 4096 bytes (`UPDATE_MANIFEST_MAX`).
+* `version` and `board` under 32 bytes, `url` under 256 bytes.
+* `url` starting with `https://`.
 * `version` exactly `vX.Y.Z` (numbers only, no suffix) for a release that is
-  offered;
+  offered.
 * `format`, `size`, `lua_api` and `lua_api_min` plain non-negative integers
-  (no sign, fraction or exponent), each at most 999999999; `size` not 0, and
-  `lua_api_min` not above `lua_api`;
-* `sha256` exactly 64 hex digits;
+  (no sign, fraction or exponent), each at most 999999999. `size` not 0, and
+  `lua_api_min` not above `lua_api`.
+* `sha256` exactly 64 hex digits.
 * the value of a field it doesn't know nested at most 16 arrays or objects
-  deep;
+  deep.
 * `notes` is cut to fit 127 bytes on the device (at a whole UTF-8 character),
   so its length is free, but the release script keeps it to 120.
 
@@ -268,7 +257,7 @@ studio's Display panel does this with the mouse and keyboard), over USB or
 Wi-Fi. Remote readings go through the same state machine as the touch
 controller, one per 10 ms reading, so the device tells taps, holds, drags,
 swipes and button presses apart the same way. A tap or a swipe whose lines
-arrive together still counts as one; queued moves in a row collapse into the
+arrive together still counts as one. Queued moves in a row collapse into the
 newest. While the remote finger is down it stands in for the real one.
 
 Repeat `TOUCH <x> <y>` while the finger is held, at least every second: a
@@ -280,9 +269,11 @@ that goes away, so a PC that vanishes never leaves a finger down.
 The Wi-Fi link is encrypted and needs pairing. Pairing happens over USB:
 `PAIR NEW` makes a random 256-bit key K with a random 8-byte id, and `PAIR KEY`
 hands the same key to another computer. The PC tools keep keys in
-`~/.config/luaboard/wifi-keys` (or `$LUABOARD_KEYS`), one line per device:
-`<id> <key hex>`, readable only by the user. Until the device is paired, a
-Wi-Fi connection gets `ERR not paired: ...` and is closed.
+`~/.config/luaboard/wifi-keys` (Windows: `%APPDATA%\luaboard\wifi-keys`), or
+in `$LUABOARD_KEYS` when it is set, one line per device: `<id> <key hex>`,
+readable only by the user. Until the device is paired, a Wi-Fi connection
+gets `ERR not paired: ...` and is closed, so an unpaired device takes no
+commands over Wi-Fi.
 
 A connection starts in clear text with the client's nonce, and the device
 answers with the key id (so the client knows which key to use) and its own
@@ -312,7 +303,7 @@ tag (16 bytes)
 ```
 
 The GCM nonce is 4 zero bytes followed by the number of frames already sent
-in that direction, as a 64-bit big-endian count; the additional data is the
+in that direction, as a 64-bit big-endian count. The additional data is the
 2 length bytes. A frame that doesn't decrypt ends the connection.
 
 * The client is logged in when its first frame decrypts: only a holder of K
@@ -321,8 +312,19 @@ in that direction, as a 64-bit big-endian count; the additional data is the
   decrypts. An impostor that answers `HELLO` can't produce one.
 * Fresh nonces from both sides make every connection's keys different, so
   recorded traffic can't be replayed, and nothing on the wire helps guess K.
-* `WIFI SET` / `WIFI OFF` work over Wi-Fi once logged in; pairing is USB only.
-  `PAIR NEW` and `PAIR OFF` drop every Wi-Fi client.
+* `WIFI SET` and `WIFI OFF` work over Wi-Fi once logged in. Pairing is USB
+  only. `PAIR NEW` and `PAIR OFF` drop every Wi-Fi client.
+
+At most one client is logged in at a time, plus up to two that are still
+logging in. A new connection only pushes out the oldest client that hasn't
+logged in (`EVT bye another client connected`). A logged-in client is
+replaced only when a newer client logs in (`EVT bye another client logged
+in`), so a PC reconnecting after a network blip still wins over its own dead
+connection, while someone without the key can't kick you off. A client that
+hasn't logged in after 60 s is dropped (`EVT bye no login in time`), as is
+one that stops reading for 2 s, and all of them when Wi-Fi is lost or turned
+off. Connections from the device's own scripts (`net.connect` to its own
+address) are refused: apps can't drive the device.
 
 ## Secrets
 
@@ -332,11 +334,11 @@ in that direction, as a 64-bit big-endian count; the additional data is the
 | `SECRET SET <app> <name> <hex>` | `OK SECRET SET <app> <name>` | Value hex-encoded (any bytes). Only that app's scripts can read it. |
 | `SECRET PART <app> <name> <hex>` | `OK SECRET PART <app> <name> <bytes so far>` | The start of a value too long for one line (a 2048-byte value is 4096 hex characters). The next `SECRET SET` of that name from the same connection adds the rest and stores the whole value. The PC tool sends values over 768 bytes this way. |
 | `SECRET RM <app> <name>` | `OK SECRET RM <app> <name>` | |
-| `SECRET CLEAR <app>` | `OK SECRET CLEAR <app>` | Deletes all of the app's secrets. (*Clear data* in the menu also deletes its `store` values and Bluetooth bonds.) |
+| `SECRET CLEAR <app>` | `OK SECRET CLEAR <app>` | Deletes all of the app's secrets. (Clear data in the menu also deletes its `store` values and Bluetooth bonds.) |
 
-Subcommands (`SET`, `RM`, `CLEAR`) are case-sensitive. Secret names are 1..15
+Secret names are 1..15
 characters from `[A-Za-z0-9_.-]`, not starting with `_`. Values up to 2048
-bytes (in practice less: the hex must fit the 2047-byte line); an app's
+bytes (in practice less: the hex must fit the 2047-byte line). An app's
 secrets up to 8 KB together, all apps' 16 KB, and at most 32 secrets on the
 device. `SECRET RM` of a missing secret still answers `OK`.
 
@@ -344,7 +346,7 @@ A logged-in client can still get at a value: `EVAL` runs in the VM of the
 app last run, as that app, so `EVAL secrets.get(name)` reads its secrets,
 just as code uploaded into the app could. The pairing key guards that.
 
-Each secret belongs to an app. `UNINSTALL` deletes the app's secrets too;
+Each secret belongs to an app. `UNINSTALL` deletes the app's secrets too.
 `INSTALL` keeps them, and so does a restart even if the app was only
 uploaded (and so is gone): a login survives while you work on an app. To
 get rid of the secrets and stored values of such a name, `UNINSTALL` it.
@@ -352,16 +354,16 @@ get rid of the secrets and stored values of such a name, `UNINSTALL` it.
 ## Browser login
 
 A script asks for a login through the browser (`browser.login()`, used by
-`oauth.lua`); a tool opens the URL and catches the redirect.
+`oauth.lua`), and a tool opens the URL and catches the redirect.
 
 | Command | Reply | Notes |
 |---|---|---|
 | `BROWSER` | `OK BROWSER <id> <app> <redirect> <url> <title>` or `OK BROWSER none` | The pending request (tools ask after connecting). `<app>` is the app whose script asks, set by the firmware (`-` for none): tools show it, so a script can't pass its login off as another app's. |
 | `BROWSER <id> <query>` | `OK BROWSER answered` | The redirect's query string, e.g. `code=...&state=...`. |
-| `BROWSER <id> CANCEL` | `OK BROWSER cancelled` | The user declined. `CANCEL` is case-sensitive. |
+| `BROWSER <id> CANCEL` | `OK BROWSER cancelled` | The user declined. |
 
 `redirect` is always `http://127.0.0.1:<port>/...` or `localhost`. One request
-at a time; a new one cancels the pending one, and it's cancelled when the
+at a time. A new one cancels the pending one, and it's cancelled when the
 script ends. `ERR no pending browser request <id>` if the id isn't pending.
 
 ## Events
@@ -372,16 +374,16 @@ script ends. `ERR no pending browser request <id>` if the id isn't pending.
 | `EVT off wake=<seconds>\|none by=app\|setting` | The device turns itself off now: an app called `sys.off`, or the Turn off after setting's time is up. `wake`: it turns itself on again after this many seconds. |
 | `EVT crash ver=.. cause=.. at=..` | At boot after a crash: what it was and its innermost call (all of it: `CRASH`). |
 | `EVT ota started size=<n> slot=<slot>` | An `OTA` update began. |
-| `EVT ota installed ver=<version> slot=<slot> rebooting` | The update was checked and is booted next; the reboot follows. |
-| `EVT ota failed <why>` | The update was refused or stopped; the old firmware runs on. |
+| `EVT ota installed ver=<version> slot=<slot> rebooting` | The update was checked and is booted next. The reboot follows. |
+| `EVT ota failed <why>` | The update was refused or stopped. The old firmware runs on. |
 | `EVT ota rolled-back ver=<version>` | At boot: the update kept crashing, this is the old firmware again. |
 | `EVT update available ver=<version>` | The check found a newer release (once per version per boot). Also `update=<version>` in `INFO`. |
 | `EVT app updates n=<n>` | The number of installed apps the marketplace has a newer version of changed. Also `app_updates` in `INFO`. |
-| `EVT apps check-failed <why>` | The marketplace check failed; it comes again on the update check's retry times. |
+| `EVT apps check-failed <why>` | The marketplace check failed. It comes again on the update check's retry times. |
 | `EVT update manual format=<n>` | The check found a release whose manifest is in a later format than this firmware reads: it has to be installed from a computer. Also `update=manual` in `INFO`. |
 | `EVT update check-failed <why>` | A check failed (no network, a bad answer, a manifest this firmware can't use). |
-| `EVT update install-failed got=<bytes>/<size> <why>` | Installing a release from the menu stopped while downloading, with the full reason (such as a TLS error's code); `EVT ota failed <why>` with the short one follows. |
-| `EVT update offer ver=<version> wont-run=<app,app or ->` | The user opened the update row's confirm screen; `wont-run` lists the installed apps whose `lua_api` is outside the release's range. |
+| `EVT update install-failed got=<bytes>/<size> <why>` | Installing a release from the menu stopped while downloading, with the full reason (such as a TLS error's code), and `EVT ota failed <why>` with the short one follows. |
+| `EVT update offer ver=<version> wont-run=<app,app or ->` | The user opened the update row's confirm screen. `wont-run` lists the installed apps whose `lua_api` is outside the release's range. |
 | `EVT update offer manual` | The user opened the row of a release that needs a manual update: its screen tells what to do. |
 | `EVT browser <id> <app> <redirect> <url> <title>` | A script asks for a browser login (see above). |
 | `EVT browser-done <id> ok\|cancelled` | That request is over: close any prompt. |
@@ -395,11 +397,11 @@ script ends. `ERR no pending browser request <id>` if the id isn't pending.
 | `EVT safe-mode reason=touch` | A finger was on the screen at boot, so the autostart app (if any) was skipped. |
 | `EVT safe-mode reason=lua_api` | The autostart app was made for a Lua API version this firmware doesn't run, so it was skipped (it stays installed and stays the autostart app). |
 | `EVT safe-mode reason=crash-loop boots=N` | The last N boots ended in a crash reset (panic, watchdog, brown-out) while the autostart app ran, so it was skipped. Lua errors don't count: they never reset the device. |
-| `EVT wifi connected ip=<addr> port=3333` | Joined the network; the TCP server is up. |
+| `EVT wifi connected ip=<addr> port=3333` | Joined the network, and the TCP server is up. |
 | `EVT time rtc <ISO 8601>` | At boot: the time was taken from the RTC chip. |
 | `EVT time synced <ISO 8601>` | The clock was set from the network for the first time since boot. |
 | `EVT wifi lost reason=<n>` | Lost the network after being connected (ESP-IDF disconnect reason). The device keeps retrying with back-off up to 30 s. |
-| `EVT bye <why>` | Sent to a Wi-Fi client just before the device drops it: `another client connected`, `another client logged in`, `no login in time`, `paired anew` or `unpaired`. Encrypted to a logged-in client; in clear text to one that hasn't finished `HELLO`; not sent to one in between. |
+| `EVT bye <why>` | Sent to a Wi-Fi client just before the device drops it: `another client connected`, `another client logged in`, `no login in time`, `paired anew` or `unpaired`. Encrypted to a logged-in client, in clear text to one that hasn't finished `HELLO`, and not sent to one in between. |
 | `EVT cleared <app>` | The app's data (secrets, stored values, Bluetooth bonds) was cleared from the device's menu. |
 
 ## Example session
@@ -433,4 +435,4 @@ script ends. `ERR no pending browser request <id>` if the id isn't pending.
 * A frame from `FB` is 150 KB, so the live preview uses a noticeable share of
   the link. The studio sends the CRC of the frame it has, so an unchanged
   screen costs a short `OK SAME`, and it polls only while its Display panel is
-  open. Untick live in the GUI during large uploads if needed.
+  open.

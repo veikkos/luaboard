@@ -12,14 +12,14 @@ over mDNS.
 What the simulator needs from the computer goes through the host layer,
 `platform/host/include/host.h`: the serial link, the control channel,
 handing both to the next boot, crashes, mDNS and root certificates. It has a
-POSIX and a Windows implementation; on Windows, `platform/host/win32/posix`
+POSIX and a Windows implementation. On Windows, `platform/host/win32/posix`
 also gives the firmware the POSIX headers ESP-IDF gives it on the device
 (pthreads, dirent, a POSIX `TZ`, sockets through Winsock).
 
 When the firmware reboots or crashes, the simulator boots again as the
 board would: through the bootloader, which may pick the other app slot (see
 [Firmware updates](#firmware-updates)). The serial port and the control
-channel stay open, so a connected PC tool stays connected; Wi-Fi clients
+channel stay open, so a connected PC tool stays connected, but Wi-Fi clients
 are dropped and the window opens again.
 
 The `run` build target builds it and opens the window with the serial port
@@ -39,7 +39,7 @@ environment it runs the dark CoreS3 with a battery instead of the default SE.
 | Mouse on screen | Touch |
 | A / B / C keys, or click below the screen | Touch buttons (hold B 0.8 s to go back) |
 | Left or Up / Enter / Right or Down | Touch buttons A / B / C (the menus' up / open / down) |
-| P, or click the side key | Power key (short press: home; hold 1.5 s: sleep) |
+| P, or click the side key | Power key (short press: home, hold 1.5 s: sleep) |
 | `,` / `.` (Shift: big steps) | Port B analog input |
 | `-` / `+` (`=` on a US keyboard) | Battery level |
 | X | Attach or remove battery |
@@ -65,7 +65,7 @@ settings:
 
 The settings (S, Cmd+, or the SETTINGS button) also turn the pixel grid on
 or off, zoom, and reset the window (Cmd 0: default size, Fit window, grid
-on). The view is kept in `<nvs>.view` for the next run; `--scale` starts at
+on). The view is kept in `<nvs>.view` for the next run. `--scale` starts at
 that scale instead.
 
 The settings also hold the board's inputs: the battery and its level, USB
@@ -119,7 +119,7 @@ BLE_DEVICE=marketplace/di2/sim_device.json cmake --build --preset default --targ
 `id` names it for the controls (default: the file's name). The address is
 random static when its top bits are 11, as on real devices. UUIDs take the
 forms apps use: `2a19`, `0x2a19` or the full 128-bit text. `props` takes
-`read`, `write`, `write_nr`, `notify` and `indicate`; a value is hex
+`read`, `write`, `write_nr`, `notify` and `indicate`. A value is hex
 (`value`) or text (`text`), and a written one is kept. Optional: `present`
 (in range from the start, default true), `rssi` (default -60), `adv`
 (advertising data as hex instead of flags and name), and per characteristic
@@ -130,7 +130,7 @@ While it runs, the controls change it: `ble=ID:on|off` (in range),
 `ble_value=ID:UUID:HEX` (a new value, notified to subscribers),
 `ble_notify=ID:UUID:HEX` (a notification only) and `ble_rssi=ID:DBM`, as
 `--set` or on the control channel. D in the window brings them all in range or
-takes them away. Headless (the tests) only the simulated devices exist;
+takes them away. Headless (the tests) only the simulated devices exist.
 `--ble host` adds the Mac's there too, `--ble sim` leaves them out of the
 window.
 
@@ -143,9 +143,9 @@ window.
 | `--model cores3se\|cores3\|cores3-lite` | Board variant (default `cores3se`) |
 | `--headless` | No window |
 | `--watch` | Watch this executable: a new build is flashed into `ota_0` and booted, in the same window. The `run` target does this, and rebuilds when a source changes (environment `WATCH=0` turns both off) |
-| `--link PATH` | Symlink to the serial PTY; on Windows the pipe's name, `\\.\pipe\PATH` (default `esp32-sim`) |
+| `--link PATH` | Symlink to the serial PTY. On Windows the pipe's name, `\\.\pipe\PATH` (default `esp32-sim`) |
 | `--loopback` | Servers (the Wi-Fi link, `net.listen`) take 127.0.0.1 only: no other computer reaches them, and no firewall asks about them (the tests) |
-| `--nvs FILE` | NVS file, so settings, Wi-Fi and secrets persist. `<nvs>.run` exists while the simulator runs; found at start, the firmware sees a crash reset (the last run was killed) |
+| `--nvs FILE` | NVS file, so settings, Wi-Fi and secrets persist. `<nvs>.run` exists while the simulator runs. Found at start, the firmware sees a crash reset (the last run was killed) |
 | `--flash DIR` | Apps partition folder (default `<nvs>.flash`). The app slots of firmware updates are in `<nvs>.ota/` |
 | `--scale N` | Window points per LCD pixel, 1 to 8 (default: as last time, or 2) |
 | `--control PORT` | A TCP port on 127.0.0.1 (`0`: any free one, printed as `Control: 127.0.0.1:N`) taking control lines while running, see [Control channel](#control-channel). The `run` target's port is 3334 |
@@ -155,10 +155,10 @@ window.
 | `--set sd=FOLDER\|unformatted\|none` | The microSD slot: a FAT card whose files are that folder's (made if it isn't there), a card that isn't FAT, or nothing (the default). Changing it while a script uses the card is pulling the card out |
 | `--set portc=loopback\|none` | Port C with its TX wired to its RX: what a script writes to `uart`, it reads back |
 | `--set porta=env\|none`, `env_temp=C`, `env_hum=%` | An ENV IV unit (SHT40 at 0x44) on Port A for `i2c`, and its readings (default 21.5 °C, 45 %) |
-| `--set wifi=0\|1`, `wifi_rssi=dBm`, `wifi_port=N` | Access point in range; its signal (default -52 dBm; the menu's Wi-Fi icon shows 3 bars from -60, 2 from -70, 1 from -80, and a red cross while it can't join, e.g. with `wifi=0`); TCP port (default 3333, 0: any free port) |
-| `--set update_url=URL`, `update_every=MS`, `fw_version=V` | The firmware's [update check](../../docs/DEVICE.md#firmware-updates): the release manifest's `https://` address (default none: no checks, so the simulator never reaches GitHub on its own), the time between checks (default a day, at least 1000; a failed check comes again after a 144th of it, then a 24th), and the version the firmware reports (default the build's `git describe`) |
+| `--set wifi=0\|1`, `wifi_rssi=dBm`, `wifi_port=N` | Access point in range. Its signal (default -52 dBm, and the menu's Wi-Fi icon shows 3 bars from -60, 2 from -70, 1 from -80, and a red cross while it can't join, e.g. with `wifi=0`). TCP port (default 3333, 0: any free port) |
+| `--set update_url=URL`, `update_every=MS`, `fw_version=V` | The firmware's [update check](../../docs/DEVICE.md#firmware-updates): the release manifest's `https://` address (default none: no checks, so the simulator never reaches GitHub on its own), the time between checks (default a day, at least 1000, and a failed check comes again after a 144th of it, then a 24th), and the version the firmware reports (default the build's `git describe`) |
 | `--set wifi_net=NAME` | The network the simulated board joins while it has none set up, as if it had been set up for it (`none` or not given: none, it waits for `luaboard wifi set` as a new board does). Nothing is stored: a network set up for real wins, and Wi-Fi turned off stays off until the next start. The `run` target passes `Simulator` unless `WIFI_NET` says otherwise (`WIFI_NET=none` to try the first-time setup) |
-| `--set apps_url=URL` | The [app marketplace](https://github.com/veikkos/luaboard-marketplace): its base address, with the index at `URL/main/index.json` and an app version's files at `URL/<commit>/<app>/<file>` (`https://raw.githubusercontent.com/veikkos/luaboard-marketplace` on the device; default none here: no app checks, and Marketplace finds nothing; the `run` target takes it as `APPS_URL`). Checked on the update check's schedule (`update_every`) |
+| `--set apps_url=URL` | The [app marketplace](https://github.com/veikkos/luaboard-marketplace): its base address, with the index at `URL/main/index.json` and an app version's files at `URL/<commit>/<app>/<file>` (`https://raw.githubusercontent.com/veikkos/luaboard-marketplace` on the device, default none here: no app checks, and Marketplace finds nothing). The `run` target takes it as `APPS_URL`. Checked on the update check's schedule (`update_every`) |
 | `--set rtc=lost\|none` | `lost`: the RTC lost power (otherwise kept in `<nvs>.rtc`). `none`: it doesn't answer at all, as a broken one |
 | `--set time=EPOCH` | The world's clock (NTP, RTC chip) starts at these UTC seconds |
 | `--set boot_touch=0\|1` | Finger on screen at boot (safe mode), until the next touch |
@@ -166,9 +166,9 @@ window.
 | `--set power=short\|long` | Press the power key |
 | `--ble-device FILE` | A simulated Bluetooth device described in JSON (repeatable, see [Bluetooth](#bluetooth)) |
 | `--set ble=ID:on\|off`, `ble_value=ID:UUID:HEX`, `ble_notify=ID:UUID:HEX`, `ble_rssi=ID:DBM` | Its range, values and signal |
-| `--ble host\|sim` | Bluetooth devices: the Mac's and the simulated ones (default in the window), or simulated only (default headless; elsewhere than macOS there are only simulated ones) |
-| `--run-ms N`, `--ppm FILE`, `--screenshot FILE` | Exit after N ms of the chip's clock; save LCD / window |
-| `--wav FILE` | Record what the speaker plays (while its amplifier is on) as a WAV file; reboots add to it |
+| `--ble host\|sim` | Bluetooth devices: the Mac's and the simulated ones (default in the window), or simulated only (default headless). Elsewhere than macOS there are only simulated ones |
+| `--run-ms N`, `--ppm FILE`, `--screenshot FILE` | Exit after N ms of the chip's clock. Save LCD / window |
+| `--wav FILE` | Record what the speaker plays (while its amplifier is on) as a WAV file. Reboots add to it |
 | `--mute` | No sound from the computer's speakers (the window plays the device's speaker through them) |
 
 Two settings in the environment, for the tests (which boot a simulator a
@@ -190,15 +190,15 @@ how `sys.off(seconds)` wakes the device. `advance=MS` works while it is
 off: the world's clock moves by MS at once. `is=off` on the control channel
 says whether it is off.
 
-By default the simulated board is on USB power, where the firmware doesn't
-power it down but acts it out (the app stops, the screen goes off, the
-power key or the wake-up time starts the app again). `--set usb=0` with a battery (`--model cores3`, or
-`battery=80`) gives the real thing.
+By default the simulated board is on USB power, where the firmware only acts
+the off out ([Asleep and off](../../docs/DEVICE.md#asleep-and-off)).
+`--set usb=0` with a battery (`--model cores3`, or `battery=80`) gives the
+real thing.
 
 ## Firmware updates
 
 The simulator takes firmware updates like the device (`luaboard update`,
-Studio's Firmware window), and its app image is a simulator executable for
+the studio's Firmware window), and its app image is a simulator executable for
 the same board: `build/m5stack-cores3/esp32-sim`, or a copy of an older one.
 It finds the image by a tag built into it, with the project, the version
 (`git describe`) and the board. The two app slots are files,
@@ -214,7 +214,7 @@ works as on the device. The serial link and the control channel are handed
 to the new image, so clients stay connected and see the new firmware's `EVT
 boot`. The world's clock and the
 board's inputs (battery, USB, the access point, the units, as in the
-settings, a finger held with `touch=X,Y`) carry over too; the start's
+settings, a finger held with `touch=X,Y`) carry over too, but the start's
 `--set` inputs don't apply again, so `boot_touch=1` is a finger at power-on
 only.
 
@@ -223,9 +223,8 @@ flashing it over USB: it becomes `ota_0` and boots, whatever otadata said.
 Starting the same one again is a power cycle and boots what otadata says.
 With `--watch` that happens without a restart: a new build, and the
 simulator boots the new firmware, with installed apps, settings and the
-serial link kept. The `run` target also runs `tools/watch_build.cmake` next
-to it, which rebuilds when a source changes, so saving a file is enough. A
-build that fails leaves the last good one running.
+serial link kept. A build that fails leaves the last good one running.
+
 For a rollback test, patch `fail=none ` in a copy of the executable to
 `fail=init ` (it crashes early in its boot: the bootloader goes back) or
 `fail=boot ` (it crashes 1 s into every boot: the firmware goes back after 5),
@@ -273,8 +272,8 @@ The control channel (`--control PORT`, one client at a time) takes the
 | `sdcard=mounted\|free` | Does the firmware hold the card |
 
 Each control line is answered on the same connection, in order, with `ok
-LINE` or `error LINE` once it has taken effect; `advance` once the time has
-been run through, and lines after it wait for that. Lines sent together are
+LINE` or `error LINE` once it has taken effect (`advance` once the time has
+been run through, and lines after it wait for that). Lines sent together are
 applied with the clock standing between them, also on a busy computer. So
 `button=B`, `advance=1000`, `button=-` holds B for exactly one simulated second. The tests use this
 (`pc-tool/tests/e2e/harness.rs`), and so does `luaboard sim-ctl`, which

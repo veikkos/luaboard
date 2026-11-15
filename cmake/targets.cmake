@@ -74,7 +74,7 @@ add_custom_target(unit
     WORKING_DIRECTORY ${PC_TOOL} USES_TERMINAL VERBATIM)
 
 # The end-to-end suite is a Rust test of the PC tools (pc-tool/tests/e2e),
-# its fake servers included: nothing else to install. E2E_ONLY="gcal menu"
+# its fake servers included: nothing else to install. E2E_ONLY="oauth menu"
 # runs only the sections whose name contains a word.
 add_custom_target(e2e
     COMMAND ${CMAKE_COMMAND} -DROOT=${ROOT} -P ${ROOT}/tools/need_marketplace.cmake

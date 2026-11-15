@@ -1,7 +1,7 @@
 <h1 align="center">luaboard</h1>
 
 <p align="center">
-  Write Lua apps for the <a href="https://m5stack.com">M5Stack</a> CoreS3, with a desktop simulator and studio.
+  Write Lua 5.4 apps for the <a href="https://m5stack.com">M5Stack</a> CoreS3, CoreS3 Lite and CoreS3 SE, with a desktop simulator and studio.
 </p>
 
 <p align="center">
@@ -16,21 +16,20 @@
   <img src="docs/img/cores3.png" width="400" alt="CoreS3 in the simulator, showing Spotify now playing">
 </p>
 
-**luaboard is a work in progress. For now it runs only in the simulator; the
-release for the real board is near. Things change and break without notice.**
-
-Lua 5.4 apps for the M5Stack CoreS3, CoreS3 Lite and CoreS3 SE.
+luaboard is a work in progress. For now it runs only in the simulator, and
+the release for the real board is near. Things change and break without
+notice.
 
 - Hot reload: save and the app restarts, on the board or in the simulator.
 - Cross-platform [simulator](platform/sim/README.md),
   [studio and CLI](pc-tool/README.md) for macOS, Windows and Linux.
 - USB or encrypted Wi-Fi link to the studio and CLI.
-- Automatic firmware updates over Wi-Fi, and apps from the
-  [marketplace](https://github.com/veikkos/luaboard-marketplace): get them and update them on the board.
+- Firmware updates over Wi-Fi, offered by the device.
+- Apps from the [marketplace](https://github.com/veikkos/luaboard-marketplace),
+  from Spotify and Google Calendar to electricity prices and Home Assistant,
+  installed and updated on the board.
 - Graphics, touch, sound, sensors, a serial port, PWM, an SD card, Bluetooth
   LE, TLS, MQTT, HTTP and OAuth built in.
-- Plenty of apps in the [marketplace](https://github.com/veikkos/luaboard-marketplace), from Spotify and Google Calendar to
-  electricity prices and Home Assistant.
 
 ![The studio typing into an app: on every pause the app reloads on the device and the Display panel shows it](pc-tool/studio.gif)
 
@@ -47,8 +46,8 @@ device with Wi-Fi then offers later releases itself, see
 
 To build from source instead, clone with
 `git clone --recursive https://github.com/veikkos/luaboard` (`marketplace/` is
-the [marketplace](https://github.com/veikkos/luaboard-marketplace) as a submodule; in an existing clone,
-`git submodule update --init`). The simulator and the tools build with CMake
+the marketplace as a submodule, `git submodule update --init` fetches it in an
+existing clone). The simulator and the tools build with CMake
 on macOS, Windows and Linux. SDL2 and mbedTLS come from the system when it
 has them, otherwise the build downloads and builds them itself.
 
@@ -60,7 +59,6 @@ $(brew --prefix rustup)/bin/rustup default stable   # rustup is keg-only
 cmake --preset default                 # configure (build/)
 cmake --build --preset default --target tool   # studio and CLI
 cmake --build --preset default --target run    # simulator window, serial port at /tmp/esp32-sim
-                                               # (rebuilds and reboots it when you save a source)
 pc-tool/target/release/luaboard-studio marketplace/dashboard   # in another terminal
 ```
 
@@ -93,7 +91,7 @@ For the real device, see [app/idf/README.md](app/idf/README.md).
 
 ## Apps
 
-An app is a folder of Lua files starting at `main.lua`; other Lua files are
+An app is a folder of Lua files starting at `main.lua`. Other Lua files are
 modules for `require`. Pictures (`.jpg`) and sounds (`.wav`) in the folder go
 along too, for `asset("logo.jpg")`. An optional `app.json` sets the menu
 title and info:
@@ -103,9 +101,9 @@ title and info:
 ```
 
 `lua_api` is the [Lua API version](docs/LUA_API.md#api-version) the app was
-written for; a firmware too old for it says so instead of starting it.
+written for. A firmware too old for it says so instead of starting it.
 
-Uploaded apps stay in RAM until restart; installed apps live in flash. A
+Uploaded apps stay in RAM until restart, installed apps live in flash. A
 `secrets.env` in the folder (gitignored) is stored as the app's secrets.
 
 Apps sit side by side in the home menu, each sandboxed with its own secrets,
@@ -128,7 +126,7 @@ function loop(dt)                       -- called at sys.rate() Hz, default 30
 end
 ```
 
-Scripts are sandboxed: 1 MiB heap, 1 s watchdog per call, no `io`/`os`.
+Scripts are sandboxed: 4 MiB heap, 1 s watchdog per call, no `io`/`os`.
 Each run starts clean. Errors stop the script and show file, line and message
 on the device and in the studio.
 
@@ -147,8 +145,7 @@ task(function()
 end)
 ```
 
-Full reference: [docs/LUA_API.md](docs/LUA_API.md). Apps are in the
-[marketplace](https://github.com/veikkos/luaboard-marketplace), checked out at `marketplace/`.
+Full reference: [docs/LUA_API.md](docs/LUA_API.md).
 
 ## Wi-Fi
 
@@ -166,23 +163,16 @@ button presses, so you can write, run and try an app on a device across the
 house. The CLI can do the same, for example `luaboard touch 160 120` or
 `luaboard touch B --hold 800`.
 
-Firmware updates go over the same link, USB or Wi-Fi: `luaboard update
-build/luaboard-m5stack-cores3.bin`, or Update in the studio's Firmware window.
-Apps and settings stay.
+Firmware updates from a computer go over the same link, USB or Wi-Fi
+([pc-tool/README.md](pc-tool/README.md#firmware-updates)).
 
 ## Development
 
-The build targets (`cmake --build --preset default --target NAME`) are
-listed at the top of [CMakeLists.txt](CMakeLists.txt). `unit` and `e2e` run
-the unit and end-to-end tests
-([pc-tool/tests/e2e/README.md](pc-tool/tests/e2e/README.md)). `check`
-runs everything CI checks, and `hooks` makes `git push` run it first (and
-build the firmware when the push changes it).
-
-To contribute, see [CONTRIBUTING.md](CONTRIBUTING.md).
-
-The design is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
-the wire protocol in [docs/PROTOCOL.md](docs/PROTOCOL.md).
+The build targets are listed at the top of [CMakeLists.txt](CMakeLists.txt).
+Tests, the pre-push hook and how to contribute are in
+[CONTRIBUTING.md](CONTRIBUTING.md). The design is described in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and the wire protocol in
+[docs/PROTOCOL.md](docs/PROTOCOL.md).
 
 ## License
 
@@ -190,6 +180,6 @@ MIT, see [LICENSE](LICENSE). Third-party components are listed in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 luaboard is an independent project, not affiliated with or endorsed by
-M5Stack or by the makers of the services and products the examples work
-with. M5Stack and CoreS3 are trademarks of M5Stack Technology Co., Ltd.;
-Spotify, Google Calendar and Home Assistant belong to their owners.
+M5Stack or by the makers of the services and products the apps work with.
+M5Stack and CoreS3 are trademarks of M5Stack Technology Co., Ltd. Spotify,
+Google Calendar and Home Assistant belong to their owners.

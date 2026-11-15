@@ -10,12 +10,12 @@ E2E_TIMES=1 ...                                # each check's time, each section
 ```
 
 From `pc-tool/`, the same with cargo: `cargo test --release --test e2e -- oauth menu`
-(the simulator must be built; `SIM=path` picks another one).
+(the simulator must be built, and `SIM=path` picks another one).
 
 The suite is a Rust test of the PC tools with its own runner (`main.rs`). It
 boots headless simulators and drives them with the CLI, as a user would. Each
 section (`sections/`) has its own simulator, work folder and ports, and all
-run in parallel, each in a thread; the whole suite takes about ten seconds.
+run in parallel, each in a thread. The whole suite takes about two seconds.
 A section over the time limit fails.
 
 The servers the device talks to are fakes in the same process (`fakes/`),
@@ -50,12 +50,12 @@ instead of waiting it out (`harness.rs`):
 | `t.is(state)` | Is the board `"on"`, `"off"` (powered down) or `"light"` (asleep with light sleep allowed)? |
 | `t.wait_off()` | Wait (up to 2 s) for the board to have powered down, after the firmware said it would |
 | `t.ask(line)` | Any question on the control channel (`is=off`, `pwm=8:1000:250`): true for yes |
-| `t.e(&[args])` | The CLI on this section's simulator; its output and errors as one text |
+| `t.e(&[args])` | The CLI on this section's simulator: its output and errors as one text |
 | `t.e_ahead(&[args], from)` | `e` for a call that waits for the device (an update's reboot): once the CLI has printed FROM the device's clock runs ahead |
 | `t.eval(expr)`, `t.info(key)` | What `luaboard eval` prints and a field of INFO, asked from the test program itself (no CLI process) |
 | `t.eval_skipping(expr, ms)` | `eval` for a call that never waits (a busy loop): once it runs, the device's clock skips MS ahead |
-| `t.shot(name)` | The simulator's LCD as a picture (the simulator writes it; the CLI's `screenshot` sends the frame over the serial link) |
-| `t.check(cond, ok, bad)` | Count a check; the failure message is made only when it fails |
+| `t.shot(name)` | The simulator's LCD as a picture (the simulator writes it, but the CLI's `screenshot` sends the frame over the serial link) |
+| `t.check(cond, ok, bad)` | Count a check. The failure message is made only when it fails |
 
 A fast-forward waits for a fake server's answer to what the device sent,
 but not for the rest of an answer that comes in pieces, and not for a
@@ -79,6 +79,6 @@ Linux, a named pipe on Windows (`harness.rs` does all this).
 `data/` holds what the tests hand out: `cover.jpg` (a 300x300 JPEG the fake
 web server serves) and `ble_device.json` (a simulated Bluetooth device).
 
-The tests are about the firmware, the simulator and the CLI. The apps in
-the marketplace are tested there; here only that each one starts and draws
-(the apps section).
+The tests are about the firmware, the simulator and the CLI. Of the
+marketplace's apps, only that each one starts and draws is checked (the apps
+section).

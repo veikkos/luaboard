@@ -15,14 +15,14 @@ hooks (pushing the marketplace from `marketplace/` runs `check` too):
 
 ```sh
 cmake --preset default
-cmake --build build -t hooks
+cmake --build --preset default --target hooks
 ```
 
 Day to day:
 
 ```sh
-cmake --build build -t run       # the simulator window, rebuilt and rebooted when you save
-cmake --build build -t studio    # the studio, which finds the simulator by itself
+cmake --build --preset default --target run      # the simulator window
+cmake --build --preset default --target studio   # the studio, which finds the simulator by itself
 ```
 
 `run` builds in `build/run`, apart from the tests, so both can go at once.
@@ -30,9 +30,9 @@ cmake --build build -t studio    # the studio, which finds the simulator by itse
 ## Tests
 
 ```sh
-cmake --build build -t check                          # everything CI checks
-E2E_ONLY="sound menu" cmake --build build -t e2e      # some end-to-end sections
-cmake --build build -t fw                             # the firmware (ESP-IDF, see app/idf/README.md)
+cmake --build --preset default --target check                       # everything CI checks
+E2E_ONLY="sound menu" cmake --build --preset default --target e2e   # some end-to-end sections
+cmake --build --preset default --target fw                          # the firmware (ESP-IDF, see app/idf/README.md)
 ```
 
 `check` is lint (rustfmt, clippy), the simulator with warnings as errors,
@@ -42,7 +42,7 @@ first, and builds the firmware too when the push changes it.
 The end-to-end tests drive the simulator through the CLI, against fake
 servers in the same process ([pc-tool/tests/e2e](pc-tool/tests/e2e/README.md)).
 New behavior gets a check there. Tests never depend on the real date or
-time: the simulator runs on a fixed date, and tests move its clock ahead
+time. The simulator runs on a fixed date, and tests move its clock ahead
 instead of sleeping.
 
 ## Changing an app in marketplace/
@@ -61,7 +61,7 @@ cd .. && git add marketplace && git commit -m "Marketplace: <what changed>"
 After every push, the marketplace's Action adds a commit with the new
 `index.json`, so pull (`git pull --rebase` in `marketplace/`) before the next
 change. Boards see a change once it's on the marketplace's `main`, whatever
-this repository pins; the pin only decides what the tests here run.
+this repository pins. The pin only decides what the tests here run.
 
 ## How the code is laid out
 
@@ -74,7 +74,7 @@ that matter most when changing something:
   simulated at the bus level (`platform/sim/models`), so a driver change
   shows up there as it would on the board.
 - The firmware stays generic. Something for one device or service (a bike
-  computer, a smart plug, an API) belongs in an app, written in Lua; the
+  computer, a smart plug, an API) belongs in an app, written in Lua. The
   simulator's Bluetooth devices are JSON files an app can carry.
 - Board details go in `platform/boards/<board>/board.h`, marked `VERIFY`
   where they come from documentation rather than a board.
@@ -86,19 +86,19 @@ Apps written today must keep working, so the Lua API changes carefully
 
 - Every change to it, additions included, raises `APP_LUA_API` in
   `app/src/app_config.h`, and LUA_API.md says what came in which version.
-  Until the first release it stays at 1: no firmware without the change is
-  out there.
+  Until the first release it stays at 1, since no firmware without the
+  change is out there.
 - A change that breaks existing apps also raises `APP_LUA_API_MIN`, and is
   listed in LUA_API.md. Avoid one if there's any other way.
-- A wrong call raises an error; what goes wrong outside the script comes
+- A wrong call raises an error. What goes wrong outside the script comes
   back as `nil, err` (LUA_API.md, "Errors"). Names of more than one word
   use an underscore (`text_width`).
 
 ## Writing
 
-Docs and comments are plain prose: short sentences, no bold labels, no em
-dashes. The README stays short; details go in their own files and get a
-link.
+Docs and comments are plain prose: short sentences, no bold, no em dashes
+and no semicolons. The README stays short. Details go in their own files and
+get a link, and each fact lives in one place.
 
 ## Releasing
 

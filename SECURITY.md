@@ -7,7 +7,7 @@ warranty (see [LICENSE](LICENSE)).
 
 Please report security issues privately through the repository's Security
 tab (Report a vulnerability) rather than as a public issue. Say what you
-found and, if you can, how to reproduce it; the simulator is enough. You'll
+found and, if you can, how to reproduce it. The simulator is enough. You'll
 be credited in the fix and its release notes, unless you'd rather not be.
 
 ## What it protects
@@ -34,8 +34,8 @@ Someone holding the device. USB is trusted, so you can never lock yourself
 out, and the flash isn't encrypted. Whoever has the board can read the Wi-Fi
 password, the apps' secrets and the Wi-Fi pairing key.
 
-Someone with your computer's keys. The pairing keys are kept in
-`~/.config/luaboard/wifi-keys`, readable only by you; anyone who can read
+Someone with your computer's keys. The pairing keys are kept in a
+[file](docs/PROTOCOL.md#wi-fi-link) readable only by you. Anyone who can read
 that file can use your devices over Wi-Fi, including updating their
 firmware (images aren't signed). If it leaks, flash the firmware again over
 USB (`luaboard flash`), in case it was replaced, then pair again with
@@ -54,8 +54,8 @@ keep a finger on the screen while it boots.
 ## Losing the device or giving it away
 
 Before giving it away, run `luaboard erase` over USB. It clears the apps,
-secrets, Wi-Fi and pairing key from the flash itself and keeps only the firmware;
-`luaboard format` and `wifi off` just mark them deleted, so they could still
-be read back from the chip. If it's lost, revoke the logins
-its apps used on each service's account page (on Spotify, Manage apps; on
-Google, Third-party apps & services), and maybe change the Wi-Fi password.
+secrets, Wi-Fi and pairing key from the flash itself and keeps only the
+firmware. `luaboard format` and `wifi off` just mark them deleted, so they
+could still be read back from the chip. If it's lost, revoke the logins
+its apps used on each service's account page (Manage apps on Spotify,
+Third-party apps & services on Google), and maybe change the Wi-Fi password.

@@ -6,13 +6,21 @@
  │   luaboard-studio  egui GUI: edit, upload, run, REPL │
  │   luaboard         CLI: put/run/eval/monitor ...     │
  │   device.rs        protocol client (Device)          │
- │   link.rs          serial port, sim pty/pipe; Wi-Fi  │
- │                    link in wifi.rs                   │
+ │   link.rs          serial port, sim pty/pipe         │
+ │   wifi.rs          encrypted Wi-Fi link, mDNS        │
+ │   keys.rs          Wi-Fi pairing keys                │
+ │   ota.rs           firmware update over the link     │
+ │   firmware.rs      flashing over USB (ROM loader)    │
+ │   crash.rs         crash record, addr2line           │
+ │   login.rs         browser logins for scripts        │
  │   project.rs       project folder, secrets file      │
+ │   syntax.rs        Lua syntax check                  │
+ │   timezone.rs      zone names to POSIX TZ            │
+ │   simctl.rs        the simulator's control channel   │
  └──────────────┬───────────────────────────────────────┘
                 │ text protocol (docs/PROTOCOL.md), over either link:
-     USB:   real HW: USB-C ─ ESP32-S3 USB-Serial/JTAG   sim: pseudo-terminal (/tmp/esp32-sim)
-     Wi-Fi: TCP :3333, mDNS luaboard.local / _luaboard._tcp  (sim: this Mac + Bonjour)
+     USB:   real HW: USB-C ─ ESP32-S3 USB-Serial/JTAG   sim: pty or named pipe (esp32-sim)
+     Wi-Fi: TCP :3333, mDNS luaboard.local / _luaboard._tcp  (sim: the computer's network)
                 │
  ┌──────────────▼──────────── firmware (app/) ──────────┐
  │ main.c         super-loop: polls every module, then  │
@@ -109,7 +117,7 @@
        ▼                  ▼
   real ESP-IDF      platform/esp32-mock/   (same headers, host implementation;
   (app/idf/)              │                 NimBLE answered from simulated devices
-                          │                 and the Mac's CoreBluetooth)
+                          │                 and, on macOS, CoreBluetooth)
                           │ sim_hw.h: wiring API for the "outside world"
                           ▼
                     platform/sim/
@@ -129,6 +137,13 @@
                      boards/<board>/sim_board.c
                                   wires the models like the real board, draws
                                   the device and its control panel
+                    platform/host/
+                     host.h       what the simulator needs from the computer:
+                                  serial link, control channel, crashes, mDNS,
+                                  root certificates
+                     posix/       the POSIX implementation
+                     win32/       the Windows one, and in win32/posix the
+                                  POSIX headers the firmware expects
 ```
 
 ## Design decisions
@@ -157,7 +172,11 @@ line buffer and upload state. A command's reply goes back on the link it came
 from, while `LOG`/`EVT` lines are broadcast to every link. So a script's output
 and errors reach a Wi-Fi listener even while someone works over USB. The Wi-Fi
 link is a plain TCP server (lwIP BSD sockets) with room for one logged-in client
-and two still logging in (who pushes out whom is in [PROTOCOL.md](PROTOCOL.md)).
+and two still logging in (who pushes out whom is in
+[PROTOCOL.md](PROTOCOL.md#wi-fi-link)). The protocol is text, with a binary
+upload. It's debuggable with `screen`, and robust against ROM/boot chatter
+because untagged lines are ignored. Uploads use a length prefix plus CRC-32, so
+no escaping is needed.
 
 USB is trusted, Wi-Fi needs pairing. Each link says whether it's trusted.
 Pairing over USB makes a random 256-bit key that the PC tools keep. Each Wi-Fi
@@ -169,20 +188,22 @@ untrusted link takes no commands and gets no `LOG`/`EVT` until one of its
 frames decrypts. There is nothing to guess, so there's no lockout either.
 
 The firmware must stay reachable. Lua failures (errors, the watchdog,
-out-of-memory) only stop the script; the super-loop and both links keep running.
+out-of-memory) only stop the script. The super-loop and both links keep running.
 For failures below Lua (panics, brown-outs, hardware watchdog resets), a boot
 counter in NVS detects a crash loop: 3 boots in a row that end in a crash
 reset (by the chip's reset reason) while the autostart app runs make the next
 boot skip it. The count clears when the app stops, after it has run 10 minutes,
-and at a normal power-on. Holding B on the touch strip,
-or a short press of the power key, leaves any app from the device itself, so a script that ignores every input
-never locks the user out of the menu. Wi-Fi event handlers only set flags;
-reconnecting with back-off, the listener and mDNS all run in the main loop.
+and at a normal power-on. Keeping a finger on the screen during boot skips the
+autostart app too (safe mode). Holding B on the touch strip, or a short press
+of the power key, leaves any app from the device itself, so a script that
+ignores every input never locks the user out of the menu. Wi-Fi event handlers
+only set flags. Reconnecting with back-off, the listener and mDNS all run in
+the main loop.
 
 Boards are a directory each. `platform/boards/<board>/board.h` holds the pin map,
 the screen size and the chip addresses. The firmware and the simulator both use it,
 so they can't drift apart. `platform/sim/boards/<board>/` holds the simulated device.
-`-DBOARD=<board>` (CMake) selects one; `m5stack-cores3` is the default and currently the
+`-DBOARD=<board>` (CMake) selects one. `m5stack-cores3` is the default and currently the
 only board. The framebuffer, the Lua `disp.W`/`disp.H` and the preview all take their
 size from the board.
 
@@ -198,23 +219,28 @@ Lua never blocks it for long:
 * Only `base/table/string/math/utf8/coroutine` are opened. `io/os/debug/package`
   aren't even compiled in, and `dofile/loadfile` are removed.
 
-An app is a folder; installing is explicit. Files are `<app>/<file>`.
+An app is a folder, and installing is explicit. Files are `<app>/<file>`.
 `PUT` writes to RAM, where an upload shadows the installed copy, and
 `INSTALL <app>` writes it to flash. You can iterate quickly without wearing
 flash, and a bad upload never replaces the installed version until you install
-it. Installed apps live in a LittleFS partition (`apps`, ~9.9 MB, mounted at
+it. Installed apps live in a LittleFS partition (`apps`, ~9.9 MiB, mounted at
 `/apps`) and are read when they run, not kept in RAM. NVS keeps the small
 things: settings, Wi-Fi, pairing key, secrets. NVS was not used for apps because it
 caps an entry at ~500 KB and gets slow and memory-hungry when large. Each file
 is written to a temporary name and renamed over the old one (atomic in
-LittleFS), so a power cut leaves either the old or the new file. In the simulator the partition is a folder on the Mac (`--flash`), so
-installed apps are plain files you can look at. Keeping a finger on the screen
-during boot skips the autostart app (safe mode).
+LittleFS), so a power cut leaves either the old or the new file. In the
+simulator the partition is a folder on the computer (`--flash`), so installed
+apps are plain files you can look at.
 
 The home menu is firmware, not a script. `menu.c` draws with `gfx` and
 owns the screen whenever no script does: at boot (unless an app autostarts),
 after `STOP`, `sys.exit()`, a held B or the power key. It works even when every installed app
-is broken. `buttons.c` is the one place touches are timed. It turns each
+is broken. It draws every list (apps, settings, app options, the autostart
+picker) through one `list_t`: rows, scrolling and scroll marks, with a
+function per view for a row's text. A row under a finger shows pressed:
+after the events, `menu_tick` repaints just the rows that changed.
+
+`buttons.c` is the one place touches are timed. It turns each
 touch, from finger down to finger up, into events in one queue: press, long
 and repeat for the buttons, tap, hold, drag and swipe on the screen. A long
 press is never also a press, and a drag never a tap. The controller is read
@@ -230,14 +256,14 @@ to `menu_tick`, which leaves the app or goes back. `touch.read()` and
 `touch.button()` report the same reading the events come from. A finger
 from the PC (`TOUCH` in `protocol.c`) is queued in `buttons.c` and taken one
 reading at a time in place of the controller's, so remote touches are timed
-and turned into events by the same code. The same readings drive screen
-sleep (`sleep.c`): it turns the backlight off after the Sleep after setting's
-time without a touch, or on a long press of the power key, and the touch or
-key that wakes it is ignored until it's let go. `hw_backlight()` only
-remembers the level while the screen is off, so an app or the menu setting
-the brightness doesn't light it.
+and turned into events by the same code.
 
-Asleep on battery, the chip is allowed its automatic light sleep
+The same readings drive screen sleep (`sleep.c`): it turns the backlight off
+after the Sleep after setting's time without a touch, or on a long press of
+the power key, and the touch or key that wakes it is ignored until it's let
+go. `hw_backlight()` only remembers the level while the screen is off, so an
+app or the menu setting the brightness doesn't light it. Asleep on battery,
+the chip is allowed its automatic light sleep
 (`sleep_light_allowed()`: not on USB power, no sound playing, no update
 running, Bluetooth idle). `hw_light_sleep_allow()` releases the lock that
 holds it off, and the main loop then waits for the script's next tick, at
@@ -245,7 +271,7 @@ most 50 ms, where it otherwise waits one 10 ms tick: the chip only sleeps
 while every task waits. Touch and the power key are still polled, on every
 pass, so nothing depends on an interrupt line. `POWER_LIGHT_SLEEP` in
 `app_config.h` turns it off altogether. A script's open `uart` holds it
-off too: the chip would lose what arrives while it sleeps. So does a pin
+off too, since the chip would lose what arrives while it sleeps. So does a pin
 pulsing with `gpio.pwm`, whose clock would stop.
 
 Turning off is `power.c`'s. A request (an app's `sys.off`, or the Turn off
@@ -280,22 +306,13 @@ inside `sd` calls on the main task, so nothing draws in between, and
 `lua_sd.c` raises no Lua error between the two (results are built for Lua
 after the pin is back). The card is mounted (FAT, by ESP-IDF's FATFS, never
 formatted) by a script's first `sd` call and unmounted when the script
-ends; with no card mounted its select line is held high, as at boot.
-
-`menu.c` draws every list (apps, settings, app options, the autostart
-picker) through one `list_t`: rows, scrolling and scroll marks, with a
-function per view for a row's text. A row under a finger shows pressed:
-after the events, `menu_tick` repaints just the rows that changed.
-
-The protocol is text, with a binary upload. It's debuggable with `screen`,
-and robust against ROM/boot chatter because untagged lines are ignored. Uploads
-use a length prefix plus CRC-32, so no escaping is needed.
+ends. With no card mounted its select line is held high, as at boot.
 
 ## Simulator vs. real hardware
 
 | Aspect | Simulator | CoreS3 / Lite / SE |
 |---|---|---|
-| Serial link | PTY (`/tmp/esp32-sim` from the `run` target; Windows: named pipe `\\.\pipe\esp32-sim`) | USB-Serial/JTAG, `/dev/cu.usbmodem*` |
+| Serial link | PTY (`/tmp/esp32-sim` from the `run` target), on Windows a named pipe (`\\.\pipe\esp32-sim`) | USB-Serial/JTAG, `/dev/cu.usbmodem*` |
 | Timing | Host clock, `vTaskDelay` = `nanosleep` | FreeRTOS 100 Hz tick |
 | LCD | ILI9342C model, instant SPI | 40 MHz SPI, ~30 ms per full frame |
 | Touch | Mouse on the screen / A-B-C keys | FT6336U |
@@ -304,10 +321,10 @@ use a length prefix plus CRC-32, so no escaping is needed.
 | Memory | Host malloc | Framebuffer and Lua heap in 8 MB PSRAM |
 | NVS | Host file (`--nvs`) | Flash partition (`app/idf/partitions.csv`) |
 | Apps partition | Host folder (`--flash`), size reported as the device's | LittleFS on flash (`joltwallet/littlefs`) |
-| Firmware update | App image = a simulator executable; slots are files in `<nvs>.ota/`; at each boot the simulator runs the bootloader and replaces itself with the chosen one | ESP image in `ota_0`/`ota_1`, ESP-IDF bootloader with rollback |
+| Firmware update | App image = a simulator executable, in slots that are files in `<nvs>.ota/`. At each boot the simulator runs the bootloader and replaces itself with the chosen one (Windows: starts it) | ESP image in `ota_0`/`ota_1`, ESP-IDF bootloader with rollback |
 | Touch buttons | Click the `‹‹ ○ ››` marks, A/B/C keys, or `luaboard sim-ctl button=B` (`--control`) | FT6336U strip under the LCD |
 | Logs | stderr of the simulator | UART0 (not on USB) |
-| Wi-Fi | Simulated AP (panel toggle), joins in ~0.3 s, IP 127.0.0.1; TCP on this Mac, Bonjour | 2.4 GHz station, DHCP, espressif/mdns |
+| Wi-Fi | Simulated AP (panel toggle), joins in ~0.3 s, IP 127.0.0.1, TCP and mDNS on the computer | 2.4 GHz station, DHCP, espressif/mdns |
 
 The `pc-tool` opens real ports through the `serialport` crate. For the simulator's
 PTY it falls back to raw termios, because macOS rejects the baud-rate ioctl on PTYs.
@@ -317,11 +334,11 @@ ESP-IDF uses, so `ble.c` is the same code in both places. In the simulator the
 mock plays the host stack: it queues every callback to a host thread like the
 real one and gives each connection an attribute table with made-up handles,
 because its peers only know UUIDs. Those peers are simulated devices
-(`sim_ble_add`; an app describes its own in JSON, so none of them is C) or,
-through CoreBluetooth, real ones near the Mac. macOS
+(`sim_ble_add`: an app describes its own in JSON, so none of them is C) or,
+on macOS, real ones near the computer, through CoreBluetooth. macOS
 never shows a device's address, so the mock makes one up from the ID macOS
 gives the device (random static, the same every time on that Mac). The tests
-use only simulated devices; the window adds the Mac's Bluetooth.
+use only simulated devices, and the window on macOS adds the Mac's Bluetooth.
 
 On the chip the stack starts the first time a script uses Bluetooth and then
 idles. Discovery (services, characteristics, CCCDs) runs on the host task

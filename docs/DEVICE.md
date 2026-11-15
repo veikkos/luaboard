@@ -3,7 +3,7 @@
 ## The menu and the buttons
 
 The home screen lists the installed apps, then "+ Marketplace" (see
-[Apps from the marketplace](#apps-from-the-marketplace)); below a divider
+[Apps from the marketplace](#apps-from-the-marketplace)). Below a divider
 stay App updates and Update available when there are any, and Settings.
 
 The whole menu works by touch: tap a row to open or change it, hold an app
@@ -12,13 +12,13 @@ bar (with the buttons: B, then A and C, then B). The buttons do the same:
 
 | Button | In the menu |
 |---|---|
-| A (left), C (right) | up, down; hold to keep going |
-| B (middle) | open or choose; hold for app options or back |
-| power key | home; hold 1.5 s to sleep, 6 s to turn off |
+| A (left), C (right) | up, down (hold to keep going) |
+| B (middle) | open or choose (hold for app options or back) |
+| power key | home (hold 1.5 s to sleep, 6 s to turn off) |
 
 The touch buttons are the strip below the screen, with printed icons on the
 SE. In a running app, presses of A, B and C go to the app as events
-(`touch.on`) with the menu's timing; holding B or a short press of the power
+(`touch.on`) with the menu's timing. Holding B or a short press of the power
 key goes home, and that hold never reaches the app.
 
 ## Settings and app options
@@ -33,7 +33,7 @@ what it found) and time sync.
 ## The microSD card
 
 Apps can keep files on a microSD card (`sd` in the Lua API). The card has
-to be FAT formatted, FAT16 or FAT32; one that comes as exFAT (most cards
+to be FAT formatted, FAT16 or FAT32. One that comes as exFAT (most cards
 over 32 GB) needs formatting as FAT32 on a computer first. The device
 itself doesn't use the card and never formats one.
 
@@ -47,7 +47,7 @@ power key wakes it and does nothing else.
 
 Off, the power is cut: on battery the board's power chip turns it off, and
 nothing runs. Turn off after does it once the device has been asleep that
-long, unless the app that runs keeps it on (`sys.keep_on(true)`); a device
+long, unless the app that runs keeps it on (`sys.keep_on(true)`). A device
 that never sleeps never turns off. An app can turn the device off too
 (`sys.off()`), and holding the power key 6 s does it in the power chip
 itself. The power key turns it on again. An app can also ask to be woken:
@@ -73,7 +73,7 @@ that fails (no network, GitHub unreachable) is silent and tried again in ten
 minutes, then in an hour, then daily. Settings > Check now looks right away.
 
 When a newer release is known, an accent-colored row "Update available" shows
-in the home menu above Settings; its screen tells the version. Turning
+in the home menu above Settings. Its screen tells the version. Turning
 Check for updates off removes the row and stops the checks. Only newer
 releases are offered, never a downgrade or a prerelease.
 
@@ -116,12 +116,12 @@ version is published), or "(i)" for an app that needs your own keys or a
 login. An app's screen tells who made it, its version and license and what
 it does, with Install (or Update, or Open). For an app that needs setup it
 also shows where the steps are, as an address and as a QR code that opens the
-app's README on a phone. Keys go in from a computer: Studio, or
+app's README on a phone. Keys go in from a computer: the studio, or
 `luaboard secrets set <app> <name> <value>`.
 
 When installed apps have newer versions, their rows say "update" and an
 "App updates (N)" row shows above Settings. Its screen lists them with the
-installed and the new version; Update all goes through them one by one, or
+installed and the new version. Update all goes through them one by one, or
 tap one app. An update fetches only the files that changed, checks each
 against the size and SHA-256 the index gives, and swaps the new version in
 at once: a failed download, or a power cut half way, leaves the installed

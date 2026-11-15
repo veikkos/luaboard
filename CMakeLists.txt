@@ -32,7 +32,7 @@
 #   STUDIO_ARGS    studio: a project folder, some of its .lua files, or a firmware .bin
 #   LUABOARD_PORT  studio, apps, flash: the device's serial port (else the simulator)
 #   APPS           apps: only these, "gcal paint" (default tools/own_apps.txt, "all": every app)
-#   E2E_ONLY       e2e: only sections whose name contains a word, "gcal menu"
+#   E2E_ONLY       e2e: only sections whose name contains a word, "oauth menu"
 #   E2E_KEEP=1     e2e: keep failed sections' work folders (logs, screenshots)
 #   E2E_LIMIT      e2e: time limit per section in seconds (default 120)
 #

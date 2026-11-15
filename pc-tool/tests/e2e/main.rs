@@ -4,7 +4,7 @@
 //! output is shown per section once all have finished.
 //!
 //!   cargo test --release --test e2e              all sections
-//!   cargo test --release --test e2e -- gcal menu only sections whose name contains a word
+//!   cargo test --release --test e2e -- oauth menu only sections whose name contains a word
 //!
 //!   E2E_ONLY="gcal menu"  only these sections, when no words are given
 //!   E2E_KEEP=1   keep the work folder (logs, screenshots) of a failed section
