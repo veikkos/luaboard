@@ -1,0 +1,262 @@
+name: Release
+
+# A v* tag builds the firmware and the PC tools and publishes them as a GitHub
+# release (see CONTRIBUTING.md, "Releasing"). By hand (Actions tab) it is a
+# dry run: it builds everything for the tag name typed in and keeps the files
+# as workflow artifacts, but publishes nothing. A dry run warns where a tag
+# run fails: a CHANGELOG section still "not released yet", an image that
+# doesn't call itself the tag.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to rehearse, such as v0.9.0 (its CHANGELOG section may still say not released yet)"
+        required: true
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # The release this run is about: the pushed tag, or the one typed in a dry run.
+  TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
+
+jobs:
+  firmware:
+    name: Firmware (ESP-IDF)
+    runs-on: ubuntu-latest
+    container: espressif/idf:v6.0.3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      # The checkout belongs to another user than the container's root: git
+      # (here and in the build's git describe) refuses it without this.
+      - name: Trust the checkout
+        shell: bash
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: The tag is the firmware's version
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          described=$(git describe --tags --always --dirty)
+          echo "git describe: $described, tag: $GITHUB_REF_NAME"
+          if [ "$described" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::the firmware would call itself $described, not $GITHUB_REF_NAME (is the tag on a clean checkout, and is it the commit's only tag?)"
+            exit 1
+          fi
+      # The CHANGELOG section and the manifest's limits, in seconds instead of
+      # after the build (any file stands in for the image). A dry run lets a
+      # section still "not released yet" through, with a warning. cmake comes
+      # with export.sh: a container job doesn't run the image's entrypoint.
+      - name: CHANGELOG check
+        shell: bash
+        run: |
+          . "$IDF_PATH/export.sh" > /dev/null
+          cmake -DROOT="$GITHUB_WORKSPACE" -DTAG="$TAG" -DIMAGE="$GITHUB_WORKSPACE/CHANGELOG.md" \
+                -DBOARD=m5stack-cores3 -DOUT="$GITHUB_WORKSPACE/build/release-check" -DDRY_RUN="$DRY_RUN" \
+                -P tools/release.cmake
+        env:
+          DRY_RUN: ${{ github.ref_type == 'tag' && 'OFF' || 'ON' }}
+      # Only a dry run builds from the compiler cache: a release compiles
+      # every file itself, so nothing an earlier run left there gets in.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        if: github.ref_type != 'tag'
+        with:
+          path: .ccache
+          key: ccache-idf-v6.0.3-${{ github.sha }}
+          restore-keys: ccache-idf-v6.0.3-
+      - name: Build
+        shell: bash
+        run: |
+          # Set here: in a container job ${{ github.workspace }} is the host's
+          # path, $GITHUB_WORKSPACE the one inside the container.
+          export CCACHE_DIR="$GITHUB_WORKSPACE/.ccache" CCACHE_BASEDIR="$GITHUB_WORKSPACE" CCACHE_MAXSIZE=500M
+          export CCACHE_COMPILERCHECK=content CCACHE_NOHASHDIR=1 CCACHE_SLOPPINESS=include_file_mtime,include_file_ctime,time_macros
+          . "$IDF_PATH/export.sh"
+          cd app/idf
+          idf.py --ccache -B "$GITHUB_WORKSPACE/build/idf" build merge-bin -o "$GITHUB_WORKSPACE/build/luaboard-m5stack-cores3.bin"
+          ccache --show-stats
+      # The version the build put in the image (esp_app_desc, what INFO ver
+      # and the update check see) must be the tag.
+      - name: Manifest and notes
+        shell: bash
+        run: |
+          . "$IDF_PATH/export.sh" > /dev/null
+          built=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["project_version"])' \
+                  build/idf/project_description.json)
+          echo "built: $built, tag: $TAG"
+          if [ "$built" != "$TAG" ]; then
+            if [ "$GITHUB_REF_TYPE" = tag ]; then
+              echo "::error::the image calls itself $built, not $TAG"
+              exit 1
+            fi
+            echo "::warning::the image calls itself $built, not $TAG (a dry run of a tag that isn't on this commit)"
+          fi
+          cmake -DROOT="$GITHUB_WORKSPACE" -DTAG="$TAG" -DIMAGE="$GITHUB_WORKSPACE/build/idf/luaboard.bin" \
+                -DBOARD=m5stack-cores3 -DOUT="$GITHUB_WORKSPACE/build/release" -DDRY_RUN="$DRY_RUN" \
+                -P tools/release.cmake
+          cp build/idf/luaboard.bin build/luaboard-m5stack-cores3.bin build/release/
+          cat build/release/manifest.json
+          ls -l build/release
+        env:
+          DRY_RUN: ${{ github.ref_type == 'tag' && 'OFF' || 'ON' }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: firmware
+          path: |
+            build/release/luaboard.bin
+            build/release/luaboard-m5stack-cores3.bin
+            build/release/manifest.json
+            build/release/notes.md
+
+  tools:
+    name: PC tools (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-arm64
+            os: macos-latest
+            preset: default
+            exe: ""
+            archive: zip
+          - name: windows-x64
+            os: windows-latest
+            preset: vs
+            exe: ".exe"
+            archive: zip
+          - name: linux-x64
+            os: ubuntu-22.04
+            preset: default
+            exe: ""
+            archive: tar.gz
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          submodules: true          # marketplace/: the marketplace, which the tests run
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: pc-tool
+      # SDL2 and mbedTLS never come from the system (a runner may have them):
+      # the build compiles them in statically, so the archive runs on a plain
+      # machine. The Package step checks what the binaries link.
+      - name: Build tools (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja
+      - name: Build tools (Linux)
+        if: runner.os == 'Linux'
+        # What building SDL2 and the studio (windowing, serial ports) needs.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build pkg-config libudev-dev libasound2-dev \
+            libx11-dev libxext-dev libxcursor-dev libxi-dev libxrandr-dev libxss-dev libxfixes-dev \
+            libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev libegl1-mesa-dev \
+            libgl1-mesa-dev libdbus-1-dev libgtk-3-dev
+      - name: Build
+        run: |
+          cmake --preset ${{ matrix.preset }} -DCMAKE_DISABLE_FIND_PACKAGE_SDL2=ON -DCMAKE_DISABLE_FIND_PACKAGE_MbedTLS=ON
+          cmake --build --preset ${{ matrix.preset }}
+          cmake --build --preset ${{ matrix.preset }} --target tool
+      - name: Unit and end-to-end tests
+        run: |
+          cmake --build --preset ${{ matrix.preset }} --target unit
+          cmake --build --preset ${{ matrix.preset }} --target e2e
+        env:
+          E2E_KEEP: "1"
+          TMPDIR: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
+      - name: Package
+        run: |
+          name="luaboard-$TAG-${{ matrix.name }}"
+          mkdir -p "dist/$name"
+          cp pc-tool/target/release/luaboard${{ matrix.exe }} "dist/$name/"
+          cp pc-tool/target/release/luaboard-studio${{ matrix.exe }} "dist/$name/"
+          cp build/m5stack-cores3/esp32-sim${{ matrix.exe }} "dist/$name/"
+          cp README.md LICENSE THIRD_PARTY_NOTICES.md "dist/$name/"
+          # Only the system's own libraries: none from Homebrew or apt's SDL2 or mbedTLS.
+          for bin in "dist/$name/luaboard${{ matrix.exe }}" "dist/$name/luaboard-studio${{ matrix.exe }}" "dist/$name/esp32-sim${{ matrix.exe }}"; do
+            case "$RUNNER_OS" in
+              macOS) libs=$(otool -L "$bin") ;;
+              Linux) libs=$(ldd "$bin") ;;
+              *) libs="" ;;
+            esac
+            echo "$libs"
+            if echo "$libs" | grep -Ei 'sdl|mbed|/opt/homebrew|/usr/local/'; then
+              echo "::error::$bin links a library the archive doesn't carry"
+              exit 1
+            fi
+          done
+          cd dist
+          if [ "${{ matrix.archive }}" = zip ]; then
+            if [ "$RUNNER_OS" = Windows ]; then 7z a -tzip "$name.zip" "$name"; else zip -qr "$name.zip" "$name"; fi
+          else
+            tar -czf "$name.tar.gz" "$name"
+          fi
+          ls -l
+      - name: Keep failed test folders
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: e2e-failures-${{ matrix.name }}
+          path: ${{ runner.temp }}/luaboard-e2e.*
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: tools-${{ matrix.name }}
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+
+  publish:
+    name: Publish the release
+    if: github.ref_type == 'tag'
+    needs: [firmware, tools]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          path: release
+          merge-multiple: true
+      - run: ls -l release
+      # A draft first, published once all its files are there: the manifest
+      # behind latest/download never points at a missing image.
+      - uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
+        with:
+          draft: true
+          body_path: release/notes.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            release/luaboard.bin
+            release/luaboard-m5stack-cores3.bin
+            release/manifest.json
+            release/luaboard-*.zip
+            release/luaboard-*.tar.gz
+      # "Latest" (what releases/latest/download/manifest.json answers, so what
+      # devices are offered) only when no published release has a higher
+      # version: a fix for an older line doesn't take it from a newer one.
+      - name: Publish the draft
+        run: |
+          tags=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
+                 --limit 1000 --json tagName --jq '.[].tagName')
+          highest=$(printf '%s\n' $tags "$TAG" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)
+          if [ "$highest" = "$TAG" ]; then latest=true; else latest=false; fi
+          echo "highest release: ${highest:-none}, $TAG latest: $latest"
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest="$latest"
+        env:
+          GH_TOKEN: ${{ github.token }}

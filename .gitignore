@@ -1,0 +1,13 @@
+/build/
+/pc-tool/target/
+*.bin
+/app/idf/build/
+/app/idf/sdkconfig
+/app/idf/sdkconfig.old
+/.toolchain/
+/eim_config.toml
+/app/idf/managed_components/
+# per-project secrets (luaboard install / upload puts them on the device)
+secrets.env
+# macOS Finder metadata
+.DS_Store

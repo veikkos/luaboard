@@ -1,0 +1,125 @@
+//! The sections, one file each; they run in parallel.
+
+use crate::harness::T;
+
+mod gcal_app;
+mod market;
+pub mod ota;
+mod s01_examples;
+mod s02_error_screen;
+mod s03_protocol;
+mod s04_notice;
+mod s06_wifi;
+mod s07_net_mqtt;
+mod s08_mqtt_offline;
+mod s09_web;
+mod s10_spotify;
+mod s11_rtc;
+mod s12_spot_price;
+mod s13_gcal_api;
+mod s14_gcal_app_alerts;
+mod s14_gcal_app_picker;
+mod s14_gcal_app_retry;
+mod s15_cleanup;
+mod s16_crash_loop;
+mod s17_menu_nav;
+mod s17_menu_uninstall;
+mod s18_app_secrets;
+mod s20_models;
+mod s21_hardening;
+mod s22_i2c;
+mod s23_ble;
+mod s24_remote_touch;
+mod s25_ota_rollback;
+mod s25_ota_usb;
+mod s25_ota_watch;
+mod s25_ota_wifi;
+mod s26_sound;
+mod s27_clock;
+mod s28_weather;
+mod s29_heart_rate;
+mod s30_github;
+mod s31_timer;
+mod s32_update_check;
+mod s32_update_install;
+mod s32_update_menu;
+mod s33_sleep;
+mod s34_power_off;
+mod s35_power_usb;
+mod s36_uart;
+mod s37_pwm;
+mod s38_sensors;
+mod s39_sd;
+mod s40_bmw;
+mod s40_bmw_app;
+mod s41_png;
+mod s42_stocks;
+mod s43_app_stage;
+mod s44_app_updates;
+mod s45_app_updates_menu;
+mod s46_get_apps;
+mod s47_home_rows;
+mod s48_secrets_push;
+mod s49_sim_wifi;
+pub mod update;
+
+pub type Section = fn(&mut T);
+
+pub const ALL: &[(&str, Section)] = &[
+    ("01-examples", s01_examples::run),
+    ("02-error-screen", s02_error_screen::run),
+    ("03-protocol", s03_protocol::run),
+    ("04-notice", s04_notice::run),
+    ("06-wifi", s06_wifi::run),
+    ("07-net-mqtt", s07_net_mqtt::run),
+    ("08-mqtt-offline", s08_mqtt_offline::run),
+    ("09-web", s09_web::run),
+    ("10-spotify", s10_spotify::run),
+    ("11-rtc", s11_rtc::run),
+    ("12-spot-price", s12_spot_price::run),
+    ("13-gcal-api", s13_gcal_api::run),
+    ("14-gcal-app-alerts", s14_gcal_app_alerts::run),
+    ("14-gcal-app-picker", s14_gcal_app_picker::run),
+    ("14-gcal-app-retry", s14_gcal_app_retry::run),
+    ("15-cleanup", s15_cleanup::run),
+    ("16-crash-loop", s16_crash_loop::run),
+    ("17-menu-nav", s17_menu_nav::run),
+    ("17-menu-uninstall", s17_menu_uninstall::run),
+    ("18-app-secrets", s18_app_secrets::run),
+    ("20-models", s20_models::run),
+    ("21-hardening", s21_hardening::run),
+    ("22-i2c", s22_i2c::run),
+    ("23-ble", s23_ble::run),
+    ("24-remote-touch", s24_remote_touch::run),
+    ("25-ota-rollback", s25_ota_rollback::run),
+    ("25-ota-usb", s25_ota_usb::run),
+    ("25-ota-watch", s25_ota_watch::run),
+    ("25-ota-wifi", s25_ota_wifi::run),
+    ("26-sound", s26_sound::run),
+    ("27-clock", s27_clock::run),
+    ("28-weather", s28_weather::run),
+    ("29-heart-rate", s29_heart_rate::run),
+    ("30-github", s30_github::run),
+    ("31-timer", s31_timer::run),
+    ("32-update-check", s32_update_check::run),
+    ("32-update-install", s32_update_install::run),
+    ("32-update-menu", s32_update_menu::run),
+    ("33-sleep", s33_sleep::run),
+    ("34-power-off", s34_power_off::run),
+    ("35-power-usb", s35_power_usb::run),
+    ("36-uart", s36_uart::run),
+    ("37-pwm", s37_pwm::run),
+    ("38-sensors", s38_sensors::run),
+    ("39-sd", s39_sd::run),
+    ("40-bmw", s40_bmw::run),
+    ("40-bmw-app", s40_bmw_app::run),
+    ("41-png", s41_png::run),
+    ("42-stocks", s42_stocks::run),
+    ("43-app-stage", s43_app_stage::run),
+    ("44-app-updates", s44_app_updates::run),
+    ("45-app-updates-menu", s45_app_updates_menu::run),
+    ("46-get-apps", s46_get_apps::run),
+    ("47-home-rows", s47_home_rows::run),
+    ("48-secrets-push", s48_secrets_push::run),
+    ("49-sim-wifi", s49_sim_wifi::run),
+];

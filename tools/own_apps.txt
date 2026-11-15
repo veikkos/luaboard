@@ -1,0 +1,16 @@
+# Apps the main repo tests (s01_examples) and the examples target installs; the other apps in marketplace/ have no tests here.
+bmw_cardata
+clock
+dashboard
+di2
+gcal
+github
+ha_env
+heart_rate
+hello
+paint
+spot_price_fi
+spotify
+stocks
+timer
+weather

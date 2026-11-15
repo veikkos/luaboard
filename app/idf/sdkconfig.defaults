@@ -1,0 +1,87 @@
+# M5Stack CoreS3 (SE, Lite): ESP32-S3, 16 MB flash, 8 MB quad PSRAM
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_QUAD=y
+CONFIG_SPIRAM_USE_MALLOC=y
+
+# Lua and TLS handshakes need a bigger stack than the 3.5 KB default main task.
+# Lua raises "C stack overflow" when 16 KB of it is left (app/src/cstack.h).
+# The simulator gives its firmware thread this size too (CMakeLists.txt).
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=49152
+
+# Task watchdog: the main loop subscribes and feeds it (hw_watchdog_*); if a
+# C call hangs it, reset the chip rather than freeze. Longer than any single
+# Lua call may take (LUA_WATCHDOG_HARD_MS).
+CONFIG_ESP_TASK_WDT_PANIC=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=30
+
+# Custom table: 64 KB NVS, two 3 MB firmware slots (OTA), the rest of the
+# flash for installed apps.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# Rollback in the bootloader now: it can't be updated over Wi-Fi later. Only
+# an image written by an OTA update has to confirm itself
+# (esp_ota_mark_app_valid_cancel_rollback); one flashed over USB just runs.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# The USB-C port (USB-Serial/JTAG) carries our protocol: keep the IDF console
+# and logs off it (logs go to UART0, which is not wired to USB on this board).
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# TLS for scripts (net.connect with tls = true): buffers in PSRAM, verify
+# servers against the full root certificate bundle.
+CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+# TLS 1.3 besides 1.2: some servers take nothing else, e.g. BMW's CarData
+# stream.
+CONFIG_MBEDTLS_SSL_PROTO_TLS1_3=y
+
+# Sockets: scripts get up to 16 (MAX_SOCKS in lua_net.c), the control port
+# needs its listener and NET_MAX_CLIENTS (3) clients on top, so a script
+# using all of its sockets can't lock the PC out, and the update check's
+# HTTP client (httpc.c) up to 2 more (a check and an install's download).
+# That's 22 of the 24. lwIP's default is 10.
+CONFIG_LWIP_MAX_SOCKETS=24
+CONFIG_LWIP_MAX_ACTIVE_TCP=24
+CONFIG_LWIP_MAX_LISTENING_TCP=24
+
+# Clock: NTP refresh every 6 h (the crystal drifts ~1 s in that time); the
+# first request waits 0..5 s after Wi-Fi connects (the default).
+CONFIG_LWIP_SNTP_UPDATE_DELAY=21600000
+
+# Bluetooth LE for scripts (the ble module): NimBLE host, central role only
+# (scan and connect to peripherals). Its memory in PSRAM; bonds kept in NVS.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=y
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=y
+CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=n
+CONFIG_BT_NIMBLE_ROLE_BROADCASTER=n
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=3
+CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y
+CONFIG_BT_NIMBLE_NVS_PERSIST=y
+# Bonds belong to apps (ble.c): room for a few apps' devices.
+CONFIG_BT_NIMBLE_MAX_BONDS=8
+
+# Power management: automatic light sleep while the device is asleep on
+# battery (hw_light_sleep_allow; the firmware holds it off otherwise). The
+# chip sleeps whenever every task waits, which needs tickless idle.
+CONFIG_PM_ENABLE=y
+CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
+
+# ESP-IDF's light sleep GPIO workaround (on by default on this chip) would
+# isolate every pin whenever the chip sleeps: a relay or LED a script holds
+# on would float while the device is asleep, and so would the LCD's lines.
+# Without it the pins keep their state. What it guards against is a reset
+# when an input-only pin gets an electrostatic pulse during light sleep.
+# CONFIG_ESP_SLEEP_GPIO_RESET_WORKAROUND is not set
+# CONFIG_PM_SLP_DISABLE_GPIO is not set
+
+# The microSD card (sd module): FAT with long file names (the default) in
+# UTF-8, as every other string in a script is.
+CONFIG_FATFS_API_ENCODING_UTF_8=y

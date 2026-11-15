@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Before a push of the marketplace from marketplace/ (the submodule), run the
+# main repository's check target on what is pushed: boards get every push to
+# the marketplace's main, so a broken app must not leave this computer.
+# Turned on by the hooks target. Skip once with `git push --no-verify`.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+main=$(git rev-parse --show-superproject-working-tree)
+if [ -z "$main" ]; then
+    echo "pre-push: this hook only runs inside luaboard's marketplace/"
+    exit 1
+fi
+
+zero=0000000000000000000000000000000000000000
+head=$(git rev-parse HEAD)
+pushing=false
+while read -r lref lsha _rref _rsha; do
+    [ "$lsha" = "$zero" ] && continue
+    pushing=true
+    if [ "$(git rev-parse "$lsha^{commit}")" != "$head" ]; then
+        echo "pre-push: $lref isn't what's checked out; check it out to test it (or push with --no-verify)"
+        exit 1
+    fi
+done
+$pushing || exit 0
+
+# The commits go out under the address the main repository uses: a submodule
+# has no git config of its own, and the global one may be another address.
+want=$(git -C "$main" config user.email || true)
+if [ -n "$want" ]; then
+    others=$(git log --format='%ae %ce' '@{upstream}..HEAD' 2>/dev/null | tr ' ' '\n' | sort -u | grep -vxF "$want" || true)
+    if [ -n "$others" ]; then
+        echo "pre-push: commits by $(echo $others) here, but luaboard commits as $want."
+        echo "pre-push: git config user.email $want (in marketplace/), then fix those commits."
+        exit 1
+    fi
+fi
+
+if ! git diff --quiet HEAD -- || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+    echo "pre-push: uncommitted changes in marketplace/; the checks would test those, not what you push."
+    exit 1
+fi
+
+# Git exports GIT_DIR (this submodule's) to hooks: the tests run git in
+# repositories of their own, so it must not leak into them.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR GIT_PREFIX
+echo "pre-push: every app as the index sees it (tools/build_index.py)"
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+python3 tools/build_index.py --out "$tmp/index.json" >/dev/null
+echo "pre-push: luaboard's check on these apps"
+[ -f "$main/build/CMakeCache.txt" ] || { echo "pre-push: configure luaboard first: cmake --preset default"; exit 1; }
+cmake --build "$main/build" --config Release --target check
+echo "pre-push: all green"

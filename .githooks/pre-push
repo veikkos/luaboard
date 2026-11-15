@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Before a push, run what CI runs (its builds are off for now): the check target,
+# plus the firmware build when the push changes what goes into the firmware.
+# Turn on with the hooks target. Skip once with `git push --no-verify`.
+# Uses the build folder build/ (cmake --preset default, or vs on Windows).
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+zero=0000000000000000000000000000000000000000
+head=$(git rev-parse HEAD)
+pushing=false
+firmware=false
+while read -r lref lsha _rref rsha; do
+    [ "$lsha" = "$zero" ] && continue                    # deleting a ref: nothing to check
+    pushing=true
+    if [ "$(git rev-parse "$lsha^{commit}")" != "$head" ]; then
+        echo "pre-push: $lref isn't what's checked out; check it out to test it (or push with --no-verify)"
+        exit 1
+    fi
+    # Like CI: tags, new branches and unknown bases always build the firmware.
+    if [[ "$lref" == refs/tags/* ]] || [ "$rsha" = "$zero" ] || ! git cat-file -e "$rsha^{commit}" 2>/dev/null; then
+        firmware=true
+    elif git diff --name-only "$rsha" "$lsha" | grep -qE '^(app/|platform/boards/|libs/|third_party/|cmake/)'; then
+        firmware=true
+    fi
+done
+$pushing || exit 0
+
+if ! git diff --quiet HEAD -- || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+    echo "pre-push: uncommitted changes; the checks would test those, not what you push. Commit or stash them first."
+    exit 1
+fi
+
+echo "pre-push: check (Rust lint, simulator with warnings as errors, unit and end-to-end tests)"
+[ -f build/CMakeCache.txt ] || { echo "pre-push: configure first: cmake --preset default (Windows: --preset vs)"; exit 1; }
+cmake --build build --config Release --target check
+if $firmware; then
+    if ! command -v eim >/dev/null || [ ! -d .toolchain ]; then
+        echo "pre-push: the push changes the firmware, but ESP-IDF isn't installed (the toolchain target)"
+        exit 1
+    fi
+    echo "pre-push: fw"
+    cmake --build build --config Release --target fw
+fi
+echo "pre-push: all green"
