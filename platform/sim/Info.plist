@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Linked into esp32-sim (__TEXT,__info_plist): macOS asks for this before
+     a program may use Bluetooth, and stops one that has none. High resolution:
+     the window draws at the Retina display's own pixels. -->
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>io.github.veikkos.luaboard.esp32-sim</string>
+    <key>CFBundleName</key>
+    <string>esp32-sim</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>The luaboard simulator uses Bluetooth to reach the devices your apps talk to.</string>
+</dict>
+</plist>

@@ -1,0 +1,7 @@
+# LF in the working tree on every OS: the git hooks (bash) fail
+# with CRLF, and the built-in Lua libraries are embedded byte for byte.
+* text=auto eol=lf
+*.png binary
+*.bin binary
+# Upstream as it came (CRLF in the repository).
+third_party/tjpgd/** -text

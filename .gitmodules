@@ -1,0 +1,4 @@
+[submodule "examples"]
+	path = examples
+	url = https://github.com/veikkos/luaboard-marketplace
+	shallow = true

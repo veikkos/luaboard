@@ -1,0 +1,157 @@
+name: CI
+
+# Builds are off for now (Actions minutes): run by hand from the Actions tab.
+# The same checks run locally before every push: the hooks target (.githooks/pre-push).
+# To turn them back on, add again:
+#   push:
+#     branches: [main]
+#   pull_request:
+#
+# A run checks on Linux, where a minute counts as one (a macOS minute counts
+# as ten, a Windows minute as two). A run by hand with "all" ticked checks on
+# macOS and Windows too; a release (release.yml) tests on all three anyway.
+on:
+  workflow_dispatch:
+    inputs:
+      all:
+        description: "Also on macOS and Windows"
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Simulator, tests and lint (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include: >-
+          ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.all
+          && '[{"os":"ubuntu-latest","preset":"default"},{"os":"macos-latest","preset":"default"},{"os":"windows-latest","preset":"vs"}]'
+          || '[{"os":"ubuntu-latest","preset":"default"}]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          submodules: true          # examples/: the marketplace, which the tests run
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: pc-tool
+          # A failed run keeps what it built too: the next one doesn't start over.
+          cache-on-failure: true
+      - name: rustfmt
+        if: runner.os == 'Linux'
+        run: cargo fmt --manifest-path pc-tool/Cargo.toml --check
+      - name: Install SDL2, mbedTLS and Ninja
+        if: runner.os == 'macOS'
+        run: brew install sdl2 mbedtls ninja
+      - name: Install SDL2, Ninja and what the studio links
+        if: runner.os == 'Linux'
+        # mbedTLS 4 isn't in the distribution yet: the build downloads it.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build pkg-config libsdl2-dev libudev-dev \
+            libxkbcommon-dev libwayland-dev libdbus-1-dev libgtk-3-dev
+      - name: Build simulator (warnings are errors)
+        # Ninja goes on past a file that fails (-k 0), so one run shows every error.
+        run: |
+          cmake --preset ${{ matrix.preset }} -DLUABOARD_WERROR=ON
+          cmake --build --preset ${{ matrix.preset }} ${{ matrix.preset == 'default' && '-- -k 0' || '' }}
+      - name: Build PC tools
+        run: cmake --build --preset ${{ matrix.preset }} --target tool
+      - name: Unit and end-to-end tests
+        run: |
+          cmake --build --preset ${{ matrix.preset }} --target unit
+          cmake --build --preset ${{ matrix.preset }} --target e2e
+        env:
+          E2E_KEEP: "1"
+          # the work folders: TMPDIR on macOS and Linux, TEMP on Windows
+          TMPDIR: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
+      - name: clippy
+        if: runner.os == 'Linux'
+        run: cargo clippy --manifest-path pc-tool/Cargo.toml --release --all-targets -- -D warnings
+      - name: Keep failed test folders
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: e2e-failures-${{ runner.os }}
+          path: ${{ runner.temp }}/luaboard-e2e.*
+          if-no-files-found: ignore
+
+  # Does this push touch what goes into the firmware? If not, the firmware job
+  # (a ~3 min image pull plus the build) is skipped. Tags, manual runs and
+  # anything that can't be compared always build.
+  changes:
+    name: Firmware changes?
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      firmware: ${{ steps.diff.outputs.firmware }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - id: diff
+        shell: bash
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          build=true
+          if [[ "$GITHUB_REF" != refs/tags/* && "$GITHUB_EVENT_NAME" != workflow_dispatch ]] &&
+             [[ -n "$BASE" && "$BASE" != 0000000000000000000000000000000000000000 ]] &&
+             git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            changed=$(git diff --name-only "$BASE" HEAD)
+            echo "$changed"
+            grep -qE '^(app/|platform/boards/|libs/|third_party/|cmake/|\.github/workflows/)' <<<"$changed" || build=false
+          fi
+          echo "firmware=$build" >> "$GITHUB_OUTPUT"
+          echo "firmware build: $build"
+
+  firmware:
+    name: Firmware (ESP-IDF)
+    needs: changes
+    if: needs.changes.outputs.firmware == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: espressif/idf:v6.0.3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # Compiler cache: ESP-IDF itself rarely changes, so most objects come
+      # from here and only our own sources compile.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: .ccache
+          key: ccache-idf-v6.0.3-${{ github.sha }}
+          restore-keys: ccache-idf-v6.0.3-
+      - name: Build
+        shell: bash
+        run: |
+          # Set here: in a container job ${{ github.workspace }} is the host's
+          # path, $GITHUB_WORKSPACE the one inside the container.
+          export CCACHE_DIR="$GITHUB_WORKSPACE/.ccache" CCACHE_BASEDIR="$GITHUB_WORKSPACE" CCACHE_MAXSIZE=500M
+          # Hash the compiler's contents, not its file time, and leave the
+          # working directory out: nothing that may differ between runs.
+          export CCACHE_COMPILERCHECK=content CCACHE_NOHASHDIR=1 CCACHE_SLOPPINESS=include_file_mtime,include_file_ctime,time_macros
+          . "$IDF_PATH/export.sh"
+          cd app/idf
+          idf.py --ccache -B "$GITHUB_WORKSPACE/build/idf" build merge-bin -o "$GITHUB_WORKSPACE/build/luaboard-m5stack-cores3.bin"
+          ccache --show-stats
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: luaboard-m5stack-cores3
+          path: build/luaboard-m5stack-cores3.bin

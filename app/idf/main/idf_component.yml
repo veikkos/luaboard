@@ -1,0 +1,6 @@
+# Versions are pinned in app/idf/dependencies.lock.
+dependencies:
+  # mDNS responder: announces luaboard.local / _luaboard._tcp on Wi-Fi.
+  espressif/mdns: "^1.15.1"
+  # LittleFS for installed apps (partition "apps", mounted at /apps).
+  joltwallet/littlefs: "^1.20.0"

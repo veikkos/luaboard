@@ -1,0 +1,8 @@
+wait 800
+type Hello => luaboard
+wait 1300
+type ORANGE => CYAN
+wait 1300
+insert 12 => 24
+wait 2300
+end

@@ -1,0 +1,17 @@
+{
+  "id": "test",
+  "name": "Test Sensor",
+  "addr": "c0:ff:ee:00:00:01",
+  "rssi": -55,
+  "characteristics": [
+    { "service": "180a", "uuid": "2a29", "props": "read", "text": "ACME" },
+    { "service": "0x180F", "uuid": "00002a19-0000-1000-8000-00805f9b34fb", "props": "read notify", "value": "46" },
+    { "service": "12345678-1234-5678-1234-56789abcdef0", "uuid": "12345678-1234-5678-1234-56789abcdef1",
+      "props": "notify", "value": "00 01",
+      "on_subscribe": ["ff", "value"] },
+    { "service": "12345678-1234-5678-1234-56789abcdef0", "uuid": "12345678-1234-5678-1234-56789abcdef2",
+      "props": "read write", "text": "hello" },
+    { "service": "12345678-1234-5678-1234-56789abcdef0", "uuid": "12345678-1234-5678-1234-56789abcdef3",
+      "props": "read", "value": "2a", "pairing": true }
+  ]
+}
