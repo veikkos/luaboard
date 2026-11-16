@@ -149,13 +149,19 @@ impl Studio {
 
         ui.separator();
         // Over the link: USB, Wi-Fi or the simulator, whatever is connected.
+        let update_label = match self.connected_port.as_deref() {
+            None => "Update".to_string(),
+            Some(_) if on_sim => "Update the simulator".to_string(),
+            Some(p) => match luaboard::wifi::parse_tcp_port(p) {
+                Some((host, _)) => format!("Update over Wi-Fi ({host})"),
+                None => format!("Update over USB ({})", short_port(p)),
+            },
+        };
         ui.horizontal(|ui| {
-            let b = ui
-                .add_enabled(fits.is_ok() && !self.flash.busy, egui::Button::new("Update over the connection"))
-                .on_hover_text(
-                    "The device writes it into its free firmware slot and reboots into it. Apps, settings and \
+            let b = ui.add_enabled(fits.is_ok() && !self.flash.busy, egui::Button::new(update_label)).on_hover_text(
+                "The device writes it into its free firmware slot and reboots into it. Apps, settings and \
                      secrets stay. If the new firmware keeps crashing, the device goes back to the old one.",
-                );
+            );
             if b.clicked() {
                 let img = match &self.flash.image {
                     Some(Ok(i)) => Some(i.update.clone()),
@@ -185,11 +191,8 @@ impl Studio {
         let sim_port = luaboard::is_simulator_port(&self.port);
         ui.horizontal(|ui| {
             let can = has_usb && !over_wifi && !sim_port && !self.flash.busy && !self.port.trim().is_empty();
-            let short_port = std::path::Path::new(&self.port)
-                .file_name()
-                .map_or(self.port.clone(), |n| n.to_string_lossy().into_owned());
             if ui
-                .add_enabled(can, egui::Button::new(format!("Flash over USB to {short_port}")))
+                .add_enabled(can, egui::Button::new(format!("Flash with the bootloader ({})", short_port(&self.port))))
                 .on_hover_text(
                     "Writes the image with the chip's bootloader: for a first install, or a device whose firmware \
                      doesn't answer. Installed apps and settings are kept.",
@@ -219,4 +222,9 @@ impl Studio {
         ui.add_space(4.0);
         ui.weak("If entering download mode fails: hold the CoreS3's reset button until the green LED lights, then flash again.");
     }
+}
+
+/// A port as the buttons name it: a serial device's file name, else the port.
+fn short_port(port: &str) -> String {
+    std::path::Path::new(port).file_name().map_or(port.to_string(), |n| n.to_string_lossy().into_owned())
 }

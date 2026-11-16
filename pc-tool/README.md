@@ -110,7 +110,7 @@ $E update build/m5stack-cores3/esp32-sim                              # a runnin
 A device takes the merged `.bin` from the `fw` target (or the app-only
 `build/idf-*/luaboard.bin`). A simulator takes a simulator executable for its
 board, and reboots into it. The studio does the same from its Firmware window
-("Update over the connection"), next to flashing over USB.
+(the Update button), next to flashing with the bootloader over USB.
 
 ## Test hooks
 
