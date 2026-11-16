@@ -17,8 +17,8 @@ use std::time::{Duration, Instant};
 #[derive(Parser)]
 #[command(version, about = "Upload and control Lua scripts on the ESP32 Lua devboard")]
 struct Cli {
-    /// Serial port or tcp://host:port for Wi-Fi (default: $LUABOARD_PORT, else the simulator:
-    /// /tmp/esp32-sim, on Windows \\.\pipe\esp32-sim)
+    /// Serial port or tcp://host:port for Wi-Fi (default: $LUABOARD_PORT, else the first running
+    /// simulator: /tmp/esp32-sim, /tmp/esp32-sim-2, ..., on Windows \\.\pipe\esp32-sim, ...)
     #[arg(short, long, global = true)]
     port: Option<String>,
     #[arg(short, long, global = true, default_value_t = DEFAULT_BAUD)]
@@ -298,7 +298,9 @@ fn print_async(m: Msg) {
 }
 
 fn resolve_port(p: Option<String>) -> String {
-    p.or_else(|| std::env::var("LUABOARD_PORT").ok()).unwrap_or_else(|| SIM_LINK.to_string())
+    p.or_else(|| std::env::var("LUABOARD_PORT").ok())
+        .or_else(|| luaboard::sim_ports().into_iter().next())
+        .unwrap_or_else(|| SIM_LINK.to_string())
 }
 
 fn file_name(p: &Path) -> Result<String> {

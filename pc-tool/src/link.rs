@@ -11,8 +11,9 @@ use crate::wifi;
 
 pub const DEFAULT_BAUD: u32 = 115_200;
 
-/// The simulator's serial port as `run` starts it: a symlink to its pty, or
-/// on Windows its named pipe.
+/// The first simulator's serial port: a symlink to its pty, or on Windows
+/// its named pipe. More simulators are esp32-sim-2 .. esp32-sim-16 beside it
+/// (sim_ports).
 #[cfg(not(windows))]
 pub const SIM_LINK: &str = "/tmp/esp32-sim";
 #[cfg(windows)]
@@ -36,24 +37,82 @@ pub fn is_simulator_port(port: &str) -> bool {
     port == SIM_LINK || target.starts_with("/dev/ttys") || target.starts_with("/dev/pts/")
 }
 
-/// Is the simulator's serial port there (a simulator running)?
-fn sim_link_exists() -> bool {
-    #[cfg(windows)]
-    {
-        pipe::exists(SIM_LINK)
-    }
-    #[cfg(not(windows))]
-    {
-        Path::new(SIM_LINK).exists()
+/// How many simulators can run at once, each with its own name.
+pub const SIM_FAMILY_MAX: u32 = 16;
+
+/// The name of the n-th simulator's link: esp32-sim, then esp32-sim-2 ...
+pub fn sim_name(n: u32) -> String {
+    if n == 1 {
+        "esp32-sim".into()
+    } else {
+        format!("esp32-sim-{n}")
     }
 }
 
-/// Serial ports worth offering to the user: real ports plus the simulator link.
-pub fn list_ports() -> Vec<String> {
-    let mut out = Vec::new();
-    if sim_link_exists() {
-        out.push(SIM_LINK.to_string());
+/// Which simulator `name` (the file or pipe name, no directory) is, if any.
+/// Windows lists its pipes by name; POSIX looks the links up one by one.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn sim_index(name: &str) -> Option<u32> {
+    let name = name.to_ascii_lowercase();
+    let rest = name.strip_prefix("esp32-sim")?;
+    if rest.is_empty() {
+        return Some(1);
     }
+    let digits = rest.strip_prefix('-')?;
+    if digits.starts_with('0') || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let n: u32 = digits.parse().ok()?;
+    (2..=SIM_FAMILY_MAX).contains(&n).then_some(n)
+}
+
+/// The simulators' links in `dir`, lowest first: a link counts while its
+/// target is there and a simulator holds its `<link>.lock` (a crashed one's
+/// lock is let go by the system, so its leftover link doesn't count).
+#[cfg(not(windows))]
+fn sim_links_in(dir: &Path) -> Vec<String> {
+    (1..=SIM_FAMILY_MAX)
+        .map(|n| dir.join(sim_name(n)))
+        .filter(|link| {
+            let is_link = std::fs::symlink_metadata(link).is_ok_and(|m| m.file_type().is_symlink());
+            let mut lock = link.clone().into_os_string();
+            lock.push(".lock");
+            is_link
+                && link.exists()
+                && std::fs::File::open(lock)
+                    .is_ok_and(|f| matches!(f.try_lock_shared(), Err(std::fs::TryLockError::WouldBlock)))
+        })
+        .map(|link| link.to_string_lossy().into_owned())
+        .collect()
+}
+
+/// The simulators running here, lowest first.
+pub fn sim_ports() -> Vec<String> {
+    #[cfg(windows)]
+    {
+        // Looked up in the pipe folder: opening a pipe to see would take the
+        // simulator's only connection.
+        let mut found: Vec<(u32, String)> = std::fs::read_dir(r"\\.\pipe\")
+            .map(|d| {
+                d.filter_map(|e| {
+                    let name = e.ok()?.file_name().to_string_lossy().into_owned();
+                    sim_index(&name).map(|n| (n, format!(r"\\.\pipe\{}", sim_name(n))))
+                })
+                .collect()
+            })
+            .unwrap_or_default();
+        found.sort();
+        found.into_iter().map(|(_, p)| p).collect()
+    }
+    #[cfg(not(windows))]
+    {
+        sim_links_in(Path::new("/tmp"))
+    }
+}
+
+/// Serial ports worth offering to the user: the simulators, then real ports.
+pub fn list_ports() -> Vec<String> {
+    let mut out = sim_ports();
     if let Ok(ports) = serialport::available_ports() {
         for p in ports {
             // On macOS every device appears as /dev/tty.* and /dev/cu.*; cu.* is the right one.
@@ -123,16 +182,6 @@ mod pipe {
     pub fn is_pipe(port: &str) -> bool {
         let p = port.to_ascii_lowercase().replace('/', "\\");
         p.starts_with(r"\\.\pipe\")
-    }
-
-    /// Is the pipe there? Looked up in the pipe folder: opening it to see
-    /// would take the simulator's only connection.
-    #[cfg(windows)]
-    pub fn exists(port: &str) -> bool {
-        let name = port.replace('/', "\\");
-        let Some(name) = name.get(9..) else { return false };
-        std::fs::read_dir(r"\\.\pipe\")
-            .is_ok_and(|mut d| d.any(|e| e.is_ok_and(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case(name))))
     }
 
     #[cfg(windows)]
@@ -405,5 +454,90 @@ mod pty {
             RawTty::open(&path, std::time::Duration::from_millis(20)).expect("free again once the first let go");
             unsafe { libc::close(m) };
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn sim_names_round_trip() {
+        assert_eq!(super::sim_name(1), "esp32-sim");
+        assert_eq!(super::sim_name(2), "esp32-sim-2");
+        assert_eq!(super::sim_index("esp32-sim"), Some(1));
+        assert_eq!(super::sim_index("esp32-sim-2"), Some(2));
+        assert_eq!(super::sim_index("esp32-sim-16"), Some(16));
+        assert_eq!(super::sim_index("ESP32-SIM-3"), Some(3));
+        for bad in [
+            "esp32-sim-1",
+            "esp32-sim-17",
+            "esp32-sim-02",
+            "esp32-sim-x",
+            "esp32-simulator",
+            "esp32-sim.lock",
+            "esp32-sim-2.lock",
+        ] {
+            assert_eq!(super::sim_index(bad), None, "{bad}");
+        }
+    }
+
+    /// A fresh directory for one test, removed when dropped.
+    #[cfg(unix)]
+    struct Dir(std::path::PathBuf);
+    #[cfg(unix)]
+    impl Dir {
+        fn new(test: &str) -> Dir {
+            let d = std::env::temp_dir().join(format!("luaboard-link-{}-{test}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&d);
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(d.join("t"), b"").unwrap();
+            Dir(d)
+        }
+        fn p(&self, name: &str) -> String {
+            self.0.join(name).to_string_lossy().into_owned()
+        }
+        /// `name` -> `to` (in this directory).
+        fn link(&self, name: &str, to: &str) {
+            std::os::unix::fs::symlink(self.0.join(to), self.0.join(name)).unwrap();
+        }
+        /// `name`.lock, held while the returned file lives (None: there but not held).
+        fn lock(&self, name: &str, held: bool) -> Option<std::fs::File> {
+            let f = std::fs::File::create(self.0.join(format!("{name}.lock"))).unwrap();
+            held.then(|| {
+                f.lock().unwrap();
+                f
+            })
+        }
+    }
+    #[cfg(unix)]
+    impl Drop for Dir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sim_links_skip_stale_and_dangling() {
+        let d = Dir::new("stale");
+        d.link("esp32-sim", "t");
+        let _ = d.lock("esp32-sim", false);
+        d.link("esp32-sim-2", "t");
+        let _l2 = d.lock("esp32-sim-2", true);
+        d.link("esp32-sim-3", "missing");
+        let _l3 = d.lock("esp32-sim-3", true);
+        d.link("esp32-sim-10", "t");
+        let _l10 = d.lock("esp32-sim-10", true);
+        std::fs::write(d.0.join("esp32-sim-5"), b"").unwrap();
+        let _l5 = d.lock("esp32-sim-5", true);
+        d.link("other", "t");
+        assert_eq!(super::sim_links_in(&d.0), vec![d.p("esp32-sim-2"), d.p("esp32-sim-10")]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sim_links_need_a_held_lock() {
+        let d = Dir::new("nolock");
+        d.link("esp32-sim", "t");
+        assert!(super::sim_links_in(&d.0).is_empty());
     }
 }
