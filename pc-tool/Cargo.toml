@@ -21,7 +21,9 @@ path = "src/bin/luaboard-studio/main.rs"
 aes-gcm = "0.11.1"
 anyhow = "1.0.104"
 clap = { version = "4.6.7", features = ["derive", "env"] }
-eframe = "0.37.0"
+# glow (OpenGL), not wgpu: with wgpu, moving the window stutters (moves of 40-100 ms
+# when the mouse is moving, on every backend, also in an empty egui app).
+eframe = { version = "0.37.0", default-features = false, features = ["accesskit", "clipboard", "default_fonts", "glow", "links", "system_fonts", "wayland", "web_screen_reader", "x11"] }
 espflash = { version = "4.7.0", default-features = false, features = ["serialport"] }
 getrandom = "0.4.3"
 mdns-sd = "0.21.7"
