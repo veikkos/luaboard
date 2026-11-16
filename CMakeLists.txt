@@ -173,7 +173,9 @@ if(MSVC)
     set(QUIET /W0)
     set(FORCE_INCLUDE /FI)
 else()
-    set(WARN -Wall -Wextra -Wno-unused-parameter)
+    # A function the headers don't declare would be taken to return int: a
+    # pointer from it is cut to 32 bits (memmem without _GNU_SOURCE did).
+    set(WARN -Wall -Wextra -Wno-unused-parameter -Werror=implicit-function-declaration)
     if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
         # snprintf into a fixed buffer cuts text that is too long, on purpose
         list(APPEND WARN -Wno-format-truncation)
@@ -197,6 +199,10 @@ if(WIN32)
         _WIN32_WINNT=0x0A00 SDL_MAIN_HANDLED)
 else()
     set(PLATFORM_FORCE)
+endif()
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # glibc declares memmem and the like only for _GNU_SOURCE (-std=gnu11 alone doesn't).
+    list(APPEND COMMON_DEFS _GNU_SOURCE)
 endif()
 
 # Lua: upstream code, built quietly with its own warning level. The core

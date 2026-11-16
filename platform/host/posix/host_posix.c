@@ -5,7 +5,7 @@
  */
 #if defined(__APPLE__)
 #define _DARWIN_C_SOURCE
-#else
+#elif !defined(_GNU_SOURCE)              /* (the build defines it on Linux) */
 #define _GNU_SOURCE
 #endif
 #include "host.h"

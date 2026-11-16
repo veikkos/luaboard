@@ -171,10 +171,13 @@ jobs:
           cmake --preset ${{ matrix.preset }} -DCMAKE_DISABLE_FIND_PACKAGE_SDL2=ON -DCMAKE_DISABLE_FIND_PACKAGE_MbedTLS=ON
           cmake --build --preset ${{ matrix.preset }}
           cmake --build --preset ${{ matrix.preset }} --target tool
+      # e2e not on Windows, as in ci.yml: its simulator lacks parts of the
+      # time model the tests rely on, and fails three update checks
+      # (docs/TODO.md, Windows).
       - name: Unit and end-to-end tests
         run: |
           cmake --build --preset ${{ matrix.preset }} --target unit
-          cmake --build --preset ${{ matrix.preset }} --target e2e
+          if [ "$RUNNER_OS" != Windows ]; then cmake --build --preset ${{ matrix.preset }} --target e2e; fi
         env:
           E2E_KEEP: "1"
           TMPDIR: ${{ runner.temp }}

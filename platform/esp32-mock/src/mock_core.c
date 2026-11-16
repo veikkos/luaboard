@@ -751,5 +751,31 @@ void heap_caps_free(void *ptr) { free(ptr); }
 /* ---- random: host CSPRNG stands in for the hardware RNG ---- */
 #include "esp_random.h"
 
+#if defined(__linux__)
+/* glibc has arc4random only from 2.36; the release's Linux build is older. */
+#include <sys/random.h>
+
+void esp_fill_random(void *buf, size_t len)
+{
+    uint8_t *p = buf;
+    while (len > 0) {
+        ssize_t n = getrandom(p, len, 0);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            abort();
+        }
+        p += n;
+        len -= (size_t)n;
+    }
+}
+
+uint32_t esp_random(void)
+{
+    uint32_t v;
+    esp_fill_random(&v, sizeof v);
+    return v;
+}
+#else
 uint32_t esp_random(void) { return arc4random(); }
 void esp_fill_random(void *buf, size_t len) { arc4random_buf(buf, len); }
+#endif
