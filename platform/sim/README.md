@@ -23,7 +23,7 @@ channel stay open, so a connected PC tool stays connected, but Wi-Fi clients
 are dropped and the window opens again.
 
 The `run` build target builds it and opens the window with the serial port
-at `/tmp/esp32-sim` (Windows: `\\.\pipe\esp32-sim`) and storage in
+at `/tmp/esp32-sim` (Windows: `\\.\pipe\esp32-sim`, see [Serial link](#serial-link)) and storage in
 `build/m5stack-cores3/`. With `MODEL=cores3` (or `cores3-lite`) in the
 environment it runs the dark CoreS3 with a battery instead of the default SE.
 
@@ -143,7 +143,7 @@ window.
 | `--model cores3se\|cores3\|cores3-lite` | Board variant (default `cores3se`) |
 | `--headless` | No window |
 | `--watch` | Watch this executable: a new build is flashed into `ota_0` and booted, in the same window. The `run` target does this, and rebuilds when a source changes (environment `WATCH=0` turns both off) |
-| `--link PATH` | Symlink to the serial PTY. On Windows the pipe's name, `\\.\pipe\PATH` (default `esp32-sim`) |
+| `--link PATH` | Symlink to the serial PTY. On Windows the pipe's name, `\\.\pipe\PATH`. Default: the first free name, see [Serial link](#serial-link) |
 | `--loopback` | Servers (the Wi-Fi link, `net.listen`) take 127.0.0.1 only: no other computer reaches them, and no firewall asks about them (the tests) |
 | `--nvs FILE` | NVS file, so settings, Wi-Fi and secrets persist. `<nvs>.run` exists while the simulator runs. Found at start, the firmware sees a crash reset (the last run was killed) |
 | `--flash DIR` | Apps partition folder (default `<nvs>.flash`). The app slots of firmware updates are in `<nvs>.ota/` |
@@ -256,6 +256,22 @@ CLI call or a download doesn't wait out a 10 ms tick each step. The clock
 doesn't move for it. In a fast-forward the firmware looks at the PC link and
 for new connections only every 64th pass (a pass is under a microsecond then,
 and the look is most of it).
+
+## Serial link
+
+The simulator's USB port is a pseudo-terminal with a symlink to it on macOS
+and Linux, and a named pipe on Windows. Without `--link` a simulator takes
+the first free name of `esp32-sim`, `esp32-sim-2` ... `esp32-sim-16`:
+`/tmp/esp32-sim...` or `\\.\pipe\esp32-sim...`. So several run side by
+side, and the studio and the CLI find them all (`luaboard ports`). Without
+`-p` or `LUABOARD_PORT` they take the lowest one; `-p /tmp/esp32-sim-2`
+picks another.
+
+On macOS and Linux a simulator holds a lock on `<link>.lock` (left in
+`/tmp`, empty) while it runs, through its resets. A link whose lock nobody
+holds, such as one a killed simulator left, is free, and the tools don't
+list it. A simulator never takes a link another one holds: with `--link`
+to one, it warns and runs without a link.
 
 ## Control channel
 

@@ -39,7 +39,9 @@ The quickest way in is a [release](https://github.com/veikkos/luaboard/releases/
 an archive for macOS, Windows or Linux with the studio, the command-line tool
 and the simulator, and `luaboard-m5stack-cores3.bin` to flash a
 board (`luaboard flash`). The release's `-update.bin` and manifest are for the
-board's own updates. Unpack the archive and run `luaboard-studio` or `esp32-sim`.
+board's own updates. Unpack the archive and run `esp32-sim` and
+`luaboard-studio`: they find each other, also with
+[several simulators](platform/sim/README.md#serial-link) at once.
 On macOS the downloaded files are quarantined, so run
 `xattr -dr com.apple.quarantine <folder>` on the unpacked folder once. A
 device with Wi-Fi then offers later releases itself, see
@@ -59,7 +61,7 @@ brew install cmake ninja sdl2 mbedtls rustup
 $(brew --prefix rustup)/bin/rustup default stable   # rustup is keg-only
 cmake --preset default                 # configure (build/)
 cmake --build --preset default --target tool   # studio and CLI
-cmake --build --preset default --target run    # simulator window, serial port at /tmp/esp32-sim
+cmake --build --preset default --target run    # simulator window, serial port /tmp/esp32-sim
 pc-tool/target/release/luaboard-studio marketplace/dashboard   # in another terminal
 ```
 

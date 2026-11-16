@@ -5,8 +5,8 @@
 #
 # Targets, `cmake --build --preset default --target <name>`:
 #   esp32-sim   the native simulator (firmware + ESP32 mock + SDL window); default
-#   run         build it (in build/run) and open its window, serial link at /tmp/esp32-sim
-#               (Windows: \\.\pipe\esp32-sim), control channel on 127.0.0.1:3334
+#   run         build it (in build/run) and open its window, serial link the first free of
+#               /tmp/esp32-sim, -2 ... (Windows: \\.\pipe\esp32-sim...), control channel on 127.0.0.1:3334
 #               (`luaboard sim-ctl`). It rebuilds when a source changes
 #               and boots the new firmware in the same window, apps kept
 #               (tools/watch_build.cmake and the simulator's --watch)
