@@ -107,7 +107,14 @@ impl Studio {
         });
         ui.add_enabled_ui(on_usb, |ui| {
             ui.horizontal(|ui| {
-                if ui.button("Pair this computer").clicked() {
+                if ui
+                    .button("Pair this computer")
+                    .on_hover_text(format!(
+                        "Saves the device's key in {}; the Wi-Fi link is encrypted with it",
+                        luaboard::keys::path().display()
+                    ))
+                    .clicked()
+                {
                     self.send(Cmd::Pair(false));
                 }
                 if ui
@@ -137,16 +144,18 @@ impl Studio {
             (on_wifi, target, self.wifi.status.as_ref().is_some_and(|s| s.state == "connected"))
         {
             ui.separator();
-            if ui.button(format!("Use Wi-Fi in this studio ({target})")).clicked() {
+            // Unpaired, the switch would drop the USB link and then be refused.
+            let paired_here = self.wifi.pair.as_ref().is_some_and(|p| p.on && p.here);
+            if ui.add_enabled(paired_here, egui::Button::new(format!("Use Wi-Fi in this studio ({target})"))).clicked()
+            {
                 self.port = target.clone();
                 self.send(Cmd::Connect(target));
             }
-            ui.weak("The USB cable can then be unplugged.");
+            if paired_here {
+                ui.weak("Moves this studio from USB to the device's Wi-Fi. The USB cable can then be unplugged.");
+            } else {
+                ui.weak("Pair this computer first: Wi-Fi takes commands only from paired computers.");
+            }
         }
-        ui.add_space(4.0);
-        ui.weak(format!(
-            "The device announces itself as luaboard.local. The Wi-Fi connection is encrypted with the pairing key, kept in {}.",
-            luaboard::keys::path().display()
-        ));
     }
 }
