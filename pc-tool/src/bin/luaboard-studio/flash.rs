@@ -75,30 +75,41 @@ impl Studio {
         let connected = !info.is_empty();
         let on_sim = field("target").as_deref() == Some("sim");
 
-        ui.label("Image: the .bin the `fw` build target writes for a device, a simulator executable for a simulator.");
+        // A simulator is updated with a simulator executable, a device with a .bin.
+        let sim_built =
+            format!("build/{}/esp32-sim{}", field("board").unwrap_or_default(), std::env::consts::EXE_SUFFIX);
+        ui.label(if on_sim {
+            "Image: a simulator executable for this simulator's board (the default build target writes it)."
+        } else if connected {
+            "Image: the .bin the `fw` build target writes."
+        } else {
+            "Image: for a device the .bin the `fw` build target writes, for a simulator a simulator executable."
+        });
         ui.horizontal(|ui| {
+            let hint = if on_sim { sim_built.as_str() } else { "build/luaboard-….bin" };
             ui.add_enabled(
                 !self.flash.busy,
-                egui::TextEdit::singleline(&mut self.flash.path).desired_width(360.0).hint_text("build/luaboard-….bin"),
+                egui::TextEdit::singleline(&mut self.flash.path).desired_width(360.0).hint_text(hint),
             );
             if ui.add_enabled(!self.flash.busy, egui::Button::new("Browse…")).clicked() {
-                if let Some(p) =
-                    rfd::FileDialog::new().add_filter("Firmware", &["bin"]).add_filter("All files", &["*"]).pick_file()
-                {
+                let dialog = if on_sim {
+                    rfd::FileDialog::new()
+                } else {
+                    rfd::FileDialog::new().add_filter("Firmware", &["bin"]).add_filter("All files", &["*"])
+                };
+                if let Some(p) = dialog.pick_file() {
                     self.flash.path = p.display().to_string();
                 }
             }
         });
         // Connected to a simulator: offer the one the build writes.
-        if on_sim && !self.flash.busy {
-            let board = field("board").unwrap_or_default();
-            let built = format!("build/{board}/esp32-sim{}", std::env::consts::EXE_SUFFIX);
-            if std::path::Path::new(&built).exists()
-                && self.flash.path.trim() != built
-                && ui.small_button(format!("Use {built}")).clicked()
-            {
-                self.flash.path = built;
-            }
+        if on_sim
+            && !self.flash.busy
+            && std::path::Path::new(&sim_built).exists()
+            && self.flash.path.trim() != sim_built
+            && ui.small_button(format!("Use {sim_built}")).clicked()
+        {
+            self.flash.path = sim_built;
         }
 
         // Only what's needed to draw: the image itself is copied on a click.
@@ -106,7 +117,11 @@ impl Studio {
         let mut has_usb = false;
         match &self.flash.image {
             None => {
-                ui.weak("No image selected. Build one with the `fw` target (or the simulator, the default target).");
+                ui.weak(if on_sim {
+                    "No image selected. Build one with the default build target."
+                } else {
+                    "No image selected. Build one with the `fw` build target."
+                });
             }
             Some(Err(e)) => {
                 ui.colored_label(egui::Color32::from_rgb(255, 110, 110), e);
