@@ -78,8 +78,10 @@
 /* The update check (update.c): the newest release's manifest, fetched a
    minute after Wi-Fi first comes up, then once a day. A check that failed
    comes again after a part of that day: its 144th (10 minutes), then its
-   24th (an hour), then daily. */
-#define UPDATE_MANIFEST_URL   "https://github.com/veikkos/luaboard/releases/latest/download/manifest.json"
+   24th (an hour), then daily. The manifest is the newest release's
+   manifest-<board>.json, here (update.c adds the name): each board has its
+   own, so the name never has to change. */
+#define UPDATE_LATEST_URL     "https://github.com/veikkos/luaboard/releases/latest/download/"
 #define UPDATE_HELP_URL       "github.com/veikkos/luaboard/releases"   /* shown when an update can't be pulled */
 #define UPDATE_FIRST_CHECK_MS (60 * 1000)
 #define UPDATE_CHECK_EVERY_MS (24 * 3600 * 1000)

@@ -126,9 +126,11 @@ device: OK UPDATED 94bf241\n
         (the device reboots half a second later)
 ```
 
-The image is the app part of a firmware build: the app-only `luaboard.bin`,
-or the merged image from the `fw` target from its first app slot (0x20000) on.
-`luaboard update` takes either and cuts the merged one. The simulator
+The image is the app part of a firmware build: the app alone (a release's
+`luaboard-<board>-update.bin`, `build/idf-<board>/luaboard.bin` of a build),
+or the whole flash image (a release's `luaboard-<board>.bin`, the `fw`
+target's `build/luaboard-<board>.bin`) from its first app slot (0x20000) on.
+`luaboard update` takes either and cuts the whole one. The simulator
 (`target=sim` in `INFO`) takes a simulator executable for its board instead
 (`build/<board>/esp32-sim`). The PC tools check the image against `INFO` before they send it.
 
@@ -184,20 +186,24 @@ whole story just before it in `EVT update install-failed`.
 
 ## Release manifest
 
-The device finds new releases from a small JSON file, fetched over HTTPS from
-`https://github.com/veikkos/luaboard/releases/latest/download/manifest.json`.
-That address always points to the newest release that isn't a prerelease, and
+The device finds new releases from a small JSON file of its board, fetched
+over HTTPS from
+`https://github.com/veikkos/luaboard/releases/latest/download/manifest-<board>.json`
+(`manifest-m5stack-cores3.json`). That address always points to the newest release that isn't a prerelease, and
 isn't the rate-limited GitHub API. It redirects (to GitHub's download host),
 and the device follows redirects. The release
 workflow (`tools/release.cmake`) writes it from the built image, CHANGELOG.md
-and `app/src/app_config.h`, and attaches it to every release.
+and `app/src/app_config.h`, and attaches it to every release. A release's
+files for a board are the manifest, `luaboard-<board>-update.bin` (the app
+part alone, what the manifest points at) and `luaboard-<board>.bin` (the
+whole flash image, for `luaboard flash`).
 
 ```json
 {
   "format": 1,
   "version": "v1.1.0",
   "board": "m5stack-cores3",
-  "url": "https://github.com/veikkos/luaboard/releases/download/v1.1.0/luaboard.bin",
+  "url": "https://github.com/veikkos/luaboard/releases/download/v1.1.0/luaboard-m5stack-cores3-update.bin",
   "size": 1580000,
   "sha256": "(64 hex digits)",
   "lua_api": 2,

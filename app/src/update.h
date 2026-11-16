@@ -1,6 +1,6 @@
 /*
  * Firmware releases: the update check. With Wi-Fi joined and the setting
- * on, the release manifest (UPDATE_MANIFEST_URL) is fetched a minute after
+ * on, the release manifest (manifest-<board>.json of the latest release) is fetched a minute after
  * Wi-Fi first comes up, then every UPDATE_CHECK_EVERY_MS, in the background
  * (httpc, stepped from the main loop). A newer release for this board is
  * kept in RAM until the next check says otherwise.

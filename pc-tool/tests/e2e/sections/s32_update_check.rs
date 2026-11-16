@@ -7,7 +7,7 @@
 
 use super::ota::{info, Raw};
 use super::update::{bin_url, boot, check_times, checks, next_check, releases, said, wifi_up, DAY};
-use crate::fakes::releases::manifest;
+use crate::fakes::releases::{manifest, MANIFEST};
 use crate::harness::T;
 
 /// A day passes and its check fails, watched over a `luaboard raw` session:
@@ -46,7 +46,7 @@ pub fn run(t: &mut T) {
     let ok = t.until(5.0, |t| info(t, "update") == "v1.1.0");
     let lines = log.lines();
     let latest = lines.iter().position(|l| l == "LATEST");
-    let object = lines.iter().position(|l| l == "OBJECT manifest.json");
+    let object = lines.iter().position(|l| *l == format!("OBJECT {MANIFEST}"));
     let ok = ok && matches!((latest, object), (Some(a), Some(b)) if a < b);
     t.check(ok, "checks a minute after Wi-Fi", |t| {
         format!("update {} / log: {} / device: {}", info(t, "update"), log.tail(4), said(t))
@@ -124,13 +124,13 @@ pub fn run(t: &mut T) {
 
     t.stop();
     rel.set_manifest(&manifest("v1.0.0", &bin("v1.0.0"), &img, 1, 1));
-    let before = log.count("OBJECT manifest.json");
+    let before = log.count(&format!("OBJECT {MANIFEST}"));
     boot(t, "v1.0.0-5-gabc123", Some(&url));
     wifi_up(t);
     t.advance(65_000);
     let done = t.until(5.0, |t| checks(t) >= 1);
     let (ver, running) = (info(t, "update"), info(t, "ver"));
-    let ok = done && log.count("OBJECT manifest.json") > before && ver == "-" && running == "v1.0.0-5-gabc123";
+    let ok = done && log.count(&format!("OBJECT {MANIFEST}")) > before && ver == "-" && running == "v1.0.0-5-gabc123";
     t.check(ok, "a dev build isn't offered its own release", |_| {
         format!("checked {done}, running {running}, update {ver}, log: {}", log.tail(3))
     });

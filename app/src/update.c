@@ -46,7 +46,7 @@ static const char *s_dl_why;            /* why on_image stopped it, NULL if it d
 static const char *manifest_url(void)
 {
 #ifdef ESP_PLATFORM
-    return UPDATE_MANIFEST_URL;
+    return UPDATE_LATEST_URL "manifest-" BOARD_NAME ".json";
 #else
     return sim_update_url();
 #endif

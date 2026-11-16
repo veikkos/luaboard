@@ -12,7 +12,7 @@
     " \"url\": " url ", \"size\": " size ", \"sha256\": " sha ","                    \
     " \"lua_api\": " api ", \"lua_api_min\": " apimin extra "}"
 
-#define URL_OK "\"https://github.com/veikkos/luaboard/releases/download/v1.1.0/luaboard.bin\""
+#define URL_OK "\"https://github.com/veikkos/luaboard/releases/download/v1.1.0/luaboard-m5stack-cores3-update.bin\""
 #define GOOD(extra) MANIFEST("1", "\"v1.1.0\"", "\"" HEX64 "\"", URL_OK, "1580000", "2", "1", extra)
 
 static bool parse(const char *json, update_manifest_t *m, char *err, size_t cap)
@@ -53,7 +53,7 @@ static void test_full(void)
     CHECK(m.format == 1);
     CHECK(strcmp(m.version, "v1.1.0") == 0);
     CHECK(strcmp(m.board, "m5stack-cores3") == 0);
-    CHECK(strcmp(m.url, "https://github.com/veikkos/luaboard/releases/download/v1.1.0/luaboard.bin") == 0);
+    CHECK(strcmp(m.url, "https://github.com/veikkos/luaboard/releases/download/v1.1.0/luaboard-m5stack-cores3-update.bin") == 0);
     CHECK(m.size == 1580000);
     CHECK(m.sha256[0] == 0xab && m.sha256[1] == 0xcd && m.sha256[31] == 0x89);
     CHECK(m.lua_api == 2 && m.lua_api_min == 1);
@@ -172,7 +172,7 @@ static void test_rejects(void)
                          "\"abcdefg123456789abcdef0123456789abcdef0123456789abcdef0123456789\"",
                          URL_OK, "1580000", "2", "1", ""));
     expect_fail(MANIFEST("1", "\"v1.1.0\"", "\"" HEX64 "\"",
-                         "\"http://example.com/luaboard.bin\"", "1580000", "2", "1", ""));
+                         "\"http://example.com/luaboard-m5stack-cores3-update.bin\"", "1580000", "2", "1", ""));
     expect_fail(MANIFEST("1", "\"v1.1.0\"", "\"" HEX64 "\"", URL_OK, "0", "2", "1", ""));
     expect_fail(MANIFEST("1", "\"v1.1.0\"", "\"" HEX64 "\"", URL_OK, "1580000", "2", "3", ""));
     expect_fail("{\"format\": 1, \"board\": \"b\", \"url\": " URL_OK ", \"size\": 5, \"sha256\": \""
@@ -205,7 +205,7 @@ static void check_release_notes(const char *notes)
     CHECK(strstr(md, "blob/v1.0.0/https") == NULL && strstr(md, "blob/v1.0.0/#") == NULL);
 }
 
-/* fw-unit --manifest <manifest.json> <image> [<notes.md>]: what
+/* fw-unit --manifest <manifest-<board>.json> <image> [<notes.md>]: what
    tools/release.cmake wrote for the CHANGELOG fixture parses, and says what
    the image is. */
 static int check_release_manifest(const char *manifest, const char *image, const char *notes)
@@ -233,7 +233,7 @@ static int check_release_manifest(const char *manifest, const char *image, const
     if (check_failed) printf("fw-unit: manifest: %s\n", err);
     CHECK(strcmp(m.version, "v1.0.0") == 0);
     CHECK(strcmp(m.board, "m5stack-cores3") == 0);
-    CHECK(strcmp(m.url, "https://github.com/veikkos/luaboard/releases/download/v1.0.0/luaboard.bin") == 0);
+    CHECK(strcmp(m.url, "https://github.com/veikkos/luaboard/releases/download/v1.0.0/luaboard-m5stack-cores3-update.bin") == 0);
     CHECK((long)m.size == size);
     CHECK(m.lua_api >= m.lua_api_min && m.lua_api_min >= 1);
     CHECK(m.notes[0] != 0);

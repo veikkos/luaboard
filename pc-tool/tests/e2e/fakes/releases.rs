@@ -2,11 +2,13 @@
 //! "latest" address redirects to the release's own, and that to where the
 //! file is stored:
 //!
-//!   GET /latest/download/manifest.json   302 to /download/<tag>/manifest.json
+//!   GET /latest/download/<MANIFEST>      302 to /download/<tag>/<MANIFEST>
 //!                                        (tag: the manifest's version)
 //!   GET /download/<tag>/<file>           302 to https://127.0.0.1:<port>/objects/<file>
-//!   GET /objects/manifest.json           200, the manifest (chunked)
+//!   GET /objects/<MANIFEST>              200, the manifest (chunked)
 //!   GET /objects/<file>                  200, a file set with set_file (Content-Length)
+//!
+//! MANIFEST and UPDATE_BIN are the names a release gives them.
 //!
 //! Every request is logged as one line: "LATEST", "DOWNLOAD <file>",
 //! "OBJECT <file>", "FAIL <path>" (a 500 from fail_next), "LOOP <path>"
@@ -22,6 +24,9 @@ use sha2::{Digest, Sha256};
 use super::http::{self, Body, Gate, Request, Response, Server};
 use super::tls::Cert;
 use super::Log;
+
+pub const MANIFEST: &str = "manifest-m5stack-cores3.json";
+pub const UPDATE_BIN: &str = "luaboard-m5stack-cores3-update.bin";
 
 #[derive(Default)]
 struct State {
@@ -164,20 +169,20 @@ fn handle(r: &Request, log: &Log, st: &mut State, port: u16) -> Response {
     }
     let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
     match parts.as_slice() {
-        ["latest", "download", "manifest.json"] => {
+        ["latest", "download", MANIFEST] => {
             log.line("LATEST");
             let tag = serde_json::from_str::<serde_json::Value>(&st.manifest)
                 .ok()
                 .and_then(|v| v["version"].as_str().map(String::from))
                 .unwrap_or_else(|| "v0".into());
-            redirect(&format!("/download/{tag}/manifest.json")) // relative, as the next is absolute
+            redirect(&format!("/download/{tag}/{MANIFEST}")) // relative, as the next is absolute
         }
         ["download", _tag, file] => {
             log.line(format!("DOWNLOAD {file}"));
             redirect(&format!("https://127.0.0.1:{port}/objects/{file}"))
         }
-        ["objects", "manifest.json"] => {
-            log.line("OBJECT manifest.json");
+        ["objects", MANIFEST] => {
+            log.line(format!("OBJECT {MANIFEST}"));
             // In pieces of 100 bytes: the device puts the chunks together.
             let parts = st.manifest.as_bytes().chunks(100).map(|c| c.to_vec()).collect();
             let headers = vec![

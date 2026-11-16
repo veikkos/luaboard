@@ -1,5 +1,5 @@
 # The release workflow's manifest and notes (.github/workflows/release.yml),
-# and what the unit target runs on a fixture. Writes <OUT>/manifest.json (the
+# and what the unit target runs on a fixture. Writes <OUT>/manifest-<BOARD>.json (the
 # format of docs/PROTOCOL.md, "Release manifest") and <OUT>/notes.md (the
 # tag's CHANGELOG section without its heading, its relative links made
 # absolute). Fails, writing nothing, when the tag is malformed, CHANGELOG.md
@@ -174,7 +174,7 @@ file(SHA256 "${IMAGE}" sha256)
 
 # ---------------------------------------------------------- limits
 # What firmware 1.0.0 accepts, forever (docs/PROTOCOL.md, "Release manifest").
-set(url "${REPO_URL}/releases/download/${TAG}/luaboard.bin")
+set(url "${REPO_URL}/releases/download/${TAG}/luaboard-${BOARD}-update.bin")
 string(LENGTH "${TAG}" n)
 if(n GREATER_EQUAL 32)
     message(FATAL_ERROR "release: the tag ${TAG} is ${n} bytes, a manifest's version must be under 32")
@@ -240,6 +240,6 @@ endwhile()
 string(APPEND notes_md "${rest}")
 
 file(MAKE_DIRECTORY "${OUT}")
-file(WRITE "${OUT}/manifest.json" "${manifest}")
+file(WRITE "${OUT}/manifest-${BOARD}.json" "${manifest}")
 file(WRITE "${OUT}/notes.md" "${notes_md}\n")
 message(STATUS "release: ${TAG}, ${size} bytes, notes: ${line}")

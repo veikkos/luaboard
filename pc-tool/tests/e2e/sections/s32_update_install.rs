@@ -6,7 +6,7 @@ use std::fs;
 
 use super::ota::{cp, has_app, info, sha256, Raw};
 use super::update::{bin_url, boot, releases, wifi_up};
-use crate::fakes::releases::manifest;
+use crate::fakes::releases::{manifest, UPDATE_BIN};
 use crate::harness::{ui, EXE, T};
 
 /// Home: the update row (above Settings), then Install on its confirm screen.
@@ -67,7 +67,7 @@ pub fn run(t: &mut T) {
     let (rel, url) = releases(t);
     let log = rel.log.clone();
     let img = fs::read(&t.sim_bin).unwrap();
-    rel.set_file("luaboard.bin", img.clone());
+    rel.set_file(UPDATE_BIN, img.clone());
     let good = manifest("v1.1.0", &bin_url(&rel, "v1.1.0"), &img, 2, 1);
     rel.set_manifest(&good);
 
@@ -76,7 +76,8 @@ pub fn run(t: &mut T) {
     t.e(&["put", &t.path("main.lua"), "--app", "keep", "--save"]);
     install(t);
     let booted = booted_into(t, "ota_1");
-    let ok = found && booted && info(t, "ota") == "ok" && log.has("OBJECT luaboard.bin") && has_app(t, "keep");
+    let ok =
+        found && booted && info(t, "ota") == "ok" && log.has(&format!("OBJECT {UPDATE_BIN}")) && has_app(t, "keep");
     t.check(ok, "Install downloads and boots the new firmware", |t| {
         format!("found {found}, booted {booted}, info: {} / log: {}", t.e(&["info"]), log.tail(4))
     });
@@ -103,7 +104,7 @@ pub fn run(t: &mut T) {
     });
 
     rel.set_manifest(&good);
-    rel.cut("luaboard.bin", 100_000);
+    rel.cut(UPDATE_BIN, 100_000);
     let found = offered(t, &url);
     let raw = events(t);
     install(t);
@@ -119,7 +120,7 @@ pub fn run(t: &mut T) {
     // download is given up after ten minutes. The device's clock goes in
     // steps shorter than the idle time, each once more bytes have come.
     // (The release is still offered: the row is where it was.)
-    rel.drip("luaboard.bin", 100_000);
+    rel.drip(UPDATE_BIN, 100_000);
     let raw = events(t);
     install(t);
     let started = t.until(10.0, |_| !evt(&raw, "ota started").is_empty());
@@ -140,7 +141,7 @@ pub fn run(t: &mut T) {
         format!("started {started}, event: {failed}, after {steps} steps of 10 s, slot: {}", info(t, "slot"))
     });
 
-    rel.pause("luaboard.bin", 100_000);
+    rel.pause(UPDATE_BIN, 100_000);
     let found = offered(t, &url);
     let raw = events(t);
     install(t);

@@ -68,7 +68,7 @@ add_custom_target(unit
     COMMAND ${CMAKE_COMMAND} -DROOT=${ROOT} -DTAG=v1.0.0 -DBOARD=m5stack-cores3 -DOUT=${REL_OUT}
             -DCHANGELOG=${ROOT}/app/test/CHANGELOG.fixture.md -DIMAGE=${ROOT}/app/test/CHANGELOG.fixture.md
             -P ${ROOT}/tools/release.cmake
-    COMMAND $<TARGET_FILE:fw-unit> --manifest ${REL_OUT}/manifest.json ${ROOT}/app/test/CHANGELOG.fixture.md
+    COMMAND $<TARGET_FILE:fw-unit> --manifest ${REL_OUT}/manifest-m5stack-cores3.json ${ROOT}/app/test/CHANGELOG.fixture.md
             ${REL_OUT}/notes.md
     DEPENDS fw-unit
     WORKING_DIRECTORY ${PC_TOOL} USES_TERMINAL VERBATIM)

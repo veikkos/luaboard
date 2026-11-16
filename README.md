@@ -38,7 +38,8 @@ notice.
 The quickest way in is a [release](https://github.com/veikkos/luaboard/releases/latest):
 an archive for macOS, Windows or Linux with the studio, the command-line tool
 and the simulator, and `luaboard-m5stack-cores3.bin` to flash a
-board (`luaboard flash`). Unpack it and run `luaboard-studio` or `esp32-sim`.
+board (`luaboard flash`). The release's `-update.bin` and manifest are for the
+board's own updates. Unpack the archive and run `luaboard-studio` or `esp32-sim`.
 On macOS the downloaded files are quarantined, so run
 `xattr -dr com.apple.quarantine <folder>` on the unpacked folder once. A
 device with Wi-Fi then offers later releases itself, see

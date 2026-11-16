@@ -94,7 +94,7 @@ things to check on a real board, by part of the board.
   refused port and a name that doesn't resolve giving their messages,
   `net.listen` and `accept`, an `http.get` over https, and a pull update
   check and download, all on lwIP.
-- A real pull update from GitHub: the manifest and `luaboard.bin` through
+- A real pull update from GitHub: the manifest and `luaboard-m5stack-cores3-update.bin` through
   the redirect to GitHub's download host, the certificate bundle accepting
   both hosts, and the 1.6 MB image over TLS (time, memory, the main task's
   stack) into the other slot, then the reboot into it.

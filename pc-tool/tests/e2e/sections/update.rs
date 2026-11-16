@@ -3,7 +3,7 @@
 //! with a shortened "day" between checks (--set update_every), and waiting
 //! for the checks.
 
-use crate::fakes::releases::FakeReleases;
+use crate::fakes::releases::{FakeReleases, MANIFEST, UPDATE_BIN};
 use crate::fakes::tls;
 use crate::harness::T;
 
@@ -17,13 +17,13 @@ pub fn releases(t: &mut T) -> (FakeReleases, String) {
     let rel = FakeReleases::start(&cert);
     let ca = t.write("ca.pem", &cert.pem);
     t.sim_env = vec![("SIM_CA_FILE".into(), ca)];
-    let url = format!("https://127.0.0.1:{}/latest/download/manifest.json", rel.port);
+    let url = format!("https://127.0.0.1:{}/latest/download/{MANIFEST}", rel.port);
     (rel, url)
 }
 
 /// Where the fake server has release `v`'s image.
 pub fn bin_url(rel: &FakeReleases, v: &str) -> String {
-    format!("https://127.0.0.1:{}/download/{v}/luaboard.bin", rel.port)
+    format!("https://127.0.0.1:{}/download/{v}/{UPDATE_BIN}", rel.port)
 }
 
 /// The checks the device has finished since it booted (its log, sim.err).

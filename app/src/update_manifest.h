@@ -1,4 +1,4 @@
-/* The release manifest (manifest.json, written by .github/workflows/release.yml)
+/* The release manifest (manifest-<board>.json, written by .github/workflows/release.yml)
  * and the version comparison behind "an update is available". Pure logic:
  * no allocation, no networking. */
 #pragma once
