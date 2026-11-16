@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <img src="pc-tool/demo/showcase.gif" width="400" alt="CoreS3 SE in the simulator, a second each of heart rate, calendar, Di2, clock, weather, electricity spot prices and stocks">
+  <img src="pc-tool/demo/showcase.gif" width="400" alt="CoreS3 SE in the simulator, a second each of heart rate, calendar, Di2, clock, weather, electricity spot prices, stocks and news">
   <img src="docs/img/cores3.png" width="400" alt="CoreS3 in the simulator, showing Spotify now playing">
 </p>
 

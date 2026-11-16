@@ -23,9 +23,9 @@ Then copy `/tmp/studio.gif` over `pc-tool/studio.gif`.
 
 ## The showcase
 
-`showcase.gif` loops seven apps on a CoreS3 SE in the simulator, a
-second each: heart rate, calendar, Di2, clock, weather, spot prices and
-stocks.
+`showcase.gif` loops eight apps on a CoreS3 SE in the simulator, a
+second each: heart rate, calendar, Di2, clock, weather, spot prices, stocks
+and news.
 `showcase/make.sh` makes it again, with the simulator and the CLI built and
 ImageMagick and ffmpeg installed:
 
@@ -35,8 +35,9 @@ pc-tool/demo/showcase/make.sh            # writes pc-tool/demo/showcase.gif
 
 It runs the real apps in one headless simulator on a fixed clock. Their data
 is made up: `showcase/<app>/` holds Lua files uploaded into that app on top of
-its own, replacing a module it requires (`http.lua` for weather, spot prices
-and stocks, `gcal.lua` for the calendar). The heart rate strap and the Di2
+its own, replacing a module it requires (`http.lua` for weather, spot prices,
+stocks and news, `gcal.lua` for the calendar), and the `.jpg` pictures it
+serves (news: NASA's, in the public domain). The heart rate strap and the Di2
 derailleur are the apps' simulated Bluetooth devices, driven over the
 control channel. Frames are a tenth of a second of the device's time apart,
 put into the picture of the device (`docs/img/cores3se.png`)

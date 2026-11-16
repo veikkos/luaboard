@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The README's showcase GIF: seven example apps on a CoreS3 SE, a second each,
+# The README's showcase GIF: eight example apps on a CoreS3 SE, a second each,
 # with made-up live data. Needs the simulator and the CLI built (the default
 # preset's tool target and esp32-sim), ImageMagick and ffmpeg.
 #
@@ -7,7 +7,8 @@
 #
 # One headless simulator on a fixed clock runs the real apps. Their data comes
 # from small Lua stand-ins next to this script (an app's own http.lua or
-# gcal.lua replaces the built-in or the example's one), and the heart rate
+# gcal.lua replaces the built-in or the example's one; .jpg files next to
+# it are uploaded too, for the pictures it serves), and the heart rate
 # strap and the Di2 derailleur are the examples' simulated Bluetooth devices,
 # driven over the control channel. Frames are taken a tenth of a second of
 # the device's time apart and put into the picture of the device
@@ -65,9 +66,14 @@ start_app() {
   local app=$1 dir=$WORK/apps/$1
   mkdir -p "$dir"
   cp "$ROOT/marketplace/$app/"*.lua "$dir/"
-  if [ -d "$HERE/$app" ]; then cp "$HERE/$app/"*.lua "$dir/"; fi
+  if [ -d "$HERE/$app" ]; then
+    cp "$HERE/$app/"*.lua "$dir/"
+    for f in "$HERE/$app/"*.jpg; do if [ -e "$f" ]; then cp "$f" "$dir/"; fi; done
+  fi
   if [ -n "${2:-}" ]; then printf '%s\n' "$2" > "$dir/secrets.env"; fi
-  lb put "$dir/"*.lua --app "$app" --run main.lua >/dev/null
+  local files=("$dir/"*.lua)
+  for f in "$dir/"*.jpg; do if [ -e "$f" ]; then files+=("$f"); fi; done
+  lb put "${files[@]}" --app "$app" --run main.lua >/dev/null
 }
 
 FRAMES=$((FPS * SECS))
@@ -168,6 +174,12 @@ stocks_hook() {
 }
 record stocks_hook
 
+# ---- news: a made-up feed with NASA's pictures, all loaded
+echo "news..."
+start_app news "feed=https://example.com/feed.xml"
+wait_lua 'UI.status == "ok" and UI.stories[1].px ~= nil and UI.stories[3].thumb ~= nil'
+record
+
 # ---- the frames into the device's picture, then the GIF
 echo "frames..."
 # The simulator's pixel grid at 2x: the last row and column of each pixel's
@@ -182,7 +194,10 @@ for f in "$WORK"/frames/*.ppm; do
     "$WORK/grid.png" -compose multiply -composite "$WORK/lcd.png"
   magick "$FRAME_PNG" -alpha off "$WORK/lcd.png" -geometry "$LCD_AT" -compose over -composite "$WORK/png/$b.png"
 done
+# The palette first, then the frames with it (the palette looped, so every
+# frame gets it: ffmpeg 9 drops frames when both run in one filter graph).
 ffmpeg -loglevel error -y -framerate "$FPS" -i "$WORK/png/%03d.png" \
-  -vf "split[a][b];[a]palettegen=max_colors=128:stats_mode=full[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" \
-  -loop 0 "$OUT"
+  -vf "palettegen=max_colors=128:stats_mode=full" -update 1 -frames:v 1 "$WORK/palette.png"
+ffmpeg -loglevel error -y -framerate "$FPS" -i "$WORK/png/%03d.png" -loop 1 -i "$WORK/palette.png" \
+  -lavfi "[0][1]paletteuse=dither=none:diff_mode=rectangle" -frames:v "$n" -loop 0 "$OUT"
 echo "$OUT ($(du -h "$OUT" | cut -f1), $n frames)"

@@ -8,6 +8,7 @@ github
 ha_env
 heart_rate
 hello
+news
 paint
 spot_price_fi
 spotify
