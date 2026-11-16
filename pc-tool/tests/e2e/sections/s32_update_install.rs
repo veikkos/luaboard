@@ -81,11 +81,12 @@ pub fn run(t: &mut T) {
         format!("found {found}, booted {booted}, info: {} / log: {}", t.e(&["info"]), log.tail(4))
     });
 
-    // The new image runs its own build's version, and the --set options
-    // aren't replayed at a reboot: it has no manifest address.
+    // The new image runs its own build's version, not the one --set gave
+    // the old. (Whether v1.1.0 is offered again depends on that version: a
+    // tagged build, as in a release, is older than it, a commit's isn't one.)
     t.advance(65_000);
     let (upd, ver) = (info(t, "update"), info(t, "ver"));
-    t.check(upd == "-" && !ver.is_empty() && ver != FROM, "after the update nothing is offered", |_| {
+    t.check(!ver.is_empty() && ver != FROM, "after the update it runs the new image's version", |_| {
         format!("update: {upd}, ver: {ver}")
     });
 
