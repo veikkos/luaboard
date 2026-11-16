@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The README's showcase GIF: eight example apps on a CoreS3 SE, a second each,
+# The README's showcase GIF: nine example apps on a CoreS3 SE, a second each,
 # with made-up live data. Needs the simulator and the CLI built (the default
 # preset's tool target and esp32-sim), ImageMagick and ffmpeg.
 #
@@ -178,6 +178,13 @@ record stocks_hook
 echo "news..."
 start_app news "feed=https://example.com/feed.xml"
 wait_lua 'UI.status == "ok" and UI.stories[1].px ~= nil and UI.stories[3].thumb ~= nil'
+record
+
+# ---- football: made-up clubs, two games in progress, a favourite on top
+echo "football..."
+start_app football "key=showcase
+teams=Northbridge"
+wait_lua '(function() local n = 0 for _, v in pairs(UI.crests) do if v then n = n + 1 end end return UI.status == "ok" and n >= 8 end)()'
 record
 
 # ---- the frames into the device's picture, then the GIF

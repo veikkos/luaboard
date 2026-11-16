@@ -3,6 +3,7 @@ bmw_cardata
 clock
 dashboard
 di2
+football
 gcal
 github
 ha_env
