@@ -6,8 +6,9 @@
  * Implementations: platform/host/posix (macOS, Linux) and platform/host/win32.
  *
  *   - the serial link: the board's USB port as the PC sees it. A pty on
- *     POSIX (with a symlink such as /tmp/esp32-sim), a named pipe on Windows
- *     (\\.\pipe\esp32-sim)
+ *     POSIX with a symlink, a named pipe on Windows; by default the first
+ *     free of esp32-sim, esp32-sim-2 ... esp32-sim-16 (/tmp/esp32-sim...,
+ *     \\.\pipe\esp32-sim...), where the tools look
  *   - the control channel (--control): lines in, answers out on the same
  *     connection, a TCP port on 127.0.0.1 everywhere
  *   - handing both over to the next boot, which may be another executable:
@@ -77,8 +78,9 @@ bool host_is_program(const unsigned char *head, size_t len);
 typedef struct host_link host_link_t;
 
 /** Create the link, at power-on. `name`: where the PC finds it (POSIX: the
- *  path of a symlink to the pty, or NULL for none; Windows: the pipe name,
- *  NULL for "esp32-sim"). `where` gets what to tell the user. */
+ *  path of a symlink to the pty; Windows: the pipe name), never one another
+ *  simulator has; NULL for the first free of the family (host_text.h,
+ *  host_link_family). `where` gets what to tell the user. */
 host_link_t *host_link_create(const char *name, char *where, size_t cap);
 /** Take over the link from the boot before, from its handover text (see
  *  host_handover); NULL if there is none in it. */
@@ -102,8 +104,8 @@ bool host_link_wait(host_link_t *l, int ms, const int *socks, int n);
 /** End a host_link_wait now, from any thread. */
 void host_link_kick(host_link_t *l);
 /** At the end of the simulator: remove what the user would find (the symlink
- *  `name` given to host_link_create, if it still points to this link). */
-void host_link_remove(host_link_t *l, const char *name);
+ *  host_link_create made, if it still points to this link). */
+void host_link_remove(host_link_t *l);
 
 /* ---- the control channel ----------------------------------------------- */
 typedef struct host_ctl host_ctl_t;

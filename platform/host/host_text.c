@@ -29,3 +29,9 @@ bool host_handover_get(const char *h, const char *key, char *out, size_t cap)
     }
     return false;
 }
+
+void host_link_family(int n, char *out, size_t cap)
+{
+    if (n <= 1) snprintf(out, cap, "esp32-sim");
+    else snprintf(out, cap, "esp32-sim-%d", n);
+}

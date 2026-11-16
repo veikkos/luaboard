@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <termios.h>
 #include <time.h>
@@ -123,7 +124,9 @@ bool host_is_program(const unsigned char *head, size_t len)
 struct host_link {
     int pty, pts;                 /* master, and our own handle to the slave */
     int kick[2];                  /* self-pipe: host_link_kick */
+    int lock;                     /* flock on <name>.lock while we have the link; -1: none */
     char port[128];
+    char name[256];               /* the symlink we made; "": none */
 };
 
 static void nonblocking(int fd)
@@ -139,6 +142,7 @@ static host_link_t *link_new(int pty, int pts)
     l->pty = pty;
     l->pts = pts;
     l->kick[0] = l->kick[1] = -1;
+    l->lock = -1;
     if (pipe(l->kick) == 0) {
         nonblocking(l->kick[0]);
         nonblocking(l->kick[1]);
@@ -149,6 +153,41 @@ static host_link_t *link_new(int pty, int pts)
     const char *name = ptsname(pty);
     snprintf(l->port, sizeof l->port, "%s", name ? name : "?");
     return l;
+}
+
+/* Make `path` our link, if no simulator has it. Who has a name is told by
+   an advisory lock on <path>.lock, held for the simulator's life (it goes
+   on through the resets with the pty, host_become): the system lets go of
+   it when a simulator dies, so a leftover link of a crashed one is free.
+   The lock files stay behind: removing one while another simulator opens
+   it would let two think they have the name. */
+static bool link_claim(host_link_t *l, const char *path, bool quiet)
+{
+    char lock[sizeof l->name + 8];
+    if (snprintf(lock, sizeof lock, "%s.lock", path) >= (int)sizeof lock || strlen(path) >= sizeof l->name) {
+        if (!quiet) fprintf(stderr, "warning: cannot create link %s: the path is too long\n", path);
+        return false;
+    }
+    int fd = open(lock, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+    if (fd < 0) {
+        if (!quiet) fprintf(stderr, "warning: cannot create link %s: %s: %s\n", path, lock, strerror(errno));
+        return false;
+    }
+    if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
+        if (!quiet) fprintf(stderr, "warning: cannot create link %s: another simulator has it\n", path);
+        close(fd);
+        return false;
+    }
+    struct stat st;
+    if (lstat(path, &st) == 0 && S_ISLNK(st.st_mode)) unlink(path);   /* nobody's: its lock was free */
+    if (symlink(l->port, path) != 0) {
+        if (!quiet) fprintf(stderr, "warning: cannot create link %s: %s\n", path, strerror(errno));
+        close(fd);                                                     /* and with it the lock */
+        return false;
+    }
+    l->lock = fd;
+    snprintf(l->name, sizeof l->name, "%s", path);
+    return true;
 }
 
 host_link_t *host_link_create(const char *name, char *where, size_t cap)
@@ -179,15 +218,20 @@ host_link_t *host_link_create(const char *name, char *where, size_t cap)
     }
     host_link_t *l = link_new(m, s);
     if (!l) return NULL;
-    snprintf(where, cap, "%s", l->port);
     if (name) {
-        struct stat st;
-        if (lstat(name, &st) == 0 && S_ISLNK(st.st_mode)) unlink(name);
-        if (symlink(l->port, name) != 0)
-            fprintf(stderr, "warning: cannot create link %s: %s\n", name, strerror(errno));
-        else
-            snprintf(where, cap, "%s  (link: %s)", l->port, name);
+        link_claim(l, name, false);
+    } else {
+        char path[64], family[32];
+        for (int n = 1; n <= HOST_LINK_FAMILY_MAX && !*l->name; n++) {
+            host_link_family(n, family, sizeof family);
+            snprintf(path, sizeof path, "/tmp/%s", family);
+            link_claim(l, path, true);
+        }
+        if (!*l->name) fprintf(stderr, "warning: no free simulator link (/tmp/esp32-sim to /tmp/esp32-sim-%d taken)\n",
+                               HOST_LINK_FAMILY_MAX);
     }
+    if (*l->name) snprintf(where, cap, "%s  (link: %s)", l->port, l->name);
+    else snprintf(where, cap, "%s", l->port);
     return l;
 }
 
@@ -201,7 +245,12 @@ static int handover_int(const char *h, const char *key)
 host_link_t *host_link_adopt(const char *handover)
 {
     int pty = handover_int(handover, "pty"), pts = handover_int(handover, "pts");
-    return pty >= 0 ? link_new(pty, pts) : NULL;
+    host_link_t *l = pty >= 0 ? link_new(pty, pts) : NULL;
+    if (l) {
+        l->lock = handover_int(handover, "lock");
+        if (l->lock >= 0) host_handover_get(handover, "lname", l->name, sizeof l->name);
+    }
+    return l;
 }
 
 const char *host_link_port(const host_link_t *l) { return l->port; }
@@ -277,15 +326,16 @@ void host_link_kick(host_link_t *l)
     if (l && l->kick[1] >= 0) (void)!write(l->kick[1], "!", 1);
 }
 
-void host_link_remove(host_link_t *l, const char *name)
+void host_link_remove(host_link_t *l)
 {
-    /* Only our own symlink: another simulator may have taken the name since. */
+    /* Only while it is still ours (it is, while we hold its lock; checked
+       anyway). The lock goes with the process. */
     char to[sizeof l->port];
-    if (!l || !name) return;
-    ssize_t n = readlink(name, to, sizeof to - 1);
+    if (!l || !*l->name) return;
+    ssize_t n = readlink(l->name, to, sizeof to - 1);
     if (n < 0) return;
     to[n] = 0;
-    if (!strcmp(to, l->port)) unlink(name);
+    if (!strcmp(to, l->port)) unlink(l->name);
 }
 
 /* ---- the control channel: a loopback TCP port ----------------------------
@@ -387,23 +437,31 @@ void host_handover(const host_link_t *l, const host_ctl_t *c, char *out, size_t 
 {
     /* pty and pts as older images know them (a rollback may hand over to
        one); their control channel was FIFOs, so they go on without one. */
-    snprintf(out, cap, "pty=%d,pts=%d,tctl=%d,tctlc=%d", l ? l->pty : -1, l ? l->pts : -1, c ? c->listen : -1,
-             c ? c->conn : -1);
+    int n = snprintf(out, cap, "pty=%d,pts=%d,tctl=%d,tctlc=%d", l ? l->pty : -1, l ? l->pts : -1,
+                     c ? c->listen : -1, c ? c->conn : -1);
+    /* The link's name and its lock go along, so the next boot keeps the
+       name and removes the link at the end. A name with a comma can't be in
+       the handover (it splits on commas): that link stays behind at exit. */
+    if (l && l->lock >= 0 && n >= 0 && n < (int)cap) {
+        n += snprintf(out + n, cap - n, ",lock=%d", l->lock);
+        if (*l->name && !strchr(l->name, ',') && n < (int)cap) snprintf(out + n, cap - n, ",lname=%s", l->name);
+    }
 }
 
-/* The descriptor goes on into the next image if it's one of keep[4], else
+/* The descriptor goes on into the next image if it's one of keep[KEEP], else
    it's closed at the exec. */
-static void exec_keeps(int fd, const int keep[4])
+#define KEEP 5
+static void exec_keeps(int fd, const int keep[KEEP])
 {
     bool kept = false;
-    for (int i = 0; i < 4; i++) kept |= keep[i] == fd;
+    for (int i = 0; i < KEEP; i++) kept |= keep[i] == fd;
     int fl = fcntl(fd, F_GETFD);
     if (fl >= 0) fcntl(fd, F_SETFD, kept ? fl & ~FD_CLOEXEC : fl | FD_CLOEXEC);
 }
 
 void host_become(const char *image, char *const argv[], host_link_t *l, host_ctl_t *c)
 {
-    int keep[4] = { l ? l->pty : -1, l ? l->pts : -1, c ? c->listen : -1, c ? c->conn : -1 };
+    int keep[KEEP] = { l ? l->pty : -1, l ? l->pts : -1, c ? c->listen : -1, c ? c->conn : -1, l ? l->lock : -1 };
     /* /dev/fd lists the open descriptors (macOS, Linux, the BSDs). Without
        it, every number up to the limit: a system call for each, which with
        many simulators starting at once kept the machine busy for seconds. */

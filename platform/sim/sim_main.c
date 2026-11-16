@@ -44,11 +44,11 @@
 #include "sim_window.h"
 
 #ifdef _WIN32
-#define DEFAULT_LINK "esp32-sim"
-#define LINK_HELP "pipe NAME: \\\\.\\pipe\\NAME (default esp32-sim)"
+#define LINK_HELP "pipe NAME: \\\\.\\pipe\\NAME (default: the first free\n" \
+                  "                      of esp32-sim, esp32-sim-2 ... esp32-sim-16)"
 #else
-#define DEFAULT_LINK NULL
-#define LINK_HELP "symlink PATH -> serial pty (e.g. /tmp/esp32-sim)"
+#define LINK_HELP "symlink PATH -> serial pty (default: the first\n" \
+                  "                      free of /tmp/esp32-sim, /tmp/esp32-sim-2 ... -16)"
 #endif
 
 extern void app_main(void);
@@ -688,7 +688,7 @@ static bool power_on(void)
 {
     s_boot = (boot_t){ .slot = -1, .power = 1 };
     char where[700];
-    s_boot.link = host_link_create(s_o.link ? s_o.link : DEFAULT_LINK, where, sizeof where);
+    s_boot.link = host_link_create(s_o.link, where, sizeof where);
     if (!s_boot.link) return false;
     if (s_o.control && !(s_boot.ctl = host_ctl_create(s_o.control))) return false;
     /* "<nvs>.run" exists while the simulator runs: found at start, the last
@@ -859,7 +859,7 @@ int main(int argc, char **argv)
 
     ctl_lock();                      /* no reboot from here on */
     if (s_o.ppm && write_ppm(s_o.ppm) != 0) fprintf(stderr, "could not write %s\n", s_o.ppm);
-    host_link_remove(s_boot.link, s_o.link ? s_o.link : DEFAULT_LINK);
+    host_link_remove(s_boot.link);
     remove(s_run_mark);              /* a clean power-off */
     if (s_o.control) host_ctl_remove(s_boot.ctl, s_o.control);
     fflush(stdout);

@@ -386,7 +386,7 @@ void host_link_kick(host_link_t *l)
     if (l) SetEvent(l->p->kick);
 }
 
-void host_link_remove(host_link_t *l, const char *name) { (void)l; (void)name; }   /* a pipe goes with its last handle */
+void host_link_remove(host_link_t *l) { (void)l; }   /* a pipe goes with its last handle */
 
 /* ---- the control channel: a loopback TCP port ----------------------------
  * --control [HOST:]PORT (port 0: any free one, printed). One client at a
