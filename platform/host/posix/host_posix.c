@@ -264,6 +264,8 @@ host_link_t *host_link_adopt(const char *handover)
 
 const char *host_link_port(const host_link_t *l) { return l->port; }
 
+const char *host_link_name(const host_link_t *l) { return *l->name ? l->name : NULL; }
+
 int host_link_read(host_link_t *l, void *buf, size_t len, int timeout_ms)
 {
     if (timeout_ms == 0) {

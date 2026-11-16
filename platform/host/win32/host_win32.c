@@ -382,6 +382,8 @@ host_link_t *host_link_adopt(const char *handover)
 
 const char *host_link_port(const host_link_t *l) { return l->p->name; }
 
+const char *host_link_name(const host_link_t *l) { return l->p->name; }
+
 int host_link_read(host_link_t *l, void *buf, size_t len, int timeout_ms) { return pipe_read(l->p, buf, len, timeout_ms); }
 
 int host_link_write(host_link_t *l, const void *buf, size_t len, int stall_ms)

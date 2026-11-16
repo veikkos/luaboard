@@ -14,6 +14,8 @@
 bool sim_board_set_model(const char *name);
 /** The variants sim_board_set_model() accepts, for --help. */
 const char *sim_board_models(void);
+/** The variant as people call it ("CoreS3 SE"), for the window's title. */
+const char *sim_board_model_name(void);
 /** Where the board keeps state across runs (e.g. "<nvs>.rtc"): the base path. */
 void sim_board_set_state_path(const char *base);
 /** Create the device models and attach them to the mocked buses. */

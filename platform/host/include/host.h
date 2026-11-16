@@ -87,6 +87,9 @@ host_link_t *host_link_create(const char *name, char *where, size_t cap);
 host_link_t *host_link_adopt(const char *handover);
 /** The port as the PC opens it (pty path, \\.\pipe\name). */
 const char *host_link_port(const host_link_t *l);
+/** Where the PC finds the link, as the user names it (POSIX: the symlink,
+ *  Windows: the pipe); NULL if it has no name (POSIX without a symlink). */
+const char *host_link_name(const host_link_t *l);
 /** Up to `len` bytes that arrived; waits up to `timeout_ms` for the first
  *  (-1: for ever). 0 if none came. HOST_LINK_HUNG_UP if it returned at once
  *  because nobody has the other end open: the caller waits out the time

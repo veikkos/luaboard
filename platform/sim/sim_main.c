@@ -851,8 +851,16 @@ int main(int argc, char **argv)
             tick();
         }
     } else {
+        /* "CoreS3 SE simulator". With several open, the others say which
+           they are in the title (what the Dock and the window switcher
+           show): "CoreS3 SE simulator - esp32-sim-2". */
         char title[128], view[620];
-        snprintf(title, sizeof title, "%s - simulator", BOARD_NAME);
+        const char *link = host_link_name(s_boot.link), *base = link ? link + strlen(link) : NULL;
+        while (base && base > link && base[-1] != '/' && base[-1] != '\\') base--;
+        if (base && strcmp(base, "esp32-sim"))
+            snprintf(title, sizeof title, "%s simulator - %s", sim_board_model_name(), base);
+        else
+            snprintf(title, sizeof title, "%s simulator", sim_board_model_name());
         snprintf(view, sizeof view, "%s.view", s_o.nvs);   /* window size and scaling, kept */
         rc = sim_window_run(title, host_link_port(s_boot.link), s_o.scale, view, window_should_quit, tick, s_o.shot);
     }

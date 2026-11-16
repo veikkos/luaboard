@@ -126,6 +126,8 @@ bool sim_board_set_model(const char *name)
 
 const char *sim_board_models(void) { return "cores3se (default), cores3, cores3-lite"; }
 
+const char *sim_board_model_name(void) { return MODEL_NAMES[s_model]; }
+
 /* Powered down (the PMIC's power-off bit, or deep sleep), the board comes
    back on a press of the power key, USB power being plugged in, or the RTC
    chip's interrupt (its timer or alarm): sim_board_wake_due(). */
