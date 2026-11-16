@@ -263,7 +263,9 @@ static pipe_t *pipe_start(HANDLE h, const char *name)
     return p;
 }
 
-static pipe_t *pipe_create(const char *name)
+/* `quiet`: say nothing when another simulator has the name (the caller
+   tries the next one). */
+static pipe_t *pipe_create(const char *name, bool quiet)
 {
     char full[256];
     pipe_name(name, full, sizeof full);
@@ -274,8 +276,9 @@ static pipe_t *pipe_create(const char *name)
                                 RING, 0, &sa);
     if (h == INVALID_HANDLE_VALUE) {
         DWORD e = GetLastError();
-        fprintf(stderr, "cannot create pipe %s: %s\n", full,
-                e == ERROR_ACCESS_DENIED || e == ERROR_PIPE_BUSY ? "another simulator has it" : "error");
+        bool taken = e == ERROR_ACCESS_DENIED || e == ERROR_PIPE_BUSY;
+        if (!quiet || !taken)
+            fprintf(stderr, "cannot create pipe %s: %s\n", full, taken ? "another simulator has it" : "error");
         return NULL;
     }
     return pipe_start(h, full);
@@ -336,7 +339,20 @@ struct host_link {
 
 host_link_t *host_link_create(const char *name, char *where, size_t cap)
 {
-    pipe_t *p = pipe_create(name ? name : "esp32-sim");
+    pipe_t *p = NULL;
+    if (name) {
+        p = pipe_create(name, false);
+    } else {
+        /* The first free of the family: FILE_FLAG_FIRST_PIPE_INSTANCE makes
+           taking a name atomic, and a pipe goes with its simulator. */
+        char family[32];
+        for (int n = 1; n <= HOST_LINK_FAMILY_MAX && !p; n++) {
+            host_link_family(n, family, sizeof family);
+            p = pipe_create(family, true);
+        }
+        if (!p) fprintf(stderr, "cannot create pipe: no free simulator name (esp32-sim to esp32-sim-%d taken)\n",
+                        HOST_LINK_FAMILY_MAX);
+    }
     if (!p) return NULL;
     host_link_t *l = calloc(1, sizeof *l);
     l->p = p;
