@@ -312,7 +312,7 @@ ends. With no card mounted its select line is held high, as at boot.
 
 | Aspect | Simulator | CoreS3 / Lite / SE |
 |---|---|---|
-| Serial link | PTY (`/tmp/esp32-sim` from the `run` target), on Windows a named pipe (`\\.\pipe\esp32-sim`) | USB-Serial/JTAG, `/dev/cu.usbmodem*` |
+| Serial link | PTY with a symlink (`/tmp/esp32-sim`), on Windows a named pipe (`\\.\pipe\esp32-sim`); [more than one](../platform/sim/README.md#serial-link) | USB-Serial/JTAG, `/dev/cu.usbmodem*` |
 | Timing | Host clock, `vTaskDelay` = `nanosleep` | FreeRTOS 100 Hz tick |
 | LCD | ILI9342C model, instant SPI | 40 MHz SPI, ~30 ms per full frame |
 | Touch | Mouse on the screen / A-B-C keys | FT6336U |

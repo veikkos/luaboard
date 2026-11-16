@@ -14,7 +14,8 @@ Both use the client library in `src/`, whose modules are listed in
 ## Studio
 
 `luaboard-studio [--port PORT] [folder or files]`, or the `studio` CMake target. Without a port it
-connects to the simulator (`/tmp/esp32-sim`, Windows `\\.\pipe\esp32-sim`) if it is running.
+connects to the first running simulator (`/tmp/esp32-sim`, Windows `\\.\pipe\esp32-sim`, more
+[side by side](../platform/sim/README.md#serial-link)).
 
 - Port list: serial ports, the simulator, and Wi-Fi devices found via mDNS.
   Picking one connects, and it reconnects automatically when the link
@@ -51,7 +52,7 @@ connects to the simulator (`/tmp/esp32-sim`, Windows `\\.\pipe\esp32-sim`) if it
 ## CLI
 
 ```sh
-E=pc-tool/target/release/luaboard     # port: -p, $LUABOARD_PORT, or /tmp/esp32-sim
+E=pc-tool/target/release/luaboard     # port: -p, $LUABOARD_PORT, or the first simulator
 $E install marketplace/dashboard --run
 $E put marketplace/paint/main.lua --run main.lua
 $E eval 'adc.read(adc.PORTB_IN), sys.battery()'

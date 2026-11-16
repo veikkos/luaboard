@@ -69,19 +69,27 @@ fn sim_index(name: &str) -> Option<u32> {
 /// The simulators' links in `dir`, lowest first: a link counts while its
 /// target is there and a simulator holds its `<link>.lock` (a crashed one's
 /// lock is let go by the system, so its leftover link doesn't count).
+/// Anyone can make files in /tmp, so both must be this user's, and the lock
+/// a plain file: opened without following a link or waiting (a FIFO would
+/// block the open for ever).
 #[cfg(not(windows))]
 fn sim_links_in(dir: &Path) -> Vec<String> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    let me = unsafe { libc::getuid() };
+    let live = |link: &Path| {
+        let mut lock = link.to_path_buf().into_os_string();
+        lock.push(".lock");
+        let lock = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(lock);
+        std::fs::symlink_metadata(link).is_ok_and(|m| m.file_type().is_symlink() && m.uid() == me)
+            && link.exists()
+            && lock.is_ok_and(|f| {
+                f.metadata().is_ok_and(|m| m.is_file() && m.uid() == me)
+                    && matches!(f.try_lock_shared(), Err(std::fs::TryLockError::WouldBlock))
+            })
+    };
     (1..=SIM_FAMILY_MAX)
         .map(|n| dir.join(sim_name(n)))
-        .filter(|link| {
-            let is_link = std::fs::symlink_metadata(link).is_ok_and(|m| m.file_type().is_symlink());
-            let mut lock = link.clone().into_os_string();
-            lock.push(".lock");
-            is_link
-                && link.exists()
-                && std::fs::File::open(lock)
-                    .is_ok_and(|f| matches!(f.try_lock_shared(), Err(std::fs::TryLockError::WouldBlock)))
-        })
+        .filter(|link| live(link))
         .map(|link| link.to_string_lossy().into_owned())
         .collect()
 }
@@ -531,6 +539,38 @@ mod tests {
         let _l5 = d.lock("esp32-sim-5", true);
         d.link("other", "t");
         assert_eq!(super::sim_links_in(&d.0), vec![d.p("esp32-sim-2"), d.p("esp32-sim-10")]);
+    }
+
+    /// sim_links_in, given up on after 2 s (a lock it blocks on).
+    #[cfg(unix)]
+    fn links_within_2s(d: &Dir) -> Option<Vec<String>> {
+        let dir = d.0.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || tx.send(super::sim_links_in(&dir)));
+        rx.recv_timeout(std::time::Duration::from_secs(2)).ok()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sim_links_skip_a_lock_that_is_no_file() {
+        // Anyone can make things in /tmp: a FIFO as the lock must not hang the
+        // tools (the studio looks every 2 s), and doesn't count.
+        let d = Dir::new("fifo");
+        d.link("esp32-sim", "t");
+        let fifo = std::ffi::CString::new(d.p("esp32-sim.lock")).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o644) }, 0);
+        assert_eq!(links_within_2s(&d), Some(vec![]));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sim_links_skip_a_lock_that_is_a_symlink() {
+        // A lock that is a link to someone else's held lock doesn't count.
+        let d = Dir::new("locklink");
+        d.link("esp32-sim", "t");
+        let _held = d.lock("other", true);
+        d.link("esp32-sim.lock", "other.lock");
+        assert_eq!(links_within_2s(&d), Some(vec![]));
     }
 
     #[cfg(unix)]

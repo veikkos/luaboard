@@ -168,9 +168,18 @@ static bool link_claim(host_link_t *l, const char *path, bool quiet)
         if (!quiet) fprintf(stderr, "warning: cannot create link %s: the path is too long\n", path);
         return false;
     }
-    int fd = open(lock, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+    /* Anyone can make files in /tmp: the lock must be a plain file of ours,
+       not a link to somewhere else (O_NOFOLLOW) or a FIFO (O_NONBLOCK). */
+    int fd = open(lock, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK, 0600);
     if (fd < 0) {
         if (!quiet) fprintf(stderr, "warning: cannot create link %s: %s: %s\n", path, lock, strerror(errno));
+        return false;
+    }
+    struct stat ls;
+    if (fstat(fd, &ls) != 0 || !S_ISREG(ls.st_mode) || ls.st_uid != getuid()) {
+        if (!quiet)
+            fprintf(stderr, "warning: cannot create link %s: %s isn't a plain file of this user's\n", path, lock);
+        close(fd);
         return false;
     }
     if (flock(fd, LOCK_EX | LOCK_NB) != 0) {

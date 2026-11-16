@@ -267,10 +267,11 @@ side, and the studio and the CLI find them all (`luaboard ports`). Without
 `-p` or `LUABOARD_PORT` they take the lowest one; `-p /tmp/esp32-sim-2`
 picks another.
 
-On macOS and Linux a simulator holds a lock on `<link>.lock` (left in
-`/tmp`, empty) while it runs, through its resets. A link whose lock nobody
-holds, such as one a killed simulator left, is free, and the tools don't
-list it. A simulator never takes a link another one holds: with `--link`
+On macOS and Linux a simulator holds a lock on `<link>.lock` next to the
+link (an empty file, left behind) while it runs, through its resets. A link
+whose lock nobody holds, such as one a killed simulator left, is free, and
+the tools don't list it. Link and lock count only when they are this user's
+own, as anyone can make files in `/tmp`. A simulator never takes a link another one holds: with `--link`
 to one, it warns and runs without a link.
 
 ## Control channel
