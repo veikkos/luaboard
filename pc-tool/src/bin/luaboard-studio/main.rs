@@ -43,7 +43,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-const API_DOC: &str = include_str!("../../../../docs/LUA_API.md");
+/// The Lua API reference, rendered by GitHub (the toolbar's "Lua API" opens it).
+const API_DOC_URL: &str = "https://github.com/veikkos/luaboard/blob/main/docs/LUA_API.md";
 const MAX_CONSOLE: usize = 2000;
 /// Live: the project is uploaded and run again this long after its code last
 /// changed (typing, or a save from another editor), so a burst of edits is
@@ -123,7 +124,6 @@ struct Studio {
     confirm: Option<Confirm>,
     console: Vec<(LineKind, String)>,
     repl: String,
-    show_api: bool,
     flash: FlashUi,
     wifi: WifiUi,
     /// A Wi-Fi device this computer isn't paired with: (port, why).
@@ -181,7 +181,6 @@ impl Studio {
             confirm: None,
             console: Vec::new(),
             repl: String::new(),
-            show_api: false,
             flash: FlashUi::new(),
             wifi: WifiUi::default(),
             not_paired: None,
@@ -342,15 +341,6 @@ impl eframe::App for Studio {
             });
         }
         egui::CentralPanel::default().show(ui, |ui| self.editor(ui));
-
-        let mut open = self.show_api;
-        egui::Window::new("Lua API reference").open(&mut open).default_size([560.0, 520.0]).vscroll(true).show(
-            ui.ctx(),
-            |ui| {
-                ui.label(egui::RichText::new(API_DOC).monospace().size(11.5));
-            },
-        );
-        self.show_api = open;
 
         let mut open = self.flash.open;
         egui::Window::new("Firmware")

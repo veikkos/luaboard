@@ -112,7 +112,11 @@ impl Studio {
             ui.separator();
             ui.toggle_value(&mut self.preview.shown, "Display")
                 .on_hover_text("The device's screen, live, and touch from here. Hidden: nothing is polled or sent.");
-            ui.toggle_value(&mut self.show_api, "Lua API");
+            if ui.button("Lua API").on_hover_text(API_DOC_URL).clicked() {
+                if let Err(e) = login::open_browser(API_DOC_URL) {
+                    self.log(LineKind::Error, format!("couldn't open the browser: {e:#}"));
+                }
+            }
             ui.toggle_value(&mut self.flash.open, "Firmware…");
             if ui.toggle_value(&mut self.wifi.open, "Wi-Fi…").changed() && self.wifi.open {
                 self.wifi.requested = false;

@@ -40,7 +40,7 @@ connects to the first running simulator (`/tmp/esp32-sim`, Windows `\\.\pipe\esp
   and P presses the power key. Works over Wi-Fi too. Only changed
   frames are sent, and it polls faster for a moment after you touch. Hide the
   panel with the Display toggle: then nothing is polled or sent.
-- Lua API: a reference window.
+- Lua API: opens the reference (docs/LUA_API.md on GitHub) in the browser.
 - Firmware...: flash a `.bin` over USB. Starting the studio with a `.bin`
   opens this window.
 - Wi-Fi...: network status, set or forget the network, pair this computer
