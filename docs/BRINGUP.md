@@ -174,3 +174,6 @@ things to check on a real board, by part of the board.
   work: the boot (it starts right after NVS, paused only while the apps
   partition mounts or formats), installing big apps, the first `LS` after
   boot reading every file.
+- The main task on core 1 (`sdkconfig.defaults`): the touch, I2C, SPI and
+  sound interrupts it sets up land on core 1 and work. Compare an app's
+  frame times during a big download with the main task on core 0.

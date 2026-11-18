@@ -10,6 +10,10 @@ CONFIG_SPIRAM_USE_MALLOC=y
 # The simulator gives its firmware thread this size too (CMakeLists.txt).
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=49152
 
+# The main task (Lua, the UI, the screen) runs on core 1. Wi-Fi, Bluetooth
+# and esp_timer stay on core 0, so the radios don't take time from the app.
+CONFIG_ESP_MAIN_TASK_AFFINITY_CPU1=y
+
 # Task watchdog: the main loop subscribes and feeds it (hw_watchdog_*); if a
 # C call hangs it, reset the chip rather than freeze. Longer than any single
 # Lua call may take (LUA_WATCHDOG_HARD_MS).

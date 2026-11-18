@@ -314,6 +314,7 @@ ends. With no card mounted its select line is held high, as at boot.
 |---|---|---|
 | Serial link | PTY with a symlink (`/tmp/esp32-sim`), on Windows a named pipe (`\\.\pipe\esp32-sim`); [more than one](../platform/sim/README.md#serial-link) | USB-Serial/JTAG, `/dev/cu.usbmodem*` |
 | Timing | Host clock, `vTaskDelay` = `nanosleep` | FreeRTOS 100 Hz tick |
+| Cores | Host threads | The main task (Lua, UI, screen) on core 1; Wi-Fi, Bluetooth and esp_timer on core 0 |
 | LCD | ILI9342C model, instant SPI | 40 MHz SPI, ~30 ms per full frame |
 | Touch | Mouse on the screen / A-B-C keys | FT6336U |
 | ADC | Port B analog slider in the settings, ±3 LSB noise | Real SAR ADC (nonlinear, calibrate with `adc_cali`) |
