@@ -224,9 +224,9 @@ static int draw_battery_icon(int x, int pct, bool charging)
 
 static const char *view_title(void);
 
-/* The title on the left; on the right, like a phone's status bar: the
+/* The view's title on the left; on the right, like a phone's status bar: the
    time, Wi-Fi (while it's on) and the battery with its level. */
-static void draw_header(const char *title)
+static void draw_header(void)
 {
     int w = gfx_width();
     gfx_fill_rect(0, 0, w, HEAD_H, C_HEAD);
@@ -270,7 +270,7 @@ static void draw_header(const char *title)
         x -= gap;
     }
     char t[48];
-    fit(t, sizeof t, title, x - PAD - 6, 2);
+    fit(t, sizeof t, view_title(), x - PAD - 6, 2);
     gfx_text(PAD, ICON_MID - FONT_H, t, C_TEXT, 2, NULL);
     s_header_at = hw_millis();
 }
@@ -517,7 +517,7 @@ static void draw_home(void)
 {
     int w = gfx_width();
     gfx_fill(C_BG);
-    draw_header(view_title());
+    draw_header();
     list_scroll(&s_top, s_sel, list_n(), app_rows());
     list_t l = home_list();
     list_draw(&l);
@@ -657,7 +657,7 @@ static list_t settings_list(void)
 static void draw_settings(void)
 {
     gfx_fill(C_BG);
-    draw_header("Settings");
+    draw_header();
     list_scroll(&s_stop, s_ssel, S_COUNT, ROWS);
     list_t l = settings_list();
     list_draw(&l);
@@ -701,7 +701,7 @@ static list_t pick_list(void)
 static void draw_pick(void)
 {
     gfx_fill(C_BG);
-    draw_header("Autostart app");
+    draw_header();
     list_scroll(&s_ptop, s_psel, s_npick, ROWS);
     list_t l = pick_list();
     list_draw(&l);
@@ -845,7 +845,7 @@ static void draw_options(void)
     app_meta_load(s_oapp, &s_ometa);                  /* may have been reinstalled */
     build_options();
     gfx_fill(C_BG);
-    draw_header(s_ometa.title[0] ? s_ometa.title : s_oapp);
+    draw_header();
     list_t l = options_list();
     list_draw(&l);
     /* About the app: what it does (3 lines), version and author, and why it won't run */
@@ -912,7 +912,7 @@ static void draw_update(void)
     if (!u && !update_manual()) return;
     if (s_usel >= update_rows()) s_usel = 0;
     gfx_fill(C_BG);
-    draw_header("Firmware update");
+    draw_header();
     list_t l = update_list();
     list_draw(&l);
     int y = BELOW(update_rows());
@@ -1016,7 +1016,7 @@ static void draw_appupd(void)
     if (s_asel >= appupd_rows()) s_asel = appupd_rows() - 1;
     list_scroll(&s_atop, s_asel, appupd_rows(), ROWS);
     gfx_fill(C_BG);
-    draw_header("App updates");
+    draw_header();
     list_t l = appupd_list();
     list_draw(&l);
     if (!app_update_count()) text_wrap(BELOW(1), "Every app from the marketplace is up to date.", 2, C_DIM);
@@ -1242,7 +1242,7 @@ static void draw_store(void)
     if (s_tsel >= store_rows()) s_tsel = store_rows() - 1;
     list_scroll(&s_ttop, s_tsel, store_rows(), ROWS);
     gfx_fill(C_BG);
-    draw_header("Marketplace");
+    draw_header();
     list_t l = store_list();
     list_draw(&l);
     const char *msg = store_message(buf, sizeof buf);
@@ -1334,7 +1334,7 @@ static void draw_store_app(void)
     if (!e) { s_view = V_STORE; build_store(); draw_store(); return; }   /* gone from the index meanwhile */
     int w = gfx_width(), y = BELOW(2), right = w - PAD;
     gfx_fill(C_BG);
-    draw_header(e->title[0] ? e->title : e->name);
+    draw_header();
     list_t l = store_app_list();
     list_draw(&l);
     char url[160], line[160], shown[160];
@@ -1426,11 +1426,22 @@ static void store_sync(void)
     redraw();
 }
 
+/* The header's title: every view has one (no default, so the compiler
+   names a view left out). */
 static const char *view_title(void)
 {
-    return s_view == V_SETTINGS ? "Settings" : s_view == V_PICK ? "Autostart app" : s_view == V_UPDATE ? "Firmware update"
-         : s_view == V_APPUPD ? "App updates" : s_view == V_STORE ? "Marketplace"
-         : s_view == V_OPTIONS ? (s_ometa.title[0] ? s_ometa.title : s_oapp) : FW_NAME;
+    const apps_entry_t *e;
+    switch (s_view) {
+    case V_HOME: case V_APP: return FW_NAME;
+    case V_SETTINGS: return "Settings";
+    case V_PICK: return "Autostart app";
+    case V_UPDATE: return "Firmware update";
+    case V_APPUPD: return "App updates";
+    case V_STORE: return "Marketplace";
+    case V_STORE_APP: return (e = store_entry()) ? (e->title[0] ? e->title : e->name) : "Marketplace";
+    case V_OPTIONS: return s_ometa.title[0] ? s_ometa.title : s_oapp;
+    }
+    return FW_NAME;
 }
 
 static void redraw(void)
@@ -1947,7 +1958,7 @@ void menu_tick(void)
         store_sync();
         if (vfs_generation() != s_gen || upd) { reload_apps(); redraw(); }
         else if (hw_millis() - s_header_at > 5000) {
-            draw_header(view_title());                        /* battery, Wi-Fi */
+            draw_header();                                    /* battery, Wi-Fi */
             gfx_flush();
         }
         if (s_toast_until && (int32_t)(hw_millis() - s_toast_until) >= 0) { s_toast_until = 0; redraw(); }

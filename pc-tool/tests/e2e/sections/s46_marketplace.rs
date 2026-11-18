@@ -73,6 +73,13 @@ pub fn run(t: &mut T) {
     t.check(black > 300 && white > 300, "Stocks needs setup: a QR code to its README", |_| {
         format!("{black} black, {white} white pixels")
     });
+    t.advance(5200); // the header's refresh: battery, Wi-Fi
+    let later = t.shot("app-later.ppm");
+    let changed = (0..ui::HEAD_H as usize)
+        .flat_map(|y| (0..150).map(move |x| (x, y)))
+        .filter(|&(x, y)| shot.rgb(x, y) != later.rgb(x, y))
+        .count();
+    t.check(changed == 0, "the header's refresh keeps the app's title", |_| format!("{changed} pixels changed"));
     t.tap_at(60, ui::row(0)); // Install
     let ok = t.until(5.0, |t| t.read("sim.err").contains("apps: install stocks: ok"));
     t.check(ok && market::flash(t, "stocks/main.lua") == b"-- stocks", "Install installs it", |t| said(t));
