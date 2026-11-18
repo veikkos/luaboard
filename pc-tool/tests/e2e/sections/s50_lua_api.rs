@@ -1,7 +1,9 @@
 //! The Lua API's own rules: wrong calls point at the app's line, flags are
 //! booleans, sys.exit() leaves at once, an app's coroutine can wait inside
 //! a task, the board has an id of its own, a stream reader keeps its
-//! timeout and a line's limit, and math.random is seeded per VM.
+//! timeout and a line's limit, json.decode yields in a task, gpio writes
+//! only outputs, text aligns and wraps, sys.date formats, and math.random is
+//! seeded per VM.
 
 use crate::harness::{grep, T};
 
@@ -34,6 +36,15 @@ pub fn run(t: &mut T) {
         (r#"do require("http").parse_url("ftp://x") end"#, "eval:1: url must start with http:// or https://: ftp://x"),
         (r#"do require("json").encode({ f = print }) end"#, "eval:1: json: cannot encode a function"),
         (r#"do touch.on("poke", print) end"#, r#"eval:1: touch.on: kind is "press""#),
+        ("do gpio.write(9, 1) end", "eval:1: GPIO9 isn't an output: gpio.mode(9, gpio.OUT) first"),
+        ("do gpio.mode(9, gpio.IN) gpio.toggle(9) end", "eval:1: GPIO9 isn't an output"),
+        ("do disp.wrap('x', 0) end", "eval:1: disp.wrap: width must be a number of pixels"),
+        (
+            r#"do disp.text(0, 0, "x", nil, nil, nil, "middle") end"#,
+            "eval:1: bad argument #7 to 'text' (invalid option 'middle')",
+        ),
+        (r#"do sys.date("%Q", 0) end"#, "eval:1: bad argument #1 to 'date' (a % the format doesn't know"),
+        (r#"do sys.date("%Y", "x") end"#, "eval:1: bad argument #2 to 'date'"),
         ("return sleep(1)", "sleep() only works inside task()"), // a tail call: no line of the app left
     ] {
         let v = t.eval(code);
@@ -42,6 +53,9 @@ pub fn run(t: &mut T) {
             format!("{code}: {v}")
         });
     }
+
+    let v = t.eval("gpio.mode(9, gpio.OUT) gpio.write(9, 1) return gpio.toggle(9)");
+    t.check(v == "0", "gpio.write and toggle on an output", |_| format!("output: {v}"));
 
     let v = t.eval("timer.cancel(nil) timer.cancel(0/0) timer.cancel(12345) return 'ok'");
     t.check(v == "ok", "timer.cancel of nil or an unknown id does nothing", |_| format!("cancel: {v}"));
@@ -71,6 +85,32 @@ pub fn run(t: &mut T) {
     );
     let v = t.eval("disp.keep_awake(true), disp.keep_awake(false), disp.rect(0, 0, 2, 2, 1, true)");
     t.check(v == "true\tfalse", "true and false still work", |_| format!("flags: {v}"));
+
+    // disp.text centered on x or ending at x, each line by itself: the same
+    // pixels as drawn at the left edges worked out by hand.
+    t.eval(
+        r#"function SHOT() local a = {} for y = 0, 15 do for x = 120, 200 do
+  a[#a + 1] = disp.get(x, y) ~= 0 and 1 or 0 end end return table.concat(a) end"#,
+    );
+    let v = t.eval(
+        r#"disp.clear() local w = disp.text(160, 0, "abc\nlonger", nil, 1, nil, "center") local a = SHOT()
+disp.clear() disp.text(151, 0, "abc") disp.text(142, 8, "longer") local ok1 = a == SHOT()
+disp.clear() disp.text(200, 0, "abc", nil, 1, nil, "right") a = SHOT()
+disp.clear() disp.text(183, 0, "abc") return w, ok1, a == SHOT()"#,
+    );
+    t.check(v == "35\ttrue\ttrue", "disp.text: center and right alignment", |_| format!("align: {v}"));
+    let v = t.eval(
+        r#"local function w(...) return table.concat(disp.wrap(...), "|") end
+return w("the quick brown fox", 60), w("abcdefghijklmnop", 30), w("a\n\nb  c", 100),
+  w("ääääää", 17), w("ab cd", 23, 2), #disp.wrap("", 50)"#,
+    );
+    t.check(
+        v == "the quick|brown fox\tabcde|fghij|klmno|p\ta||b c\täää|äää\tab|cd\t0",
+        "disp.wrap: lines that fit the width, long words cut, UTF-8 and scale counted",
+        |_| format!("wrap: {v}"),
+    );
+    let v = t.eval(r#"sys.date("%Y-%m-%d %H:%M %a %-d %b %Z %z", 1772348707, "EET-2EEST,M3.5.0/3,M10.5.0/4")"#);
+    t.check(v == "2026-03-01 09:05 Sun 1 Mar EET +0200", "sys.date with a format", |_| format!("date: {v}"));
 
     let rnd = t.eval("math.random(0)");
     let id = t.eval("sys.info().id");
@@ -105,6 +145,33 @@ end)"#,
         "a reader keeps its timeout and line limit",
         |_| format!("reader: {v}"),
     );
+
+    // json.decode in a task waits for the next tick when the watchdog's time
+    // runs low (here: always, sys._watchdog_left stubbed), and the result is
+    // the same; another task runs meanwhile.
+    let v = t.eval("sys._watchdog_left()");
+    let left: i64 = v.parse().unwrap_or(-1);
+    t.check((1..=1000).contains(&left), "sys._watchdog_left: what's left of the call's 1000 ms", |_| {
+        format!("left: {v}")
+    });
+    t.eval(
+        r#"R3 = nil task(function()
+  local json, real = require("json"), sys._watchdog_left
+  local text = "[" .. ("[1,2],"):rep(1500) .. "3]"
+  local ticks = 0
+  task(function() while not R3 do ticks = ticks + 1 yield() end end)
+  sys._watchdog_left = function() return 0 end
+  local t = json.decode(text)
+  sys._watchdog_left = real
+  local fast = json.decode(text)
+  R3 = #t .. " " .. t[1500][2] .. " " .. tostring(ticks >= 4) .. " " .. #fast
+end)"#,
+    );
+    let ok = t.wait_lua(2.0, "R3 ~= nil");
+    let v = t.eval("R3");
+    t.check(ok && v == "1501 2 true 1501", "json.decode in a task gives the device back when time runs low", |_| {
+        format!("decode: {v}")
+    });
 
     // sys.exit() in the top-level code: nothing after it runs, not even setup().
     t.write(

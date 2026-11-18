@@ -8,7 +8,9 @@
 -- values in arrays. An empty table encodes as {} unless marked with
 -- json.array(t). Integers stay integers; other numbers are floats. Text
 -- that isn't JSON decodes to nil and why; encoding what JSON can't hold
--- (a function, a table that contains itself, NaN) is an error.
+-- (a function, a table that contains itself, NaN) is an error. Inside a
+-- task, decoding a big text gives the device back when the watchdog's time
+-- runs low (other tasks may run meanwhile); outside one it has to fit.
 
 local M = {}
 
@@ -73,6 +75,16 @@ end
 
 local decode_value
 
+-- Every 1000 values: inside a task with under half the watchdog's time
+-- left, wait for the next tick.
+local work = 0
+local function breathe()
+  work = work + 1
+  if work < 1000 then return end
+  work = 0
+  if sys._watchdog_left() < 500 and in_task() and coroutine.isyieldable() then yield() end
+end
+
 local function decode_array(s, pos)
   local t, n = {}, 0
   pos = skip(s, pos + 1)
@@ -82,6 +94,7 @@ local function decode_array(s, pos)
     v, pos = decode_value(s, pos)
     n = n + 1
     t[n] = v
+    breathe()
     pos = skip(s, pos)
     local c = byte(s, pos)
     if c == 93 then return t, pos + 1 end
@@ -103,6 +116,7 @@ local function decode_object(s, pos)
     local v
     v, pos = decode_value(s, skip(s, pos + 1))
     t[k] = v
+    breathe()
     pos = skip(s, pos)
     local c = byte(s, pos)
     if c == 125 then return t, pos + 1 end

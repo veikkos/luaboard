@@ -138,9 +138,29 @@ static int disp_text(lua_State *L)
     luaL_argcheck(L, scale >= 1 && scale <= 8, 5, "scale must be 1..8");
     bool has_bg = !lua_isnoneornil(L, 6);
     gfx_color_t bg = has_bg ? opt_color(L, 6, RGB_BLACK) : 0;
+    static const char *const aligns[] = { "left", "center", "right", NULL };
+    int align = luaL_checkoption(L, 7, "left", aligns);
     const char *s = luaL_tolstring(L, 3, NULL);
     drawing();
-    lua_pushinteger(L, gfx_text(x, y, s, fg, (int)scale, has_bg ? &bg : NULL));
+    if (!align) {
+        lua_pushinteger(L, gfx_text(x, y, s, fg, (int)scale, has_bg ? &bg : NULL));
+        return 1;
+    }
+    /* Centered on x, or ending at x: each line by itself. */
+    int maxw = 0;
+    for (;;) {
+        const char *nl = strchr(s, '\n');
+        lua_pushlstring(L, s, nl ? (size_t)(nl - s) : strlen(s));
+        const char *line = lua_tostring(L, -1);
+        int w = gfx_text_width(line, (int)scale);
+        gfx_text(align == 1 ? x - (w + 1) / 2 : x - w, y, line, fg, (int)scale, has_bg ? &bg : NULL);
+        lua_pop(L, 1);
+        if (w > maxw) maxw = w;
+        if (!nl) break;
+        s = nl + 1;
+        if (y < GFX_COORD_MAX) y += 8 * (int)scale;
+    }
+    lua_pushinteger(L, maxw);
     return 1;
 }
 
@@ -393,6 +413,10 @@ static const luaL_Reg adc_funcs[] = {
 
 enum { MODE_IN = 0, MODE_OUT = 1, MODE_IN_PULLUP = 2, MODE_IN_PULLDOWN = 3 };
 
+/* The pins gpio.mode() made outputs (or a write that ended the pulses):
+   gpio.write and gpio.toggle on any other pin would do nothing. */
+static uint64_t s_out;
+
 static int gpio_pin_arg(lua_State *L, int idx)
 {
     int pin = ci(L, idx);
@@ -434,6 +458,7 @@ static void pwm_stop_pin(int pin)
     if (ch < 0) return;
     ledc_stop(LEDC_LOW_SPEED_MODE, (ledc_channel_t)ch, 0);
     hw_gpio_release(pin);
+    s_out &= ~(1ULL << pin);
     s_pwm_timer[s_pwm[ch].timer].users--;
     s_pwm[ch].on = false;
 }
@@ -521,7 +546,9 @@ static int l_gpio_mode(lua_State *L)
     case MODE_IN_PULLDOWN: c.mode = GPIO_MODE_INPUT; c.pull_down_en = GPIO_PULLDOWN_ENABLE; break;
     default: return luaL_argerror(L, 2, "use gpio.IN, gpio.OUT, gpio.IN_PULLUP or gpio.IN_PULLDOWN");
     }
+    s_out &= ~(1ULL << pin);
     if (gpio_config(&c) != ESP_OK) return luaL_error(L, "GPIO%d does not support this mode", pin);
+    if (mode == MODE_OUT) s_out |= 1ULL << pin;
     return 0;
 }
 
@@ -534,11 +561,21 @@ static void pwm_to_output(int pin, int level)
     gpio_set_level((gpio_num_t)pin, (uint32_t)level);
     gpio_config_t c = { .pin_bit_mask = 1ULL << pin, .mode = GPIO_MODE_INPUT_OUTPUT };
     gpio_config(&c);
+    s_out |= 1ULL << pin;
+}
+
+/* The pin argument of gpio.write and gpio.toggle: an output or a pulsing pin. */
+static int gpio_out_arg(lua_State *L, int idx)
+{
+    int pin = gpio_pin_arg(L, idx);
+    if (!(s_out & (1ULL << pin)) && pwm_find(pin) < 0)
+        luaL_error(L, "GPIO%d isn't an output: gpio.mode(%d, gpio.OUT) first", pin, pin);
+    return pin;
 }
 
 static int l_gpio_write(lua_State *L)
 {
-    int pin = gpio_pin_arg(L, 1);
+    int pin = gpio_out_arg(L, 1);
     int v = lua_isboolean(L, 2) ? lua_toboolean(L, 2) : (luaL_checkinteger(L, 2) != 0);
     pwm_to_output(pin, v);
     gpio_set_level((gpio_num_t)pin, (uint32_t)v);
@@ -553,7 +590,7 @@ static int l_gpio_read(lua_State *L)
 
 static int l_gpio_toggle(lua_State *L)
 {
-    int pin = gpio_pin_arg(L, 1);
+    int pin = gpio_out_arg(L, 1);
     pwm_to_output(pin, 0);
     int v = !gpio_get_level((gpio_num_t)pin);
     gpio_set_level((gpio_num_t)pin, (uint32_t)v);
@@ -747,15 +784,27 @@ static int sys_time(lua_State *L)
 /* sys.date([t], [zone]) -> { year, month, day, hour, min, sec, wday, yday,
    isdst, offset, zone } in the device's time zone or `zone`; nil if t is
    left out and the time isn't known yet. wday: 1 = Sunday, like os.date. */
+/* sys.date([t], [zone]) -> table, or sys.date(format, [t], [zone]) -> text. */
 static int sys_date(lua_State *L)
 {
-    int64_t t = lua_isnoneornil(L, 1) ? clock_now() : (int64_t)luaL_checkinteger(L, 1);
+    int a = lua_type(L, 1) == LUA_TSTRING ? 2 : 1;     /* where t is */
+    int64_t t = lua_isnoneornil(L, a) ? clock_now() : (int64_t)luaL_checkinteger(L, a);
     tz_t buf;
-    const tz_t *zone = zone_arg(L, 2, &buf);
-    if (lua_isnoneornil(L, 1) && t == 0) { lua_pushnil(L); return 1; }
-    luaL_argcheck(L, t >= TZ_MIN_TIME && t <= TZ_MAX_TIME, 1, "time out of range (years 0..9999)");
+    const tz_t *zone = zone_arg(L, a + 1, &buf);
+    if (lua_isnoneornil(L, a) && t == 0) { lua_pushnil(L); return 1; }
+    luaL_argcheck(L, t >= TZ_MIN_TIME && t <= TZ_MAX_TIME, a, "time out of range (years 0..9999)");
     tz_tm_t tm;
     tz_local(zone, t, &tm);
+    if (a == 2) {
+        char out[256];
+        int n = tz_format(out, sizeof out, lua_tostring(L, 1), &tm);
+        if (n == TZ_FORMAT_BAD)
+            return luaL_argerror(L, 1, "a % the format doesn't know (%Y %y %m %d %H %I %M %S %j %p %a %A %b %B "
+                                       "%Z %z %%, %-d for no leading zero)");
+        if (n == TZ_FORMAT_LONG) return luaL_argerror(L, 1, "the text would be over 255 bytes");
+        lua_pushlstring(L, out, (size_t)n);
+        return 1;
+    }
     lua_createtable(L, 0, 11);
     lua_pushinteger(L, (lua_Integer)tm.year); lua_setfield(L, -2, "year");
     lua_pushinteger(L, tm.month); lua_setfield(L, -2, "month");
@@ -830,10 +879,19 @@ static int sys_error(lua_State *L)
     return lua_error(L);
 }
 
+/* sys._watchdog_left(): ms left before the watchdog stops this call. The
+   built-in libraries use it to yield in a long job (json.decode of a big
+   body) while there is time left. */
+static int sys_watchdog_left(lua_State *L)
+{
+    lua_pushinteger(L, (lua_Integer)script_watchdog_left());
+    return 1;
+}
+
 static const luaL_Reg sys_funcs[] = {
     { "millis", sys_millis }, { "delay", sys_delay }, { "rate", sys_rate },
     { "heap", sys_heap }, { "battery", sys_battery }, { "port_power", sys_port_power }, { "info", sys_info },
-    { "exit", sys_exit }, { "off", sys_off }, { "_error", sys_error }, { "keep_on", sys_keep_on }, { "time", sys_time }, { "date", sys_date }, { "timezone", sys_timezone },
+    { "exit", sys_exit }, { "off", sys_off }, { "_error", sys_error }, { "_watchdog_left", sys_watchdog_left }, { "keep_on", sys_keep_on }, { "time", sys_time }, { "date", sys_date }, { "timezone", sys_timezone },
     { NULL, NULL },
 };
 
@@ -855,6 +913,7 @@ void lua_api_release_hw(void)
     for (int pin = 0; pin < 64; pin++)
         if (pin_user(pin) == PIN_GPIO) hw_gpio_release(pin);
     pin_give_back(PIN_GPIO);
+    s_out = 0;
     hw_backlight(settings_brightness());
     s_level = -1;
     sleep_keep_awake(false);

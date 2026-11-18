@@ -182,6 +182,12 @@ void script_watchdog_credit(lua_State *Ls, uint32_t since, uint32_t max_ms)
     wd_check(Ls);
 }
 
+uint32_t script_watchdog_left(void)
+{
+    int32_t left = (int32_t)(s_deadline - hw_millis());
+    return left > 0 ? (uint32_t)left : 0;
+}
+
 void script_set_rate(int hz)
 {
     if (hz < 1) hz = 1;

@@ -54,5 +54,7 @@ struct lua_State;
  *  against the watchdog. No call can run past LUA_WATCHDOG_HARD_MS: raises
  *  the watchdog error if the call is out of time. */
 void script_watchdog_credit(struct lua_State *L, uint32_t since, uint32_t max_ms);
+/** What's left of the current call's watchdog time (ms, 0 when over). */
+uint32_t script_watchdog_left(void);
 void script_set_rate(int hz);
 int  script_get_rate(void);

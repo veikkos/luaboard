@@ -76,10 +76,11 @@ end                     -- default rate 30 Hz, change with sys.rate(hz)
 * A watchdog limits each call into Lua to 1000 ms: the top-level chunk,
   `setup()`, and each tick (all due timers, task slices and `loop()`
   together). Never busy-wait: use `loop()`, timers or tasks. The time spent
-  in `sys.delay`, `disp.jpeg` and TLS handshakes doesn't count, but no call
-  can run longer than 10 s in all. Once it trips, `pcall` and `xpcall` still
-  catch the error, but the next Lua instruction raises it again, so the call
-  ends anyway (an `xpcall` handler isn't called then).
+  in `sys.delay`, `disp.jpeg`, TLS handshakes and `store`'s flash writes
+  doesn't count, but no call can run longer than 10 s in all. Once it
+  trips, `pcall` and `xpcall` still catch the error, but the next Lua
+  instruction raises it again, so the call ends anyway (an `xpcall` handler
+  isn't called then).
 * The VM heap is capped at 4 MiB (in PSRAM). `sys.heap()` shows the usage.
 * Nesting is limited by the device's C stack, not a fixed count: Lua code
   calling Lua code costs nothing, but each level that goes through C (a
@@ -172,8 +173,9 @@ to white (black for `disp.clear`). Values outside `0..0xFFFFFF` are an error.
 | `disp.line(x0, y0, x1, y1, [color])` | Line. |
 | `disp.rect(x, y, w, h, [color], [fill])` | Rectangle outline, or filled if `fill` is true. |
 | `disp.circle(x, y, r, [color], [fill])` | Circle outline or filled disc. |
-| `disp.text(x, y, str, [color], [scale], [bg])` -> `width` | 5x7 font, 6 px per character at scale 1, `scale` 1..8. With `bg` the character cells are filled first (no flicker when updating text). `\n` starts a new line. `str` is UTF-8. The font has ASCII, Latin-1 (Nordic and Western European letters, ° £ µ and the like), Œ Š Ž Ÿ and €. Other accented letters are drawn without the accent (č as c), other characters as `?`. Every character is one cell (6 px), except `…`, drawn as `...`. |
+| `disp.text(x, y, str, [color], [scale], [bg], [align])` -> `width` | 5x7 font, 6 px per character at scale 1, `scale` 1..8. With `bg` the character cells are filled first (no flicker when updating text). `\n` starts a new line. `align` is `"left"` (the default), `"center"` (each line centered on `x`) or `"right"` (each line ending at `x`): `disp.text(disp.W // 2, y, s, c, 2, nil, "center")`. `str` is UTF-8. The font has ASCII, Latin-1 (Nordic and Western European letters, ° £ µ and the like), Œ Š Ž Ÿ and €. Other accented letters are drawn without the accent (č as c), other characters as `?`. Every character is one cell (6 px), except `…`, drawn as `...`. |
 | `disp.text_width(str, [scale])` -> `width` | Width in pixels without drawing. |
+| `disp.wrap(str, width, [scale])` -> `lines` | `str` broken at spaces into lines `disp.text` draws at most `width` px wide (a list). `\n` starts a new line, and a word longer than a line is cut. |
 | `disp.image(x, y, w, h, pixels)` | Draw a `w`x`h` image (each 1..4096). `pixels` is a string of `w*h*2` bytes: RGB565, big-endian, rows top to bottom. Clipped to the screen. |
 | `disp.grab(x, y, w, h)` -> `pixels` | The screen's rectangle in the form `disp.image` takes, to keep what was drawn and draw it again later (a decoded picture, say). Pixels off the screen are black. |
 | `disp.jpeg(x, y, data, [scale])` -> `w, h` or `nil, err` | Decode a baseline JPEG (a string: an `asset`, or from `http.get`) onto the screen. `scale` 1, 2, 4 or 8 shrinks while decoding (a 300 px image at 2 is 150 px). Progressive JPEGs aren't supported: data it can't decode is `nil, "disp.jpeg: ..."`. |
@@ -262,7 +264,7 @@ milliseconds more, so read it again after a `sleep`.
 | Function | Description |
 |---|---|
 | `gpio.mode(pin, mode)` | `gpio.IN`, `gpio.OUT`, `gpio.IN_PULLUP`, `gpio.IN_PULLDOWN`. |
-| `gpio.write(pin, v)` | `v` is 0/1 or a boolean. |
+| `gpio.write(pin, v)` | `v` is 0/1 or a boolean. The pin must be an output (`gpio.mode(pin, gpio.OUT)`) or pulsing, or it's an error. |
 | `gpio.read(pin)` -> `0/1` | Input level (for outputs: the driven level). |
 | `gpio.toggle(pin)` -> `new level` | Toggle an output. |
 | `gpio.pwm(pin, hz, duty)` | Pulse the pin `hz` times a second (10..40000), high for `duty` of the time (0..1): dim an LED, drive a buzzer or a hobby servo. Calling it again changes it. `gpio.pwm(pin, 0)` stops it. |
@@ -540,6 +542,7 @@ loop period (33 ms at the default 30 Hz).
 | `sys.time(text, [zone])` -> `seconds` or `nil, err` | A date and time as web APIs send them, in seconds: `"2026-11-15T10:30:00Z"`, `"2026-11-15T12:30:00.250+02:00"`, `"2026-11-15 12:30"`, `"2026-11-15"` (midnight), `"Sun, 15 Nov 2026 10:30:00 GMT"`. The last form is also read as RSS feeds write it: any case, the month's name in full, a two-digit year (`00`..`49` is 20xx), a zone as a name (`UT`, `EST`, `PDT`...) or a number (`+0200`). Without an offset it's a time in `zone`. Fractions of a second are dropped. |
 | `sys.time(fields, [zone])` -> `seconds` | The other way from `sys.date`: `{year, month, day, [hour], [min], [sec]}` in `zone`, the times left out 0. A field out of range carries over, as in `os.time` (`month = 13` is January, `day = 0` the last of the month before). A time skipped when the clocks go forward counts as before the change (02:30 is 03:30), one repeated when they go back is the first. |
 | `sys.date([t], [zone])` -> `table` or `nil` | `t` (default: now, but `nil` if the time isn't known yet) in `zone`: `{year, month, day, hour, min, sec, wday, yday, isdst, offset, zone}`. `wday` 1 = Sunday (like `os.date`), `offset` = seconds east of UTC, `zone` e.g. `"EET"`/`"EEST"`. |
+| `sys.date(format, [t], [zone])` -> `text` or `nil` | The same time as text, as `os.date` formats it, in English: `%Y` year, `%y` its last two digits, `%m` month, `%d` day, `%H` hour, `%I` hour 1..12, `%M` minute, `%S` second, `%j` day of the year, `%p` AM/PM, `%a` Mon, `%A` Monday, `%b` Nov, `%B` November, `%Z` the zone (EET), `%z` its offset (+0200), `%%` a %. Numbers have leading zeros; `%-d` (and so on) leaves them out. `sys.date("%a %-d %b %H:%M")` is `"Sun 15 Nov 12:30"`. |
 | `sys.timezone()` -> `string` | The device's time zone as a POSIX TZ string, e.g. `"EET-2EEST,M3.5.0/3,M10.5.0/4"` (Finland, the default). Set with `luaboard tz`. |
 
 `zone` is the device's time zone when left out, or a POSIX TZ string:
@@ -551,6 +554,7 @@ zone, passes that place's string. Times go from year 0 to 9999.
 local t = assert(sys.time("2026-11-15T10:30:00Z"))   -- from an API
 local ny = "EST5EDT,M3.2.0,M11.1.0"
 print(sys.date(t, ny).hour)                          -- 5
+print(sys.date("%H:%M %Z", t, ny))                   -- 05:30 EST
 local open = sys.time({ year = 2026, month = 11, day = 16, hour = 9, min = 30 }, ny)
 ```
 
@@ -707,7 +711,11 @@ end)
 
 Connections are kept open and reused per server, so polling an API every few
 seconds doesn't pay for a new TLS handshake each time. When the device is
-out of sockets, the connection kept longest is closed to make room.
+out of sockets, the connection kept longest is closed to make room. A kept
+connection the server has closed isn't used. If one breaks under a request
+anyway, a `GET` (or `HEAD`, `PUT`, `DELETE`) is sent again on a new
+connection, but a `POST` or `PATCH` isn't: it may have arrived, so the
+result is `nil, "closed"`.
 
 Redirects (301, 302, 303, 307, 308 with a `Location`) are followed, and
 the result is the last response's. A 303, and a 301 or 302 after a
@@ -735,6 +743,11 @@ end)
 position. An empty table encodes as `{}` unless marked with `json.array(t)`
 (decoded empty arrays are marked). Encoding what JSON can't hold (a
 function, a table that contains itself, NaN) is an error.
+
+Decoding a big text (a few hundred KB) can take longer than the watchdog
+allows on the board. Inside a task, `json.decode` waits for the next tick
+when the time runs low, so decode big bodies in a task (as `http` calls are
+anyway). Other tasks and timers may run while it waits.
 
 ## secrets - tokens and API keys
 

@@ -77,6 +77,92 @@ end)
 function loop() end
 "#;
 
+/// Kept connections the server closes: a GET is sent again, a POST isn't
+/// (it may have arrived), and one closed while idle isn't used.
+const KEEP_LUA: &str = r#"local http = require("http")
+R = {}
+local B = "http://127.0.0.1:$KP"
+local function both(a, b) return tostring(a) .. " " .. tostring(b) end
+task(function()
+  http.get(B .. "/ok")
+  R.get = both(http.get(B .. "/drop"))
+  http.post(B .. "/ok", "x")
+  R.post = both(http.post(B .. "/drop", "x"))
+  http.post(B .. "/ok", "x")
+  http.get("http://localhost:$KP/closeothers")
+  R.idle = both(http.post(B .. "/drop", "x"))
+  R.done = true
+end)
+function loop() end
+"#;
+
+/// A keep-alive server: "/ok" answers "ok"; "/drop" on a connection that
+/// already had a request reads it and closes without an answer (on a new
+/// one it answers "ok"); "/closeothers" closes every other connection
+/// first. Returns the port and the request lines it got.
+fn keep_server() -> (u16, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+    use std::sync::{Arc, Mutex};
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = l.local_addr().unwrap().port();
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let conns: Arc<Mutex<Vec<(usize, std::net::TcpStream)>>> = Arc::new(Mutex::new(Vec::new()));
+    let log2 = log.clone();
+    std::thread::spawn(move || {
+        for (id, conn) in l.incoming().enumerate() {
+            let Ok(mut c) = conn else { return };
+            conns.lock().unwrap().push((id, c.try_clone().unwrap()));
+            let (log, conns) = (log2.clone(), conns.clone());
+            std::thread::spawn(move || {
+                let mut buf = Vec::new();
+                for n in 0.. {
+                    let mut b = [0u8; 512];
+                    let head = loop {
+                        if let Some(i) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                            break i + 4;
+                        }
+                        match c.read(&mut b) {
+                            Ok(k) if k > 0 => buf.extend_from_slice(&b[..k]),
+                            _ => return,
+                        }
+                    };
+                    let text = String::from_utf8_lossy(&buf[..head]).to_string();
+                    let len: usize = text
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().to_string())
+                        })
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(0);
+                    while buf.len() < head + len {
+                        match c.read(&mut b) {
+                            Ok(k) if k > 0 => buf.extend_from_slice(&b[..k]),
+                            _ => return,
+                        }
+                    }
+                    buf.drain(..head + len);
+                    let line = text.lines().next().unwrap_or("").rsplit_once(' ').map_or("", |x| x.0).to_string();
+                    log.lock().unwrap().push(line.clone());
+                    if line.ends_with(" /drop") && n > 0 {
+                        let _ = c.shutdown(std::net::Shutdown::Both); // (conns holds a copy)
+                        return;
+                    }
+                    if line.ends_with(" /closeothers") {
+                        for (other, s) in conns.lock().unwrap().iter() {
+                            if *other != id {
+                                let _ = s.shutdown(std::net::Shutdown::Both);
+                            }
+                        }
+                    }
+                    if c.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok").is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    (port, log)
+}
+
 /// A server that answers each connection with the next of `replies`, raw,
 /// and leaves it open.
 fn raw_server(replies: &'static [&'static str]) -> u16 {
@@ -244,5 +330,18 @@ pub fn run(t: &mut T) {
     t.check(v == format!("{want}\t{want}"), "out of sockets is nil, err from net.connect and http", |_| {
         format!("full: {v}")
     });
+
+    let (kport, klog) = keep_server();
+    t.write("keep.lua", KEEP_LUA.replace("$KP", &kport.to_string()));
+    t.e(&["put", &t.path("keep.lua"), "--run", "keep.lua"]);
+    t.wait_lua(10.0, "R.done");
+    let v = t.eval("R.get, R.post, R.idle");
+    let log = klog.lock().unwrap().clone();
+    let count = |l: &str| log.iter().filter(|x| *x == l).count();
+    t.check(
+        v == "200 ok\tnil closed\t200 ok" && count("GET /drop") == 2 && count("POST /drop") == 2,
+        "a kept connection closed under a GET sends it again, a POST isn't sent twice, a closed one isn't used",
+        |_| format!("results: {v}; server got: {log:?}"),
+    );
     t.crash();
 }

@@ -143,6 +143,28 @@ void test_tz(int *total, int *failed)
     CHECK(parse_time("15 Nov 2026 12:30:00 +02", &fi, &t) && t == 1794738600);
     CHECK(tz_parse_time("2026-11-15T10:30:00Z", 10, &fi, &t) && t == 1794700800 - 7200);   /* len counts */
 
+    /* tz_format: Sunday 2026-03-01 09:05:07 in Finland (EET, +0200), then
+       a summer afternoon (EEST) and New York's winter (-0500). */
+    char out[64];
+    tz_local(&fi, 1772348707, &tm);
+    CHECK(tz_format(out, sizeof out, "%Y-%m-%d %H:%M:%S", &tm) == 19 && !strcmp(out, "2026-03-01 09:05:07"));
+    CHECK(tz_format(out, sizeof out, "%a %-d %b, %A %B %y", &tm) > 0 &&
+          !strcmp(out, "Sun 1 Mar, Sunday March 26"));
+    CHECK(tz_format(out, sizeof out, "%I:%M %p %-I %-H %j %Z %z 100%%", &tm) > 0 &&
+          !strcmp(out, "09:05 AM 9 9 060 EET +0200 100%"));
+    tz_local(&fi, 1784818800, &tm);                                             /* 2026-07-23 15:00 UTC */
+    CHECK(tz_format(out, sizeof out, "%H %I %p %Z %z %-m", &tm) > 0 && !strcmp(out, "18 06 PM EEST +0300 7"));
+    tz_local(&us, 1772348707, &tm);
+    CHECK(tz_format(out, sizeof out, "%z %Z %H", &tm) > 0 && !strcmp(out, "-0500 EST 02"));
+    tz_local(&utc, 0, &tm);
+    CHECK(tz_format(out, sizeof out, "%I %p", &tm) == 5 && !strcmp(out, "12 AM"));
+    CHECK(tz_format(out, sizeof out, "", &tm) == 0 && !strcmp(out, ""));
+    CHECK(tz_format(out, sizeof out, "%Q", &tm) == TZ_FORMAT_BAD);
+    CHECK(tz_format(out, sizeof out, "50%", &tm) == TZ_FORMAT_BAD);
+    CHECK(tz_format(out, sizeof out, "%-a", &tm) == TZ_FORMAT_BAD);
+    CHECK(tz_format(out, 5, "%Y-%m", &tm) == TZ_FORMAT_LONG);
+    CHECK(tz_format(out, 8, "%Y-%m", &tm) == 7 && !strcmp(out, "1970-01"));
+
     *total += check_total;
     *failed += check_failed;
 }

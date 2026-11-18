@@ -26,7 +26,45 @@ function timer.every(ms, fn)
 end
 function timer.cancel(id) if id ~= nil and id == id then timers[id] = nil end end   -- (nil, NaN: nothing to cancel)
 
------------------------------------------------------------------ tasks
+------------------------------------------------------------------- text
+-- disp.wrap(str, width, [scale]) -> lines: str broken at spaces into lines
+-- disp.text draws at most `width` px wide. "\n" starts a new line; a word
+-- longer than a line is cut.
+local text_width = disp.text_width
+local CHAR = '.[\128-\191]*'                  -- a byte and its UTF-8 continuation bytes
+function disp.wrap(str, width, scale)
+  str = tostring(str)
+  check(math.type(width) == 'integer' and width > 0, 'disp.wrap: width must be a number of pixels')
+  check(scale == nil or math.type(scale) == 'integer' and scale >= 1 and scale <= 8, 'disp.wrap: scale must be 1..8')
+  local lines = {}
+  if str == '' then return lines end
+  local function fits(s) return text_width(s, scale) <= width end
+  for para in (str .. '\n'):gmatch('(.-)\n') do
+    local line = ''
+    for word in para:gmatch('%S+') do
+      if line ~= '' and fits(line .. ' ' .. word) then
+        line = line .. ' ' .. word
+      else
+        if line ~= '' then lines[#lines + 1] = line end
+        while not fits(word) do                   -- longer than a line: cut it
+          local head = ''
+          for ch in word:gmatch(CHAR) do
+            if head ~= '' and not fits(head .. ch) then break end
+            head = head .. ch
+          end
+          if head == word then break end            -- (one character wider than the line)
+          lines[#lines + 1] = head
+          word = word:sub(#head + 1)
+        end
+        line = word
+      end
+    end
+    lines[#lines + 1] = line
+  end
+  return lines
+end
+
+---------------------------------------------------------------- tasks
 -- task(fn, ...) runs fn as a coroutine. Inside a task, sleep(ms) and yield()
 -- give the device back (no busy waiting), so network code can be written
 -- top to bottom. Each tick resumes every task that is due.

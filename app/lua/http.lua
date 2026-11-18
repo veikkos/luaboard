@@ -178,6 +178,17 @@ local function resolve(loc, base)
   return (dir:gsub('[^/]*$', '')) .. loc
 end
 
+-- Methods that can be sent twice without harm (RFC 9110): only these are
+-- sent again when a kept connection breaks under them. A POST may have
+-- arrived already.
+local IDEMPOTENT = { GET = true, HEAD = true, PUT = true, DELETE = true, OPTIONS = true, TRACE = true }
+
+-- A kept connection is still good: open, and nothing waiting on it (a
+-- server that closed it sent its end, which recv sees now).
+local function alive(c)
+  return c.sock:status() == 'connected' and c.sock:recv(1) == ''
+end
+
 -- One request and its response, no redirects.
 local function request1(opts, method, url, headers, body, deadline, max)
   local scheme, host, port, path = M.parse_url(url)
@@ -202,7 +213,7 @@ local function request1(opts, method, url, headers, body, deadline, max)
     local c = idle[key]
     idle[key] = nil
     local reused = c ~= nil
-    if c and c.sock:status() ~= 'connected' then c.sock:close(); c, reused = nil, false end
+    if c and not alive(c) then c.sock:close(); c, reused = nil, false end
     if not c then
       local err
       c, err = open(scheme, host, port, opts, deadline)
@@ -218,8 +229,9 @@ local function request1(opts, method, url, headers, body, deadline, max)
     end
     c.sock:close()
     err = err or rbody
-    -- A kept connection the server already closed: try once more on a new one.
-    if not (reused and attempt == 1 and (err == 'closed' or tostring(err):find('closed'))) then
+    -- A kept connection the server closed just now: try once more on a new
+    -- one, if the request can be sent twice.
+    if not (reused and attempt == 1 and IDEMPOTENT[method] and (err == 'closed' or tostring(err):find('closed'))) then
       return nil, err
     end
   end

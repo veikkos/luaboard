@@ -71,3 +71,13 @@ bool tz_fields(int64_t year, int64_t month, int64_t day, int64_t hour, int64_t m
  *  Without an offset it's a time in `zone`. Fractions of a second are
  *  dropped. false if `s` isn't one (or is outside years 0..9999). */
 bool tz_parse_time(const char *s, size_t len, const tz_t *zone, int64_t *out);
+
+#define TZ_FORMAT_BAD  (-1)            /* a % the format doesn't know */
+#define TZ_FORMAT_LONG (-2)            /* the text doesn't fit in cap - 1 */
+/** A broken-down time as text, by a strftime-like format in English: %Y
+ *  year, %y its last two digits, %m month, %d day, %H hour, %I hour 1..12,
+ *  %M minute, %S second, %j day of the year, %p AM/PM, %a Mon, %A Monday,
+ *  %b Nov, %B November, %Z zone abbreviation, %z +0200, %% a %. The numbers
+ *  have leading zeros; %-d (and so on) leaves them out. Returns the length,
+ *  or TZ_FORMAT_BAD / TZ_FORMAT_LONG. */
+int tz_format(char *out, size_t cap, const char *fmt, const tz_tm_t *tm);

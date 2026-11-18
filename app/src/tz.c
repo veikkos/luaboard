@@ -1,5 +1,6 @@
 #include "tz.h"
 
+#include <stdio.h>
 #include <string.h>
 
 /* ------------------------------------------------------------ calendar */
@@ -385,4 +386,62 @@ bool tz_parse_time(const char *s, size_t len, const tz_t *zone, int64_t *out)
     if (t < TZ_MIN_TIME || t > TZ_MAX_TIME) return false;
     *out = t;
     return true;
+}
+
+/* ------------------------------------------------------------ format */
+
+static const char *const DAY_NAMES[7] = { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
+                                          "Saturday" };
+static const char *const MONTH_NAMES[12] = { "January", "February", "March",     "April",   "May",      "June",
+                                             "July",    "August",   "September", "October", "November", "December" };
+
+int tz_format(char *out, size_t cap, const char *fmt, const tz_tm_t *tm)
+{
+    size_t n = 0;
+    if (!cap) return TZ_FORMAT_LONG;
+    for (const char *f = fmt; *f; f++) {
+        char piece[24];
+        const char *add = piece;
+        if (*f != '%') {
+            piece[0] = *f;
+            piece[1] = 0;
+        } else {
+            bool bare = f[1] == '-';
+            if (bare) f++;
+            int num = -1, width = 2;
+            switch (*++f) {
+            case 'Y': num = (int)tm->year; width = 1; break;
+            case 'y': num = (int)(tm->year % 100); break;
+            case 'm': num = tm->month; break;
+            case 'd': num = tm->day; break;
+            case 'H': num = tm->hour; break;
+            case 'I': num = (tm->hour + 11) % 12 + 1; break;
+            case 'M': num = tm->min; break;
+            case 'S': num = tm->sec; break;
+            case 'j': num = tm->yday + 1; width = 3; break;
+            case 'p': add = tm->hour < 12 ? "AM" : "PM"; break;
+            case 'a': snprintf(piece, sizeof piece, "%.3s", DAY_NAMES[tm->wday]); break;
+            case 'A': add = DAY_NAMES[tm->wday]; break;
+            case 'b': snprintf(piece, sizeof piece, "%.3s", MONTH_NAMES[tm->month - 1]); break;
+            case 'B': add = MONTH_NAMES[tm->month - 1]; break;
+            case 'Z': add = tm->zone ? tm->zone : ""; break;
+            case 'z': {
+                int32_t e = tm->offset < 0 ? -tm->offset : tm->offset;
+                snprintf(piece, sizeof piece, "%c%02d%02d", tm->offset < 0 ? '-' : '+', (int)(e / 3600),
+                         (int)(e / 60 % 60));
+                break;
+            }
+            case '%': add = "%"; break;
+            default: return TZ_FORMAT_BAD;          /* (a % at the end too) */
+            }
+            if (bare && num < 0) return TZ_FORMAT_BAD;
+            if (num >= 0) snprintf(piece, sizeof piece, "%0*d", bare ? 1 : width, num);
+        }
+        size_t k = strlen(add);
+        if (n + k >= cap) return TZ_FORMAT_LONG;
+        memcpy(out + n, add, k);
+        n += k;
+    }
+    out[n] = 0;
+    return (int)n;
 }

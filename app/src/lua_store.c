@@ -11,7 +11,8 @@
  * All values of an app live in one flash file (vfs_data_*), rewritten whole
  * on every change, so set() is meant for occasional changes, not every frame.
  * A set() that changes nothing doesn't write, and vfs spaces writes at least
- * a second apart.
+ * a second apart. The flash write's time doesn't count against the script's
+ * watchdog (up to SAVE_MS).
  *
  * File format: "LBS1", then per entry: key length (1 byte), key, type
  * ('s' string, 'i' integer, 'f' float, 'b' boolean), value length (4 bytes,
@@ -24,11 +25,13 @@
 #include <string.h>
 
 #include "app_config.h"
+#include "hw.h"
 #include "lauxlib.h"
 #include "script.h"
 #include "vfs.h"
 
-#define MAGIC "LBS1"
+#define MAGIC   "LBS1"
+#define SAVE_MS 3000         /* the most a write may take of the watchdog's time */
 
 typedef struct {
     const char *key;
@@ -182,7 +185,9 @@ static int l_set(lua_State *L)
         for (int i = 0; i < 4; i++) out[o++] = (uint8_t)(vlen >> (8 * i));
         memcpy(out + o, val, vlen); o += vlen;
     }
+    uint32_t t0 = hw_millis();
     esp_err_t err = vfs_data_save(app, out, o > 4 ? o : 0);
+    script_watchdog_credit(L, t0, SAVE_MS);
     if (err != ESP_OK) return luaL_error(L, "saving failed (%s)", esp_err_to_name(err));
     return 0;
 }
@@ -217,7 +222,10 @@ static int l_keys(lua_State *L)
 static int l_clear(lua_State *L)
 {
     char app[VFS_APP_NAME_MAX];
-    vfs_data_clear(app_of(L, app, sizeof app));
+    app_of(L, app, sizeof app);
+    uint32_t t0 = hw_millis();
+    vfs_data_clear(app);
+    script_watchdog_credit(L, t0, SAVE_MS);
     return 0;
 }
 
