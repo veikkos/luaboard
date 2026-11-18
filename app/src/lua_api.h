@@ -15,3 +15,5 @@ void lua_api_release_hw(void);
 bool lua_api_pwm_running(void);
 /** Has the script called a drawing function since its VM was created? */
 bool lua_api_drew(void);
+/** A flag argument: none or nil is def; anything but a boolean is an error. */
+bool lua_api_optbool(lua_State *L, int idx, bool def);

@@ -157,14 +157,25 @@ static int l_connect(lua_State *L)
     if (!lua_isnoneornil(L, 3)) {
         luaL_checktype(L, 3, LUA_TTABLE);
         lua_getfield(L, 3, "tls");
+        if (!lua_isnil(L, -1) && !lua_isboolean(L, -1)) return luaL_error(L, "net.connect: opts.tls must be true or false");
         tls = lua_toboolean(L, -1);
         lua_getfield(L, 3, "ca");
         if (!lua_isnil(L, -1)) { ca = luaL_checklstring(L, -1, &ca_len); tls = true; }
         lua_pop(L, 2);    /* ca stays valid: the opts table still references it */
     }
     luaL_argcheck(L, strlen(host) < DNS_HOST_MAX, 1, "host name too long");
-    if (open_count() >= MAX_SOCKS) return luaL_error(L, "too many open sockets (max %d)", MAX_SOCKS);
-    if (tls && tls_count() >= MAX_TLS) return luaL_error(L, "too many TLS connections (max %d)", MAX_TLS);
+    /* Out of sockets is a state, not a wrong call: nil, err, so http can
+       let go of a kept connection and mqtt can try again later. */
+    if (open_count() >= MAX_SOCKS) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "too many open sockets (max %d)", MAX_SOCKS);
+        return 2;
+    }
+    if (tls && tls_count() >= MAX_TLS) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "too many TLS connections (max %d)", MAX_TLS);
+        return 2;
+    }
 
     lsock_t *s = new_sock(L);
     snprintf(s->peer, sizeof s->peer, "%s:%d", host, (int)port);
@@ -217,7 +228,11 @@ static int l_listen(lua_State *L)
     /* The control port is the firmware's: an app holding it would pose as the
        device to the PC tools. */
     luaL_argcheck(L, port != NET_TCP_PORT, 1, "that is the device's control port");
-    if (open_count() >= MAX_SOCKS) return luaL_error(L, "too many open sockets (max %d)", MAX_SOCKS);
+    if (open_count() >= MAX_SOCKS) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "too many open sockets (max %d)", MAX_SOCKS);
+        return 2;
+    }
     lsock_t *s = new_sock(L);
     int fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (fd < 0) return push_err(L, "socket", errno);

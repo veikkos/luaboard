@@ -3,45 +3,90 @@
 -- the firmware calls at sys.rate() Hz; it returns whether the script still has
 -- anything to run (loop(), timers or tasks).
 
+-- A wrong call is reported at the app's line that made it, not here
+-- (sys._error looks past the built-in libraries' own frames).
+local fail = sys._error
+local function check(ok, msg) if not ok then fail(msg) end end
+
 ---------------------------------------------------------------- timers
 local timers, next_id = {}, 1
 timer = {}
 
 local function add_timer(ms, fn, every)
-  assert(type(fn) == 'function', 'timer callback must be a function')
+  check(type(ms) == 'number', 'timer: the time must be a number of ms')
+  check(type(fn) == 'function', 'timer callback must be a function')
   local id = next_id; next_id = id + 1
   timers[id] = { at = sys.millis() + ms, every = every and ms or nil, fn = fn }
   return id
 end
 function timer.after(ms, fn) return add_timer(ms, fn, false) end
-function timer.every(ms, fn) assert(ms >= 10, 'interval must be >= 10 ms') return add_timer(ms, fn, true) end
-function timer.cancel(id) timers[id] = nil end
+function timer.every(ms, fn)
+  check(type(ms) ~= 'number' or ms >= 10, 'interval must be >= 10 ms')
+  return add_timer(ms, fn, true)
+end
+function timer.cancel(id) if id ~= nil and id == id then timers[id] = nil end end   -- (nil, NaN: nothing to cancel)
 
 ----------------------------------------------------------------- tasks
 -- task(fn, ...) runs fn as a coroutine. Inside a task, sleep(ms) and yield()
 -- give the device back (no busy waiting), so network code can be written
 -- top to bottom. Each tick resumes every task that is due.
+--
+-- An app's own coroutine running inside a task (a generator that fetches
+-- pages, say) can wait too: its wait is passed up through coroutine.resume
+-- to the task, and the coroutine goes on where it was once the task does.
+local co_create, co_resume, co_yield, co_status, co_running =
+  coroutine.create, coroutine.resume, coroutine.yield, coroutine.status, coroutine.running
 local tasks, current = {}, nil
+local PASS = {}                     -- yielded by a wait inside an app's coroutine
 
 function task(fn, ...)
-  assert(type(fn) == 'function', 'task() needs a function')
+  check(type(fn) == 'function', 'task() needs a function')
   local args = table.pack(...)
-  local t = { co = coroutine.create(function() return fn(table.unpack(args, 1, args.n)) end), wake = 0 }
+  local t = { co = co_create(function() return fn(table.unpack(args, 1, args.n)) end), wake = 0 }
   tasks[#tasks + 1] = t
 end
 
 function in_task() return current ~= nil end
 
+-- Give the device back until the task is resumed (current.wake says when).
+local function suspend()
+  if co_running() == current.co then co_yield() else co_yield(PASS) end
+end
+
 function sleep(ms)
-  assert(current, 'sleep() only works inside task()')
+  check(current, 'sleep() only works inside task()')
   current.wake = sys.millis() + (ms or 0)
-  coroutine.yield()
+  suspend()
 end
 
 function yield()
-  assert(current, 'yield() only works inside task()')
+  check(current, 'yield() only works inside task()')
   current.wake = 0
-  coroutine.yield()
+  suspend()
+end
+
+-- resume() of an app's coroutine: a wait in it suspends the task around it
+-- too, and the coroutine is resumed when the task is.
+local function resume_passing(co, ...)
+  local r = table.pack(co_resume(co, ...))
+  while r[1] and r[2] == PASS and r.n == 2 and co_status(co) == 'suspended' do
+    if not current then              -- (resumed outside a task: it can't wait)
+      return false, 'sleep()/yield() only work inside task()'
+    end
+    suspend()
+    r = table.pack(co_resume(co))
+  end
+  return table.unpack(r, 1, r.n)
+end
+
+coroutine.resume = resume_passing
+function coroutine.wrap(fn)
+  local co = co_create(fn)
+  return function(...)
+    local r = table.pack(resume_passing(co, ...))
+    if not r[1] then coroutine.close(co) error(r[2], 0) end
+    return table.unpack(r, 2, r.n)
+  end
 end
 
 ---------------------------------------------------------- socket methods
@@ -157,11 +202,14 @@ end
 -- whenever it advertises something new, until ble.stop_scan(). Connections
 -- get read/write/subscribe here, on top of the non-blocking ones in C.
 local ble_scan_fn
-local ble_subs = setmetatable({}, { __mode = 'k' })   -- connection -> { ["svc/chr"] = fn }
+local ble_subs = {}      -- connection -> { ["svc/chr"] = fn }: a subscription keeps its connection
 
 function ble.scan(fn, opts)
-  assert(type(fn) == 'function', 'ble.scan() needs a function')
-  local ok, err = ble._scan(type(opts) == 'table' and opts.active == true)
+  check(type(fn) == 'function', 'ble.scan() needs a function')
+  check(opts == nil or type(opts) == 'table', 'ble.scan: opts must be a table')
+  local active = opts and opts.active
+  check(active == nil or type(active) == 'boolean', 'ble.scan: opts.active must be true or false')
+  local ok, err = ble._scan(active == true)
   if not ok then return nil, err end
   ble_scan_fn = fn
   return true
@@ -205,12 +253,12 @@ function conn:wait_connected(timeout_ms)
 end
 
 function conn:read(svc, chr)
-  assert(current, 'read() only works inside task()')
+  check(current, 'read() only works inside task()')
   return ble_wait(self, 'read ' .. tostring(chr), self:_read(svc, chr))
 end
 
 function conn:write(svc, chr, data)
-  assert(current, 'write() only works inside task()')
+  check(current, 'write() only works inside task()')
   local ok, err = ble_wait(self, 'write ' .. tostring(chr), self:_write(svc, chr, data))
   if ok then return true end
   return nil, err
@@ -218,8 +266,8 @@ end
 
 -- fn(data, chr, svc) for each notification (or indication) of the value.
 function conn:subscribe(svc, chr, fn)
-  assert(type(fn) == 'function', 'subscribe() needs a function')
-  assert(current, 'subscribe() only works inside task()')
+  check(type(fn) == 'function', 'subscribe() needs a function')
+  check(current, 'subscribe() only works inside task()')
   local key = ble_key(svc, chr)
   local subs = ble_subs[self] or {}
   ble_subs[self] = subs
@@ -227,12 +275,14 @@ function conn:subscribe(svc, chr, fn)
   local ok, err = ble_wait(self, 'subscribe ' .. tostring(chr), self:_subscribe(svc, chr, true))
   if ok then return true end
   if key then subs[key] = nil end
+  if next(subs) == nil then ble_subs[self] = nil end
   return nil, err
 end
 
 function conn:unsubscribe(svc, chr)
   local key, subs = ble_key(svc, chr), ble_subs[self]
   if subs and key then subs[key] = nil end
+  if subs and next(subs) == nil then ble_subs[self] = nil end
   if not current then return true end     -- (outside a task the device keeps sending; it's ignored)
   local ok, err = ble_wait(self, 'unsubscribe ' .. tostring(chr), self:_subscribe(svc, chr, false))
   if ok then return true end
@@ -246,7 +296,7 @@ end
 -- (inside a task) until the user has logged in, declined, or the timeout
 -- (default 10 minutes) passes. See oauth.lua for the usual use.
 function browser.login(url, redirect, title, timeout_ms)
-  assert(current, 'browser.login() only works inside task()')
+  check(current, 'browser.login() only works inside task()')
   local id = browser._start(url, redirect, title)
   local deadline = sys.millis() + (timeout_ms or 600000)
   while true do
@@ -277,8 +327,8 @@ local touch_kinds = { press = true, long = true, tap = true, hold = true, drag =
 local touch_handlers = {}
 
 function touch.on(kind, fn)
-  assert(touch_kinds[kind], 'touch.on: kind is "press", "long", "tap", "hold", "drag" or "swipe"')
-  assert(fn == nil or type(fn) == 'function', 'touch.on: the handler must be a function (or nil)')
+  check(touch_kinds[kind], 'touch.on: kind is "press", "long", "tap", "hold", "drag" or "swipe"')
+  check(fn == nil or type(fn) == 'function', 'touch.on: the handler must be a function (or nil)')
   touch_handlers[kind] = fn
 end
 
@@ -305,6 +355,7 @@ return function(now, dt)
       local fn = subs[svc .. '/' .. chr]
       if fn then fn(data, chr, svc) end
     end
+    if c:status() == 'closed' then ble_subs[c] = nil end   -- (lost or closed: nothing more comes)
   end
 
   local due = {}
@@ -323,12 +374,12 @@ return function(now, dt)
     local t = tasks[i]
     if now >= t.wake then
       current = t
-      local ok, err = coroutine.resume(t.co)
+      local ok, err = co_resume(t.co)
       current = nil
       if not ok then
         table.remove(tasks, i)
         error(err, 0)                     -- stops the script, shown on screen
-      elseif coroutine.status(t.co) == 'dead' then
+      elseif co_status(t.co) == 'dead' then
         table.remove(tasks, i)
       else
         i = i + 1

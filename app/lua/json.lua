@@ -138,7 +138,7 @@ end
 
 -- Text from outside can be anything: bad text is nil, err, not an error.
 function M.decode(s)
-  assert(type(s) == 'string', 'json.decode needs a string')
+  if type(s) ~= 'string' then sys._error('json.decode needs a string, not ' .. type(s)) end
   local ok, v = pcall(decode_all, s)
   if ok then return v end
   return nil, v
@@ -169,11 +169,11 @@ function encode_value(v, out, seen)
   if v == nil or v == M.null then out[#out + 1] = 'null'
   elseif tv == 'boolean' then out[#out + 1] = tostring(v)
   elseif tv == 'number' then
-    if v ~= v or v == math.huge or v == -math.huge then error('json: cannot encode ' .. tostring(v), 0) end
+    if v ~= v or v == math.huge or v == -math.huge then sys._error('json: cannot encode ' .. tostring(v)) end
     out[#out + 1] = math.type(v) == 'integer' and tostring(v) or string.format('%.14g', v)
   elseif tv == 'string' then out[#out + 1] = encode_string(v)
   elseif tv == 'table' then
-    if seen[v] then error('json: cannot encode a table that contains itself', 0) end
+    if seen[v] then sys._error('json: cannot encode a table that contains itself') end
     seen[v] = true
     if is_array(v) then
       out[#out + 1] = '['
@@ -186,7 +186,7 @@ function encode_value(v, out, seen)
       out[#out + 1] = '{'
       local first = true
       for k, val in pairs(v) do
-        if type(k) ~= 'string' and type(k) ~= 'number' then error('json: object keys must be strings', 0) end
+        if type(k) ~= 'string' and type(k) ~= 'number' then sys._error('json: object keys must be strings') end
         if not first then out[#out + 1] = ',' end
         first = false
         out[#out + 1] = encode_string(tostring(k))
@@ -197,7 +197,7 @@ function encode_value(v, out, seen)
     end
     seen[v] = nil
   else
-    error('json: cannot encode a ' .. tv, 0)
+    sys._error('json: cannot encode a ' .. tv)
   end
 end
 

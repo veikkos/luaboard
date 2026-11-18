@@ -36,7 +36,7 @@ Login.__index = Login
 
 function M.new(o)
   for _, k in ipairs({ 'name', 'client_id', 'authorize_url', 'token_url', 'redirect' }) do
-    assert(o[k] and o[k] ~= '', 'oauth.new: ' .. k .. ' is required')
+    if not o[k] or o[k] == '' then sys._error('oauth.new: ' .. k .. ' is required') end
   end
   return setmetatable({ o = o, access = nil, expires = 0, busy = false }, Login)
 end
@@ -112,7 +112,7 @@ end
 
 -- A valid access token; logs in or refreshes when needed. Inside task().
 function Login:token()
-  assert(in_task(), 'oauth: call inside task()')
+  if not in_task() then sys._error('oauth: call inside task()') end
   while self.busy do sleep(100) end                -- one login / refresh at a time
   if self.access and sys.millis() < self.expires then return self.access end
   self.busy = true

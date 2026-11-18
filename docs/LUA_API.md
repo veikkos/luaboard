@@ -34,7 +34,9 @@ release, 0.9.0: from here on any addition makes it version 2.
 
 A wrong call raises an error: a missing or mistyped argument, a value out
 of range, a pin the firmware owns. That stops the script, as any Lua error
-does, unless it's caught with `pcall`. Something that can go wrong however
+does, unless it's caught with `pcall`. The message names the app's line
+that made the call, also for the libraries written in Lua (`http`, `mqtt`,
+`json`, tasks and timers), not a line inside them. Something that can go wrong however
 right the call is (the network, a device, a file, data from outside such
 as a JPEG or WAV) comes back as `nil, err`, with `err` a message saying
 what happened, so `assert(...)` or an `if` handles it:
@@ -46,6 +48,12 @@ if not w then print(h) end                -- e.g. "disp.jpeg: not a JPEG"
 
 Running out of room in `store` or `secrets` raises too: an app that went on
 without noticing would lose what it meant to keep.
+
+A flag (`fill` of `disp.rect`, `on` of `disp.keep_awake`, `opts.tls`) is
+`true` or `false`, and leaving it out means `false`. Anything else, a `0`
+or `1` included, is an error: in Lua `0` counts as true, so `disp.sleep(0)`
+would otherwise put the device to sleep. Levels, such as `gpio.write`'s,
+take numbers.
 
 ## Script structure
 
@@ -105,7 +113,8 @@ end                     -- default rate 30 Hz, change with sys.rate(hz)
   ```
 * Holding B or a short press of the power key always leaves the app (see
   [touch](#touch---capacitive-touch-screen)). `sys.exit()` leaves from the
-  script itself.
+  script itself, at once: nothing after it runs, `setup()` included when
+  it's called from the top-level code.
 
 ### A script that draws nothing
 
@@ -456,7 +465,7 @@ The waiting functions need a `task`.
 | `conn:write(svc, chr, data)` -> `true` or `nil, err` | Write a value (at most 244 bytes): with a response if the characteristic takes one, else without. |
 | `conn:subscribe(svc, chr, fn)` -> `true` or `nil, err` | Turn on notifications (or indications) of a value: `fn(data, chr, svc)` is called with each new value. |
 | `conn:unsubscribe(svc, chr)` | Turn them off. |
-| `conn:addr()`, `conn:close()` | The address. Close (also done when the connection is garbage-collected or the script ends). |
+| `conn:addr()`, `conn:close()` | The address. Close (also done when the connection is garbage-collected or the script ends). A connection with a subscription is kept until it's closed or lost, even if the script holds it nowhere else. |
 
 Services and characteristics are UUIDs: 16-bit ones like `"180f"` or the full
 128-bit form, in any case, with or without dashes. Values are byte strings.
@@ -494,7 +503,7 @@ task(function()
   assert(c:wait_connected())
   print("battery", assert(c:read("180f", "2a19")):byte(), "%")
   c:subscribe("180f", "2a19", function(d) print("now", d:byte(), "%") end)
-end)
+end)                          -- the subscription keeps the connection and the script going
 ```
 
 The [di2 app](https://github.com/veikkos/luaboard-marketplace/blob/main/di2/main.lua) finds a Shimano Di2 derailleur by
@@ -506,7 +515,7 @@ scanning and shows its gear position and battery.
 |---|---|
 | `timer.after(ms, fn)` -> `id` | Call `fn()` once after `ms`. |
 | `timer.every(ms, fn)` -> `id` | Call `fn()` every `ms` (>= 10). |
-| `timer.cancel(id)` | Cancel a timer. |
+| `timer.cancel(id)` | Cancel a timer. `nil`, or the id of a timer that has already run, does nothing. |
 
 Timers are serviced at the loop rate (`sys.rate`), so their resolution is one
 loop period (33 ms at the default 30 Hz).
@@ -521,10 +530,10 @@ loop period (33 ms at the default 30 Hz).
 | `sys.heap()` -> `used, peak, limit` | Lua heap usage in bytes. |
 | `sys.battery()` -> `percent, charging, usb` | Battery level (0..100), whether it's charging, and whether USB power is present. CoreS3 and Lite have one. The SE has none (it runs on USB-C power) unless a battery module is added. Without one, `percent` is `nil` and `charging` is `false`. |
 | `sys.port_power([on])` -> `on` | 5V out to the Grove ports (A, B, C). On by default. `false` cuts it, e.g. to save battery between readings or to restart a stuck unit. Back on when the app ends. |
-| `sys.info()` -> `table` | `{fw, version, board, model, lua, lua_api, script, app, boot}`: `lua_api` is the [API version](#api-version) the firmware has. `model` is `"cores3"` (CoreS3 or Lite) or `"cores3se"`. `script` is `"<app>/<file>"` (`""` when no script is running, e.g. `EVAL` after `STOP`). `boot` says why the device started: `"power"` (the power key, USB plugged in), `"timer"` (the wake-up time of `sys.off`) or `"reset"` (a restart, an update, a crash). |
-| `sys.exit()` | Leave the app: back to the home menu once the current call returns. |
+| `sys.info()` -> `table` | `{fw, version, board, model, lua, lua_api, script, app, boot, id}`: `lua_api` is the [API version](#api-version) the firmware has. `model` is `"cores3"` (CoreS3 or Lite) or `"cores3se"`. `script` is `"<app>/<file>"` (`""` when no script is running, e.g. `EVAL` after `STOP`). `boot` says why the device started: `"power"` (the power key, USB plugged in), `"timer"` (the wake-up time of `sys.off`) or `"reset"` (a restart, an update, a crash). `id` is the board's own: 12 hex digits, the same after restarts and updates, different on every board (made from its factory MAC address, but not the address itself). For telling boards apart, such as an MQTT client id. |
+| `sys.exit()` | Leave the app, back to the home menu. It ends the script at once: nothing after it runs, and a `pcall` around it doesn't keep the app going. |
 | `sys.keep_on([on])` -> `on` | While on, the device's Turn off after setting doesn't turn the device off, for an app that works in the dark (a running countdown, a logger). Off again when the script ends. Without an argument, returns the current state. |
-| `sys.off([seconds])` | Turn the device off once the current call returns: the app is stopped as by `sys.exit()` (what it keeps in `store` is written), and the board powers down. With `seconds` (10 to 27 days' worth) the device also turns itself on in time for the app to be running by then. It comes early, never late, by up to a minute or two for waits over 255 s, so the app waits out the rest itself. A wait over 255 minutes needs the time to be known (`sys.time()`). A time it can't honor is an error. See below. |
+| `sys.off([seconds])` | Turn the device off: the app is stopped at once, as by `sys.exit()` (what it keeps in `store` is written), and the board powers down. With `seconds` (10 to 27 days' worth) the device also turns itself on in time for the app to be running by then. It comes early, never late, by up to a minute or two for waits over 255 s, so the app waits out the rest itself. A wait over 255 minutes needs the time to be known (`sys.time()`). A time it can't honor is an error. See below. |
 | `sys.time()` -> `seconds` or `nil` | The time: UTC seconds since 1970, or `nil` while the time isn't known. At boot the time comes from the board's RTC chip if it kept it (it runs while the board has power: a reset or a crash, or with a battery also while off), otherwise from the network (NTP) a second or two after joining Wi-Fi. |
 | `sys.time(text, [zone])` -> `seconds` or `nil, err` | A date and time as web APIs send them, in seconds: `"2026-11-15T10:30:00Z"`, `"2026-11-15T12:30:00.250+02:00"`, `"2026-11-15 12:30"`, `"2026-11-15"` (midnight), `"Sun, 15 Nov 2026 10:30:00 GMT"`. Without an offset it's a time in `zone`. Fractions of a second are dropped. |
 | `sys.time(fields, [zone])` -> `seconds` | The other way from `sys.date`: `{year, month, day, [hour], [min], [sec]}` in `zone`, the times left out 0. A field out of range carries over, as in `os.time` (`month = 13` is January, `day = 0` the last of the month before). A time skipped when the clocks go forward counts as before the change (02:30 is 03:30), one repeated when they go back is the first. |
@@ -563,7 +572,10 @@ Inside a task:
 | `in_task()` -> `bool` | Are we inside a task? |
 
 This is how network code is written top to bottom without stalling the
-device. `sleep` and `yield` outside a task are an error. The 1 s watchdog
+device. `sleep` and `yield` outside a task are an error. A coroutine of the
+app's own running inside a task (a generator that fetches pages, say) can
+call them, and so the network functions, too: the task waits with it, and
+the coroutine goes on where it was. The 1 s watchdog
 covers each tick, not the whole task: a slice between `sleep`/`yield` must
 fit in it with the timers, other tasks and `loop()` of that tick. An error
 inside a task stops the script like any other error.
@@ -596,7 +608,8 @@ network in the simulator). The waiting helpers need a `task`.
 | `s:peer()`, `s:close()` | `"host:port"`. Close (also done when the socket is garbage-collected or the script ends). |
 
 At most 16 sockets at a time, 4 of them TLS (each needs about 40 KB, in PSRAM
-on the device). Opening more is an error. A host name is looked up in the
+on the device). Opening more is `nil, "too many open sockets (max 16)"` or
+`nil, "too many TLS connections (max 4)"`. A host name is looked up in the
 background, so `connect` returns at once and the socket says `"connecting"`
 meanwhile. A name that doesn't exist ends as
 `"closed", "cannot resolve <host>"`. A TLS socket reports `"connecting"` until
@@ -636,7 +649,7 @@ Options for `mqtt.connect`:
 
 | Option | Default | |
 |---|---|---|
-| `client_id` | `luaboard-<millis>` | |
+| `client_id` | `luaboard-<id>` | `id` is `sys.info().id`, so two boards running the same app don't push each other off the broker. |
 | `port` | 1883, 8883 with TLS | Used when `url` has no port. |
 | `tls` | `false` | TLS, as `mqtts://` does. The broker's certificate is checked against the root certificate bundle. |
 | `ca` | none | PEM text of a CA to trust instead of the bundle (a broker with its own certificate). Implies `tls`. |
@@ -682,7 +695,7 @@ end)
 
 | Function | Description |
 |---|---|
-| `http.request{ method, url, headers, body, timeout, max_size, ca }` -> `status, body, headers` | `nil, err` if the request couldn't be made. `method` defaults to `GET`. A string argument is taken as `url`. `https://` uses TLS (`ca` as in `net.connect`). Header names in the result are lowercase. Repeated headers are joined with `", "`. `timeout` in ms, default 15000 (the whole request). Maximum body 256 KB. |
+| `http.request{ method, url, headers, body, timeout, max_size, ca, redirects }` -> `status, body, headers` | `nil, err` if the request couldn't be made. `method` defaults to `GET`. A string argument is taken as `url`. `https://` uses TLS (`ca` as in `net.connect`). Header names in the result are lowercase. Repeated headers are joined with `", "`. `timeout` in ms, default 15000 (the whole request, redirects included). Maximum body 256 KB. `redirects`: how many to follow, default 5 (below). |
 | `http.get(url, [headers], [opts])`, `http.post(url, body, [headers], [opts])` | Shortcuts. `opts` takes the other `request` fields. |
 | `http.form(t)` / `http.parse_query(q)` | `{ a = 1 }` <-> `"a=1"` (URL-encoded, and `form` sorts the keys). |
 | `http.urlencode(s)`, `http.urldecode(s)` | |
@@ -690,7 +703,15 @@ end)
 | `http.close_idle()` | Close kept connections (also done when the script ends). |
 
 Connections are kept open and reused per server, so polling an API every few
-seconds doesn't pay for a new TLS handshake each time.
+seconds doesn't pay for a new TLS handshake each time. When the device is
+out of sockets, the connection kept longest is closed to make room.
+
+Redirects (301, 302, 303, 307, 308 with a `Location`) are followed, and
+the result is the last response's. A 303, and a 301 or 302 after a
+`POST`, goes on as a `GET` without the body, as browsers do. A redirect to
+another server goes without the `Authorization` and `Cookie` headers.
+More redirects than `redirects` is `nil, "too many redirects"`, and
+`redirects = 0` returns the 3xx response itself.
 
 ```lua
 local http, json = require("http"), require("json")

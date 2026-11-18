@@ -16,6 +16,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "lua.h"
+
 void script_init(void);
 /** Start an app or script. name: "<app>" (its main.lua), "<app>/<file>.lua",
  *  or "<file>.lua" in the default app. On failure writes a message to err
@@ -27,8 +29,11 @@ bool script_resolve(const char *name, char *out, size_t cap);
 void script_set_default_app(const char *app);
 /** App of the current (or last) script, "" if none. */
 void script_app(char *out, size_t cap);
-/** sys.exit(): stop after the current call returns. */
-void script_request_exit(void);
+/** sys.exit() (exit true) and sys.off(): end the running Lua call at once
+ *  (an app's pcall can't keep it going) and run nothing more of the app.
+ *  sys.exit() then stops it; after sys.off() power_poll() does. Raises:
+ *  call as `return script_leave(L, ...)`. */
+int script_leave(lua_State *L, bool exit);
 void script_stop(void);
 bool script_running(void);
 const char *script_current(void);  /* "<app>/<file>", "" if none */

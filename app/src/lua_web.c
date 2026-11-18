@@ -28,6 +28,7 @@
 #include "esp_random.h"
 #include "hex.h"
 #include "lauxlib.h"
+#include "lua_api.h"
 #include "nvs.h"
 #include "script.h"
 #include "secrets.h"
@@ -165,7 +166,7 @@ static int l_base64(lua_State *L)
 {
     size_t len;
     const unsigned char *d = (const unsigned char *)luaL_checklstring(L, 1, &len);
-    bool url = lua_toboolean(L, 2);
+    bool url = lua_api_optbool(L, 2, false);
     const char *tab = url ? B64URL : B64;
     luaL_Buffer b;
     luaL_buffinit(L, &b);

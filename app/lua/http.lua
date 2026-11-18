@@ -10,16 +10,21 @@
 --
 -- request() returns status, body, headers (lowercase names), or nil, err when
 -- the request could not be made. Call it inside task(). https:// uses TLS with
--- certificate checks (opts.ca = PEM to trust your own CA). Connections are
+-- certificate checks (opts.ca = PEM to trust your own CA). Redirects are
+-- followed (opts.redirects, default 5; 0 returns the 3xx). Connections are
 -- kept open and reused per host, so polling an API doesn't pay for a new TLS
--- handshake every time. Bodies: Content-Length, chunked, or until close.
+-- handshake every time; when the device is out of sockets, the one kept
+-- longest is let go of. Bodies: Content-Length, chunked, or until close.
 
 local M = {}
 
 local DEFAULT_TIMEOUT = 15000
 local DEFAULT_MAX = 256 * 1024
+local DEFAULT_REDIRECTS = 5
 
-local idle = {}           -- "https://host:port" -> { sock, reader } kept for reuse
+local idle = {}           -- "https://host:port" -> { sock, reader, used } kept for reuse
+
+local fail = sys._error   -- a wrong call: the error points at the app's line
 
 function M.urlencode(s)
   return (tostring(s):gsub('[^%w%-%._~]', function(c) return string.format('%%%02X', c:byte()) end))
@@ -47,10 +52,12 @@ function M.parse_query(q)
 end
 
 function M.parse_url(url)
+  if type(url) ~= 'string' then fail('url must be a string, not ' .. type(url)) end
   local scheme, rest = url:match('^(%a+)://(.*)$')
-  assert(scheme == 'http' or scheme == 'https', 'url must start with http:// or https://: ' .. tostring(url))
+  scheme = scheme and scheme:lower()
+  if scheme ~= 'http' and scheme ~= 'https' then fail('url must start with http:// or https://: ' .. url) end
   local hostport, path = rest:match('^([^/?#]+)(.*)$')
-  assert(hostport, 'bad url: ' .. url)
+  if not hostport then fail('bad url: ' .. url) end
   local host, port = hostport:match('^(.-):(%d+)$')
   host = host or hostport
   port = tonumber(port) or (scheme == 'https' and 443 or 80)
@@ -62,8 +69,24 @@ local function remaining(deadline)
   return math.max(1, deadline - sys.millis())
 end
 
+-- net.connect, letting go of kept connections (oldest first) while the
+-- device is out of sockets: of TLS ones when it's out of those.
+local function connect(host, port, o)
+  while true do
+    local s, err = net.connect(host, port, o)
+    if s or not tostring(err):find('^too many') then return s, err end
+    local tls_only, oldest = err:find('TLS') ~= nil, nil
+    for k, c in pairs(idle) do
+      if (not tls_only or k:find('^https:')) and (not oldest or c.used < idle[oldest].used) then oldest = k end
+    end
+    if not oldest then return nil, err end
+    idle[oldest].sock:close()
+    idle[oldest] = nil
+  end
+end
+
 local function open(scheme, host, port, opts, deadline)
-  local s, err = net.connect(host, port, scheme == 'https' and { tls = true, ca = opts.ca } or nil)
+  local s, err = connect(host, port, scheme == 'https' and { tls = true, ca = opts.ca } or nil)
   if not s then return nil, err end
   local ok
   ok, err = s:wait_connected(remaining(deadline))
@@ -141,18 +164,24 @@ local function read_response(c, method, deadline, max)
   return status, body, headers, keep
 end
 
-function M.request(opts)
-  if type(opts) == 'string' then opts = { url = opts } end
-  assert(in_task(), 'http.request() must be called inside task()')
-  local method = (opts.method or 'GET'):upper()
-  local scheme, host, port, path = M.parse_url(opts.url)
-  local deadline = sys.millis() + (opts.timeout or DEFAULT_TIMEOUT)
-  local max = opts.max_size or DEFAULT_MAX
-  local body = opts.body or ''
+-- url of a redirect's Location, relative to the url it came from.
+local function resolve(loc, base)
+  if loc:match('^%a[%w+.-]*://') then return loc end
+  local scheme, root = base:match('^(%a+:)(//[^/?#]+)')
+  if loc:sub(1, 2) == '//' then return scheme .. loc end
+  if loc:sub(1, 1) == '/' then return scheme .. root .. loc end
+  local dir = base:gsub('[?#].*$', '')
+  if loc:sub(1, 1) == '?' then return dir .. loc end
+  if not dir:match('^%a+://[^/]+/') then dir = dir .. '/' end
+  return (dir:gsub('[^/]*$', '')) .. loc
+end
 
+-- One request and its response, no redirects.
+local function request1(opts, method, url, headers, body, deadline, max)
+  local scheme, host, port, path = M.parse_url(url)
   local lines = { method .. ' ' .. path .. ' HTTP/1.1' }
   local has = {}
-  for k, v in pairs(opts.headers or {}) do
+  for k, v in pairs(headers) do
     lines[#lines + 1] = k .. ': ' .. tostring(v)
     has[k:lower()] = true
   end
@@ -178,11 +207,12 @@ function M.request(opts)
       if not c then return nil, err end
     end
     local ok, err = c.sock:write_all(req)
-    local status, rbody, headers, keep
-    if ok then status, rbody, headers, keep = read_response(c, method, deadline, max) end
+    local status, rbody, rheaders, keep
+    if ok then status, rbody, rheaders, keep = read_response(c, method, deadline, max) end
     if status then
+      c.used = sys.millis()
       if keep and not idle[key] then idle[key] = c else c.sock:close() end
-      return status, rbody, headers
+      return status, rbody, rheaders
     end
     c.sock:close()
     err = err or rbody
@@ -190,6 +220,57 @@ function M.request(opts)
     if not (reused and attempt == 1 and (err == 'closed' or tostring(err):find('closed'))) then
       return nil, err
     end
+  end
+end
+
+-- Headers that say who the user is (and the old Host) don't go on to another server.
+local PRIVATE = { authorization = true, cookie = true, ['proxy-authorization'] = true, host = true }
+
+function M.request(opts)
+  if type(opts) == 'string' then opts = { url = opts } end
+  if type(opts) ~= 'table' then fail('http.request() takes a table or a url') end
+  if not in_task() then fail('http.request() must be called inside task()') end
+  local method = (opts.method or 'GET'):upper()
+  local url = opts.url
+  M.parse_url(url)                                   -- (a bad url is an error before anything is sent)
+  local deadline = sys.millis() + (opts.timeout or DEFAULT_TIMEOUT)
+  local max = opts.max_size or DEFAULT_MAX
+  local body = opts.body or ''
+  local headers = {}
+  for k, v in pairs(opts.headers or {}) do headers[k] = v end
+  local redirects = opts.redirects or DEFAULT_REDIRECTS
+
+  while true do
+    local status, rbody, rheaders = request1(opts, method, url, headers, body, deadline, max)
+    if not status then return nil, rbody end
+    local loc = rheaders.location
+    if not (loc and (status == 301 or status == 302 or status == 303 or status == 307 or status == 308)) then
+      return status, rbody, rheaders
+    end
+    if redirects <= 0 then
+      if (opts.redirects or DEFAULT_REDIRECTS) == 0 then return status, rbody, rheaders end
+      return nil, 'too many redirects'
+    end
+    redirects = redirects - 1
+    local next_url = resolve(loc, url)
+    if not next_url:match('^[hH][tT][tT][pP][sS]?://[^/?#]') then
+      return nil, 'redirect to an url that is not http(s): ' .. loc:sub(1, 80)
+    end
+    -- To another server: without the user's credentials.
+    local function origin(u) local sc, hp = u:match('^(%a+)://([^/?#]+)') return sc:lower() .. '://' .. hp:lower() end
+    if origin(next_url) ~= origin(url) then
+      for k in pairs(headers) do if PRIVATE[k:lower()] then headers[k] = nil end end
+    end
+    -- 303, and 301/302 after a POST (as browsers do), go on as a GET without the body.
+    if status == 303 or ((status == 301 or status == 302) and method == 'POST') then
+      if method ~= 'HEAD' then method = 'GET' end
+      body = ''
+      for k in pairs(headers) do
+        local l = k:lower()
+        if l == 'content-type' or l == 'content-length' then headers[k] = nil end
+      end
+    end
+    url = next_url
   end
 end
 

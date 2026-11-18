@@ -1,15 +1,18 @@
 #include "lua_api.h"
 
 #include <limits.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "app_config.h"
+#include "builtin_lua.h"
 #include "ota.h"
 #include "board.h"
 #include "clock.h"
 #include "driver/gpio.h"
 #include "driver/ledc.h"
+#include "esp_mac.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "gfx.h"
@@ -22,6 +25,7 @@
 #include "lua_pins.h"
 #include "lua_uart.h"
 #include "screens.h"
+#include "sha256.h"
 #include "script.h"
 #include "settings.h"
 #include "power.h"
@@ -101,17 +105,26 @@ static int disp_line(lua_State *L)
     return 0;
 }
 
+/* A flag: none or nil is def, anything else must be a boolean (so a 0
+   meant as false is an error instead of counting as true). */
+bool lua_api_optbool(lua_State *L, int idx, bool def)
+{
+    if (lua_isnoneornil(L, idx)) return def;
+    luaL_checktype(L, idx, LUA_TBOOLEAN);
+    return lua_toboolean(L, idx);
+}
+
 static int disp_rect(lua_State *L)
 {
     drawing();
-    gfx_rect(coord(L, 1), coord(L, 2), coord(L, 3), coord(L, 4), opt_color(L, 5, RGB_WHITE), lua_toboolean(L, 6));
+    gfx_rect(coord(L, 1), coord(L, 2), coord(L, 3), coord(L, 4), opt_color(L, 5, RGB_WHITE), lua_api_optbool(L, 6, false));
     return 0;
 }
 
 static int disp_circle(lua_State *L)
 {
     drawing();
-    gfx_circle(coord(L, 1), coord(L, 2), coord(L, 3), opt_color(L, 4, RGB_WHITE), lua_toboolean(L, 5));
+    gfx_circle(coord(L, 1), coord(L, 2), coord(L, 3), opt_color(L, 4, RGB_WHITE), lua_api_optbool(L, 5, false));
     return 0;
 }
 
@@ -193,7 +206,7 @@ static int disp_brightness(lua_State *L)
    turn the screen off (the user still can). Off again when the script ends. */
 static int disp_keep_awake(lua_State *L)
 {
-    if (!lua_isnoneornil(L, 1)) sleep_keep_awake(lua_toboolean(L, 1));
+    if (!lua_isnoneornil(L, 1)) sleep_keep_awake(lua_api_optbool(L, 1, false));
     lua_pushboolean(L, sleep_kept_awake());
     return 1;
 }
@@ -203,7 +216,7 @@ static int disp_keep_awake(lua_State *L)
 static int disp_sleep(lua_State *L)
 {
     if (!lua_isnoneornil(L, 1)) {
-        if (lua_toboolean(L, 1)) sleep_now();
+        if (lua_api_optbool(L, 1, false)) sleep_now();
         else sleep_activity(hw_millis());
     }
     lua_pushboolean(L, sleep_active());
@@ -633,6 +646,24 @@ static int l_asset(lua_State *L)
     return 1;
 }
 
+/* The board's own id: 12 hex digits from its factory MAC address. Hashed,
+   so an app that sends it somewhere doesn't give out the address its
+   Wi-Fi uses. The same on every boot and after a firmware update. */
+static const char *board_id(void)
+{
+    static char id[13];
+    if (!id[0]) {
+        uint8_t mac[6] = { 0 }, h[32];
+        esp_efuse_mac_get_default(mac);
+        uint8_t in[8 + 6];
+        memcpy(in, "luaboard", 8);
+        memcpy(in + 8, mac, 6);
+        lb_sha256(in, sizeof in, h);
+        for (int i = 0; i < 6; i++) snprintf(id + 2 * i, 3, "%02x", h[i]);
+    }
+    return id;
+}
+
 static int sys_info(lua_State *L)
 {
     lua_newtable(L);
@@ -647,6 +678,7 @@ static int sys_info(lua_State *L)
     script_app(app, sizeof app);
     lua_pushstring(L, app); lua_setfield(L, -2, "app");
     lua_pushstring(L, power_boot_reason()); lua_setfield(L, -2, "boot");
+    lua_pushstring(L, board_id()); lua_setfield(L, -2, "id");
     return 1;
 }
 
@@ -745,7 +777,6 @@ static int sys_timezone(lua_State *L)
     return 1;
 }
 
-/* sys.exit(): leave the app, back to the home menu (after this call returns). */
 /* sys.off([seconds]): turn the device off once this call has returned.
    With seconds, it turns itself on again in time for the app to run by
    then (early, never late). */
@@ -760,29 +791,49 @@ static int sys_off(lua_State *L)
     }
     if (power_off_request(seconds, "app") == WAKE_NEEDS_CLOCK)
         return luaL_error(L, "sys.off: needs the time for more than 255 minutes");
-    return 0;
+    return script_leave(L, false);      /* nothing more of the app runs; power_poll turns it off */
 }
 
 /* sys.keep_on([on]) -> on. While on, the Turn off after setting doesn't turn
    the device off. Off again when the script ends. */
 static int sys_keep_on(lua_State *L)
 {
-    if (!lua_isnoneornil(L, 1)) power_keep_on(lua_toboolean(L, 1));
+    if (!lua_isnoneornil(L, 1)) power_keep_on(lua_api_optbool(L, 1, false));
     lua_pushboolean(L, power_kept_on());
     return 1;
 }
 
+/* sys.exit(): leave the app at once, back to the home menu. */
 static int sys_exit(lua_State *L)
 {
-    (void)L;
-    script_request_exit();
-    return 0;
+    return script_leave(L, true);
+}
+
+/* sys._error(msg): raise msg at the app's line that led here, past the
+   built-in Lua libraries' own frames (prelude, http.lua, ...), so their
+   checks point at the app's call as a C function's luaL_error does. */
+static int sys_error(lua_State *L)
+{
+    const char *msg = luaL_checkstring(L, 1);
+    lua_Debug ar;
+    lua_pushliteral(L, "");      /* no app frame left (a tail call from it): no position */
+    for (int i = 1; lua_getstack(L, i, &ar); i++) {
+        lua_getinfo(L, "S", &ar);
+        if (*ar.what == 'C') continue;
+        if (ar.source[0] == '=' && builtin_lua(ar.source + 1, NULL)) continue;
+        lua_pop(L, 1);
+        luaL_where(L, i);
+        break;
+    }
+    lua_pushstring(L, msg);
+    lua_concat(L, 2);
+    return lua_error(L);
 }
 
 static const luaL_Reg sys_funcs[] = {
     { "millis", sys_millis }, { "delay", sys_delay }, { "rate", sys_rate },
     { "heap", sys_heap }, { "battery", sys_battery }, { "port_power", sys_port_power }, { "info", sys_info },
-    { "exit", sys_exit }, { "off", sys_off }, { "keep_on", sys_keep_on }, { "time", sys_time }, { "date", sys_date }, { "timezone", sys_timezone },
+    { "exit", sys_exit }, { "off", sys_off }, { "_error", sys_error }, { "keep_on", sys_keep_on }, { "time", sys_time }, { "date", sys_date }, { "timezone", sys_timezone },
     { NULL, NULL },
 };
 

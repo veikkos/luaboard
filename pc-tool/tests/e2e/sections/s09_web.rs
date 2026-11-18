@@ -33,6 +33,45 @@ task(function()
 end)
 "#;
 
+const REDIR_LUA: &str = r#"local http = require("http")
+R = {}
+local W = "http://127.0.0.1:$WP"
+local function redir(to, code) return "/redir?to=" .. http.urlencode(to) .. (code and "&code=" .. code or "") end
+local function get(url, h, o) local st, b = http.get(url, h, o) return tostring(st) .. " " .. tostring(b) end
+task(function()
+  R.follow = get(W .. redir(redir("/chunked")))
+  R.abs = get(W .. redir(W .. "/chunked", 301))
+  R.off = get(W .. redir("/chunked"), nil, { redirects = 0 })
+  R.loop = get(W .. redir(redir(redir("/chunked"))), nil, { redirects = 1 })
+  R.post303 = select(2, http.post(W .. redir("/echo", 303), "data"))
+  R.post307 = select(2, http.post(W .. redir("/echo", 307), "data"))
+  R.auth = select(2, http.get(W .. redir("/echo"), { Authorization = "Bearer x" })) .. "|" ..
+    select(2, http.get(W .. redir("http://localhost:$WP/echo"), { Authorization = "Bearer x" }))
+  R.done = true
+end)
+function loop() end
+"#;
+
+/// Out of TLS sockets: http lets go of the connection it keeps, and says so
+/// with nil, err when it keeps none.
+const SOCKS_LUA: &str = r#"local http = require("http")
+R = {}
+local function both(a, b) return tostring(a) .. " " .. tostring(b) end
+task(function()
+  local held = {}
+  for i = 1, 3 do held[i] = assert(net.connect("127.0.0.1", $TP, { ca = CA })) end
+  for i = 1, 3 do assert(held[i]:wait_connected()) end
+  R.kept = select(2, http.get("https://127.0.0.1:$TP/chunked", nil, { ca = CA }))
+  R.other = select(2, http.get("https://127.0.0.1:$T2/chunked", nil, { ca = CA }))
+  R.raw = both(net.connect("127.0.0.1", $TP, { ca = CA }))
+  http.close_idle()
+  held[4] = assert(net.connect("127.0.0.1", $TP, { ca = CA }))
+  R.full = both(http.get("https://127.0.0.1:$T2/chunked", nil, { ca = CA }))
+  R.done = true
+end)
+function loop() end
+"#;
+
 /// A server that answers each connection with the next of `replies`, raw,
 /// and leaves it open.
 fn raw_server(replies: &'static [&'static str]) -> u16 {
@@ -151,5 +190,44 @@ pub fn run(t: &mut T) {
     t.e(&["secrets", "rm", &wapp, "apikey"]);
     let ok = t.eval(r#"secrets.get("apikey")"#) == "nil";
     t.check(ok, "secret deleted", |_| "secret rm".into());
+
+    t.say("== http: redirects, out of sockets");
+    t.write("redir.lua", REDIR_LUA.replace("$WP", &web.port.to_string()));
+    t.e(&["put", &t.path("redir.lua"), "--run", "redir.lua"]);
+    t.wait_lua(10.0, "R.done");
+    let v = t.eval("R.follow, R.abs");
+    t.check(
+        v == "200 hello chunked world\t200 hello chunked world",
+        "redirects are followed, relative and absolute",
+        |_| format!("follow: {v}"),
+    );
+    let v = t.eval("R.off, R.loop");
+    t.check(
+        v == "302 \tnil too many redirects",
+        "redirects = 0 returns the 3xx; more than allowed is an error",
+        |_| format!("off/loop: {v}"),
+    );
+    let v = t.eval("R.post303, R.post307");
+    t.check(v == "GET - \tPOST - data", "a 303 goes on as a GET, a 307 keeps the POST and its body", |_| {
+        format!("post: {v}")
+    });
+    let v = t.eval("R.auth");
+    t.check(v == "GET Bearer x |GET - ", "Authorization goes along on the same server only", |_| format!("auth: {v}"));
+    let webtls2 = FakeOauth::start(Vec::new(), Some(cert.config.clone()));
+    let socks = SOCKS_LUA.replace("$TP", &webtls.port.to_string()).replace("$T2", &webtls2.port.to_string());
+    t.write("socks.lua", format!("CA = [[\n{}]]\n{socks}", cert.pem));
+    t.e(&["put", &t.path("socks.lua"), "--run", "socks.lua"]);
+    t.wait_lua(10.0, "R.done");
+    let v = t.eval("R.kept, R.other");
+    t.check(
+        v == "hello chunked world\thello chunked world",
+        "out of TLS sockets, http lets go of the one it kept",
+        |t| format!("socks: {v} {}", t.eval("R.raw")),
+    );
+    let v = t.eval("R.raw, R.full");
+    let want = "nil too many TLS connections (max 4)";
+    t.check(v == format!("{want}\t{want}"), "out of sockets is nil, err from net.connect and http", |_| {
+        format!("full: {v}")
+    });
     t.crash();
 }

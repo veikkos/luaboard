@@ -47,6 +47,9 @@ static uint32_t s_started;       /* when the current script started (ms) */
 static bool s_noticed;           /* "nothing drawn" check done for this run */
 static bool s_returned_table;    /* the main chunk returned a table (a module?) */
 static bool s_exit_requested;    /* sys.exit() was called */
+static bool s_halted;            /* sys.exit()/sys.off(): nothing more of the app runs */
+static bool s_leaving;           /* ... and the Lua call is being unwound */
+static bool s_call_left;         /* the last pcall_wd ended by sys.exit()/sys.off() */
 static char s_default_app[VFS_APP_NAME_MAX]; /* "RUN file.lua" means this app's file */
 
 #define NOTHING_DRAWN_MS 1500    /* running this long without drawing: say so */
@@ -84,6 +87,7 @@ void script_heap_stats(size_t *used, size_t *peak, size_t *limit)
 #define WD_HOOK_COUNT 1000
 static void wd_hook(lua_State *Ls, lua_Debug *ar);
 #define WD_MSG "watchdog: call exceeded %d ms (use loop()/timers instead of busy loops)"
+#define LEAVE_MSG "(leaving the app)"
 
 /* Set once the current call is over time, until pcall_wd returns. The error
    is an ordinary Lua error, so pcall/xpcall in the app can catch it; from
@@ -109,6 +113,11 @@ static void wd_hook(lua_State *Ls, lua_Debug *ar)
 {
     (void)ar;
     if (s_tripped) wd_trip(Ls);
+    if (s_leaving) {                             /* as a tripped watchdog: again and again */
+        lua_sethook(Ls, wd_hook, LUA_MASKCOUNT, 1);
+        lua_pushliteral(Ls, LEAVE_MSG);
+        lua_error(Ls);
+    }
     /* A coroutine left on every-instruction from an earlier call. */
     if (lua_gethookcount(Ls) != WD_HOOK_COUNT) lua_sethook(Ls, wd_hook, LUA_MASKCOUNT, WD_HOOK_COUNT);
     buttons_sample();
@@ -120,7 +129,7 @@ static void wd_hook(lua_State *Ls, lua_Debug *ar)
    from a hook, so a handler that loops would never be stopped. */
 static int wd_msgh(lua_State *Ls)
 {
-    if (s_tripped) return 1;                     /* the error as it is */
+    if (s_tripped || s_leaving) return 1;        /* the error as it is */
     lua_pushvalue(Ls, lua_upvalueindex(1));
     lua_insert(Ls, 1);
     lua_call(Ls, lua_gettop(Ls) - 1, 1);
@@ -153,7 +162,7 @@ static int l_xpcall(lua_State *Ls)
 
 static void wd_arm(void)
 {
-    s_tripped = false;
+    s_tripped = s_leaving = false;
     uint32_t now = hw_millis();
     s_deadline = now + LUA_WATCHDOG_MS;
     s_hard_deadline = now + LUA_WATCHDOG_HARD_MS;
@@ -186,12 +195,18 @@ static bool pcall_wd(int nargs, int nresults, char *err, size_t errlen)
 {
     wd_arm();
     int rc = lua_pcall(L, nargs, nresults, 0);
-    bool tripped = s_tripped;
-    if (tripped) {
-        s_tripped = false;
+    bool tripped = s_tripped, left = s_leaving;
+    if (tripped || left) {
+        s_tripped = s_leaving = false;
         lua_sethook(L, wd_hook, LUA_MASKCOUNT, WD_HOOK_COUNT);
     }
+    s_call_left = rc != LUA_OK && left && !tripped;
     if (rc == LUA_OK) return true;
+    if (s_call_left) {                           /* sys.exit()/sys.off(): not an error */
+        lua_pop(L, 1);
+        if (err && errlen) err[0] = 0;
+        return false;
+    }
     const char *msg = lua_tostring(L, -1);
     /* A tripped call ends with the watchdog's error, whatever an app error
        handler made of it along the way. */
@@ -256,8 +271,11 @@ static int l_require(lua_State *Ls)
         return luaL_error(Ls, "module '%s' not found (no file '%s' in app '%s')", name, fname, app);
     }
 
+    /* "=http.lua" for a built-in library, "@http.lua" for the app's own
+       file: both read "http.lua:12:" in messages, and sys._error tells
+       them apart. */
     char chunk[VFS_MAX_NAME + 9];
-    snprintf(chunk, sizeof chunk, "@%s", fname);
+    snprintf(chunk, sizeof chunk, "%c%s", own ? '@' : '=', fname);
     int rc = luaL_loadbufferx(Ls, src, len, chunk, "t");
     free(own);
     if (rc != LUA_OK) {
@@ -430,8 +448,8 @@ static bool run_inner(const char *name, char *err, size_t errlen)
        otherwise it would keep running after its sockets, pins and links
        were let go. */
     s_running = false;
-    s_exit_requested = false;
     vm_close();                  /* the old app's finalizers must not see the new app */
+    s_exit_requested = s_halted = false;
     s_current[0] = 0;
 
     char path[VFS_MAX_NAME];
@@ -467,14 +485,18 @@ static bool run_inner(const char *name, char *err, size_t errlen)
         lua_pop(L, 1);
         return false;
     }
-    if (!pcall_wd(0, 1, err, errlen)) return false;
-    s_returned_table = lua_istable(L, -1);
-    lua_pop(L, 1);
-
-    /* Looking up a global can run a metamethod on _G, so even that is protected. */
-    lua_pushcfunction(L, call_setup);
-    if (!pcall_wd(0, 0, err, errlen)) return false;
-    if (gfx_dirty()) gfx_flush();
+    /* A sys.exit() or sys.off() in the top-level code or setup() leaves
+       from there: it has started, and the first tick stops it. */
+    if (pcall_wd(0, 1, err, errlen)) {
+        s_returned_table = lua_istable(L, -1);
+        lua_pop(L, 1);
+        /* Looking up a global can run a metamethod on _G, so even that is protected. */
+        lua_pushcfunction(L, call_setup);
+        if (!pcall_wd(0, 0, err, errlen) && !s_call_left) return false;
+        if (gfx_dirty()) gfx_flush();
+    } else if (!s_call_left) {
+        return false;
+    }
 
     s_last_tick = hw_millis();
     s_next_due = s_last_tick;
@@ -505,7 +527,14 @@ void script_stop(void)
     s_running = false;
 }
 
-void script_request_exit(void) { s_exit_requested = true; }
+int script_leave(lua_State *Ls, bool exit)
+{
+    if (exit) s_exit_requested = true;
+    s_halted = s_leaving = true;
+    lua_sethook(Ls, wd_hook, LUA_MASKCOUNT, 1);
+    lua_pushliteral(Ls, LEAVE_MSG);
+    return lua_error(Ls);
+}
 
 bool script_running(void) { return s_running; }
 const char *script_current(void) { return s_running ? s_current : ""; }
@@ -554,9 +583,19 @@ uint32_t script_next_due_ms(void)
     return left > 0 ? (uint32_t)left : 0;
 }
 
+/* After sys.exit(): back to the menu. After sys.off() the app waits,
+   running nothing, until power_poll() stops it and turns the device off. */
+static void halted(void)
+{
+    if (!s_exit_requested) return;
+    script_stop();
+    proto_eventf("stopped %s (exit)", s_current);
+}
+
 void script_tick(void)
 {
     if (!s_running || !L) return;
+    if (s_halted) { halted(); return; }
     uint32_t now = hw_millis();
     if ((int32_t)(now - s_next_due) < 0) return;
     s_next_due += s_period_ms;
@@ -577,13 +616,12 @@ void script_tick(void)
     if (ok) {
         bool alive = lua_toboolean(L, -1);
         lua_pop(L, 1);
-        if (s_exit_requested) {          /* sys.exit(): back to the menu */
-            script_stop();
-            proto_eventf("stopped %s (exit)", s_current);
-            return;
-        }
+        if (s_halted) { halted(); return; }      /* (left with nothing after the pcall that caught it) */
         check_nothing_drawn(alive, now);
         buttons_sample();        /* between Lua and the flush too */
+    } else if (s_call_left) {
+        halted();
+        return;
     } else {
         s_running = false;
         release_script_resources();
@@ -619,7 +657,7 @@ bool script_eval(const char *code, char *out, size_t outlen)
     }
     if (!pcall_wd(0, LUA_MULTRET, out, outlen)) {
         lua_settop(L, base);
-        return false;
+        return s_call_left;              /* sys.exit()/sys.off(): done, the next tick stops the app */
     }
     /* The results as text: __tostring can fail, so that's protected too. */
     int nres = lua_gettop(L) - base;

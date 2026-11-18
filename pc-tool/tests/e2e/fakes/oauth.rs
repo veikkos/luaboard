@@ -86,8 +86,26 @@ fn tokens(st: &mut State) -> String {
     json!({"access_token": a, "refresh_token": r, "expires_in": 3600, "token_type": "Bearer"}).to_string()
 }
 
+/// `/redir?to=URL&code=N`: a redirect (302 unless `code` says otherwise) to `to`.
+fn redirect(r: &Request) -> Response {
+    let q = r.query();
+    let code = q.get("code").and_then(|c| c.parse().ok()).unwrap_or(302);
+    Response::new(code, "text/plain", "").header("Location", q.get("to").map(String::as_str).unwrap_or("/"))
+}
+
+/// `/echo`: what came, as "METHOD authorization-or-- body".
+fn echo(r: &Request) -> Response {
+    let auth = r.header("Authorization").unwrap_or("-");
+    Response::new(200, "text/plain", format!("{} {} {}", r.method, auth, String::from_utf8_lossy(&r.body)))
+}
+
 fn handle(r: &Request, log: &Log, st: &mut State, cover: &[u8]) -> Response {
     let path = r.path();
+    match path {
+        "/redir" => return redirect(r),
+        "/echo" => return echo(r),
+        _ => {}
+    }
     match r.method.as_str() {
         "GET" => match path {
             "/authorize" => {

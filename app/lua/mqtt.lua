@@ -61,11 +61,20 @@ local function matches(filter, topic)
 end
 M.matches = matches
 
+local fail = sys._error   -- a wrong call: the error points at the app's line
+
+-- A flag option: true, false or left out.
+local function flag(opts, k, where)
+  local v = opts[k]
+  if v ~= nil and type(v) ~= 'boolean' then fail(where .. ': opts.' .. k .. ' must be true or false') end
+  return v
+end
+
 -- "mqtt://host[:port]", "mqtts://host[:port]" (TLS) or "host[:port]".
 local function parse_url(url, opts)
   local scheme, host, port = tostring(url):match('^(mqtts?)://([^:/]+):?(%d*)$')
   if not host then host, port = tostring(url):match('^([^:/]+):?(%d*)$') end
-  assert(host, 'bad broker address: ' .. tostring(url))
+  if not host then fail('bad broker address: ' .. tostring(url)) end
   local tls = scheme == 'mqtts' or opts.tls or opts.ca ~= nil
   return host, tonumber(port) or opts.port or (tls and 8883 or 1883), tls
 end
@@ -268,8 +277,8 @@ end
 function Client:publish(topic, payload, opts)
   opts = opts or {}
   local qos = opts.qos or 0
-  assert(qos == 0 or qos == 1, 'qos must be 0 or 1')
-  local msg = { topic = topic, payload = tostring(payload or ''), qos = qos, retain = opts.retain or false }
+  if qos ~= 0 and qos ~= 1 then fail('qos must be 0 or 1') end
+  local msg = { topic = topic, payload = tostring(payload or ''), qos = qos, retain = flag(opts, 'retain', 'publish') or false }
   if self.closing then return nil, 'closed' end
   if not self.connected or #self.queue > 0 then   -- keep order behind queued messages
     local ok, err = self:_enqueue(msg)
@@ -290,7 +299,7 @@ function Client:publish(topic, payload, opts)
 end
 
 function Client:subscribe(filter, fn, qos)
-  assert(type(fn) == 'function', 'subscribe needs a callback')
+  if type(fn) ~= 'function' then fail('subscribe needs a callback') end
   qos = qos or 0
   self.subs[#self.subs + 1] = { filter = filter, fn = fn, qos = qos }
   if not self.connected then return true, 'queued' end      -- sent on (re)connect
@@ -329,12 +338,15 @@ function Client:queued() return #self.queue end
 --       reconnect (default true), queue (max queued messages, default 100; 0 = off),
 --       max_size (biggest packet taken from the broker, default 64 KiB)
 function M.connect(url, opts)
-  assert(in_task(), 'mqtt.connect() must be called inside task()')
+  if not in_task() then fail('mqtt.connect() must be called inside task()') end
   opts = opts or {}
+  for _, k in ipairs({ 'tls', 'clean', 'reconnect' }) do flag(opts, k, 'mqtt.connect') end
   local host, port, tls = parse_url(url, opts)
+  -- The default id is the board's own, so two boards running the same app
+  -- don't push each other off the broker.
   local c = setmetatable({
     host = host, port = port, tls = tls, opts = opts,
-    client_id = opts.client_id or ('luaboard-' .. sys.millis()),
+    client_id = opts.client_id or ('luaboard-' .. sys.info().id),
     keepalive = opts.keepalive or 60,
     max_queue = opts.queue or 100,
     max_size = opts.max_size or 64 * 1024,

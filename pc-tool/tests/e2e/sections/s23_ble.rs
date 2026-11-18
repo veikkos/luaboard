@@ -169,6 +169,28 @@ function loop() end
     });
     t.stop();
 
+    t.say("== ble: a subscription keeps its connection");
+    t.boot_with(&["--ble-device", &dev]);
+    t.write(
+        "keep.lua",
+        lua(r#"task(function()
+  local c = assert(ble.connect("$ADDR"))
+  assert(c:wait_connected())
+  assert(c:subscribe("180f", "2a19", function(d) bat = d:byte() end))
+  subscribed = true
+end)
+"#),
+    );
+    t.e(&["put", &t.path("keep.lua"), "--app", "bt3", "--run", "keep.lua"]);
+    t.until_sim(3.0, |t| t.eval("subscribed") == "true");
+    t.eval("collectgarbage() collectgarbage()"); // nothing of the app's holds the connection now
+    t.ctl(&["advance=100", "ble_value=test:2a19:37"]);
+    let ok = t.until_sim(1.0, |t| t.eval("bat") == "55") && t.info("running") == "bt3/keep.lua";
+    t.check(ok, "notifications keep coming after the task that subscribed has ended", |t| {
+        format!("bat {}, running {}", t.eval("bat"), t.info("running"))
+    });
+    t.stop();
+
     t.say("== simulated devices: bad descriptions are refused");
     let bad_json = t.write("bad.json", r#"{ "name": "x", "characteristics": [] }"#);
     let out = Command::new(&t.sim_bin)

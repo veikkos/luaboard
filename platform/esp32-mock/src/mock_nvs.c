@@ -11,6 +11,8 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_mac.h"
+#include "esp_random.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "sim_hw.h"
@@ -38,6 +40,27 @@ static pthread_mutex_t s_lock = PTHREAD_MUTEX_INITIALIZER;
 void sim_nvs_set_path(const char *path)
 {
     snprintf(s_path, sizeof s_path, "%s", path);
+}
+
+/* The chip's MAC address, in a file of its own next to the NVS file. */
+esp_err_t esp_efuse_mac_get_default(uint8_t *mac)
+{
+    char path[sizeof s_path + 8];
+    snprintf(path, sizeof path, "%s.mac", s_path);
+    FILE *f = fopen(path, "rb");
+    if (f) {
+        size_t n = fread(mac, 1, 6, f);
+        fclose(f);
+        if (n == 6) return ESP_OK;
+    }
+    esp_fill_random(mac, 6);
+    mac[0] = (uint8_t)(mac[0] & 0xFC);           /* a unicast address, as Espressif's are */
+    f = fopen(path, "wb");
+    if (f) {
+        fwrite(mac, 1, 6, f);
+        fclose(f);
+    }
+    return ESP_OK;
 }
 
 static entry_t *find(const char *ns, const char *key)
