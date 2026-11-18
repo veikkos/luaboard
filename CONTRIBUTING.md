@@ -54,18 +54,18 @@ To change an app there:
 cd marketplace
 git switch main && git pull --rebase    # the pin is a detached commit
 # edit, bump "version" in the app's app.json, commit
-git push && cd .. && git add marketplace && git commit -m "Marketplace: <what changed>"
+git push
+# wait for the marketplace's Index action to finish, then
+git pull --rebase && cd .. && git add marketplace && git commit -m "Marketplace: <what changed>"
 ```
 
-Pin only a commit that is on the marketplace's GitHub: the `&&` stops at a
-refused push, which would leave this repository pointing at a commit nobody
-else can fetch. After every push, the marketplace's Action adds a commit
-with the new `index.json`, so a push made before pulling it is refused:
-pull (`git pull --rebase` in `marketplace/`) and push again. Boards see a
-change once it's on the marketplace's `main`, whatever this repository
-pins. The pin only decides what the tests here run, which don't read the
-marketplace's `index.json`, so the pin doesn't have to wait for the
-Action's commit.
+After every push to the marketplace's `main`, its Index action builds
+`index.json` and commits it as "Index for <commit>". That commit is what
+boards read, so pin it: wait for the action to finish (on GitHub, or
+`gh run watch`), pull it, and only then commit the pin. If the index didn't
+change, the action commits nothing and the pushed commit is the one to pin.
+Never pin a commit that isn't on the marketplace's GitHub. A push made
+before pulling the last index commit is refused: pull and push again.
 
 ## How the code is laid out
 
