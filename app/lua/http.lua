@@ -11,7 +11,9 @@
 -- request() returns status, body, headers (lowercase names), or nil, err when
 -- the request could not be made. Call it inside task(). https:// uses TLS with
 -- certificate checks (opts.ca = PEM to trust your own CA). Redirects are
--- followed (opts.redirects, default 5; 0 returns the 3xx). Connections are
+-- followed (opts.redirects, default 5; 0 returns the 3xx), without the
+-- credentials when to another server (Authorization, Cookie and the names in
+-- opts.private_headers, such as an API key's own header). Connections are
 -- kept open and reused per host, so polling an API doesn't pay for a new TLS
 -- handshake every time; when the device is out of sockets, the one kept
 -- longest is let go of. Bodies: Content-Length, chunked, or until close.
@@ -239,6 +241,14 @@ function M.request(opts)
   local headers = {}
   for k, v in pairs(opts.headers or {}) do headers[k] = v end
   local redirects = opts.redirects or DEFAULT_REDIRECTS
+  local private = {}
+  for k in pairs(PRIVATE) do private[k] = true end
+  local extra = opts.private_headers
+  if extra ~= nil and type(extra) ~= 'table' then fail('http.request: private_headers must be a list of header names') end
+  for _, name in ipairs(extra or {}) do
+    if type(name) ~= 'string' then fail('http.request: private_headers must be a list of header names') end
+    private[name:lower()] = true
+  end
 
   while true do
     local status, rbody, rheaders = request1(opts, method, url, headers, body, deadline, max)
@@ -259,7 +269,7 @@ function M.request(opts)
     -- To another server: without the user's credentials.
     local function origin(u) local sc, hp = u:match('^(%a+)://([^/?#]+)') return sc:lower() .. '://' .. hp:lower() end
     if origin(next_url) ~= origin(url) then
-      for k in pairs(headers) do if PRIVATE[k:lower()] then headers[k] = nil end end
+      for k in pairs(headers) do if private[k:lower()] then headers[k] = nil end end
     end
     -- 303, and 301/302 after a POST (as browsers do), go on as a GET without the body.
     if status == 303 or ((status == 301 or status == 302) and method == 'POST') then

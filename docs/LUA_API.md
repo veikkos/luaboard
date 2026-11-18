@@ -698,7 +698,7 @@ end)
 
 | Function | Description |
 |---|---|
-| `http.request{ method, url, headers, body, timeout, max_size, ca, redirects }` -> `status, body, headers` | `nil, err` if the request couldn't be made. `method` defaults to `GET`. A string argument is taken as `url`. `https://` uses TLS (`ca` as in `net.connect`). Header names in the result are lowercase. Repeated headers are joined with `", "`. `timeout` in ms, default 15000 (the whole request, redirects included). Maximum body 256 KB. `redirects`: how many to follow, default 5 (below). |
+| `http.request{ method, url, headers, body, timeout, max_size, ca, redirects, private_headers }` -> `status, body, headers` | `nil, err` if the request couldn't be made. `method` defaults to `GET`. A string argument is taken as `url`. `https://` uses TLS (`ca` as in `net.connect`). Header names in the result are lowercase. Repeated headers are joined with `", "`. `timeout` in ms, default 15000 (the whole request, redirects included). Maximum body 256 KB. `redirects`: how many to follow, default 5 (below). |
 | `http.get(url, [headers], [opts])`, `http.post(url, body, [headers], [opts])` | Shortcuts. `opts` takes the other `request` fields. |
 | `http.form(t)` / `http.parse_query(q)` | `{ a = 1 }` <-> `"a=1"` (URL-encoded, and `form` sorts the keys). |
 | `http.urlencode(s)`, `http.urldecode(s)` | |
@@ -712,7 +712,9 @@ out of sockets, the connection kept longest is closed to make room.
 Redirects (301, 302, 303, 307, 308 with a `Location`) are followed, and
 the result is the last response's. A 303, and a 301 or 302 after a
 `POST`, goes on as a `GET` without the body, as browsers do. A redirect to
-another server goes without the `Authorization` and `Cookie` headers.
+another server goes without the `Authorization` and `Cookie` headers, and
+without those named in `private_headers` (a list, such as `{ "X-Api-Key" }`
+for a service that takes its key in a header of its own).
 More redirects than `redirects` is `nil, "too many redirects"`, and
 `redirects = 0` returns the 3xx response itself.
 

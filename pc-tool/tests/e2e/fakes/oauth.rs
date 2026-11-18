@@ -93,10 +93,12 @@ fn redirect(r: &Request) -> Response {
     Response::new(code, "text/plain", "").header("Location", q.get("to").map(String::as_str).unwrap_or("/"))
 }
 
-/// `/echo`: what came, as "METHOD authorization-or-- body".
+/// `/echo`: what came, as "METHOD authorization-or-- body", and
+/// " key=<X-Api-Key>" when that header came.
 fn echo(r: &Request) -> Response {
     let auth = r.header("Authorization").unwrap_or("-");
-    Response::new(200, "text/plain", format!("{} {} {}", r.method, auth, String::from_utf8_lossy(&r.body)))
+    let key = r.header("X-Api-Key").map(|k| format!(" key={k}")).unwrap_or_default();
+    Response::new(200, "text/plain", format!("{} {} {}{key}", r.method, auth, String::from_utf8_lossy(&r.body)))
 }
 
 fn handle(r: &Request, log: &Log, st: &mut State, cover: &[u8]) -> Response {

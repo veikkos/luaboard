@@ -47,6 +47,11 @@ task(function()
   R.post307 = select(2, http.post(W .. redir("/echo", 307), "data"))
   R.auth = select(2, http.get(W .. redir("/echo"), { Authorization = "Bearer x" })) .. "|" ..
     select(2, http.get(W .. redir("http://localhost:$WP/echo"), { Authorization = "Bearer x" }))
+  local key = { ["X-Api-Key"] = "k1" }
+  R.key = select(2, http.get(W .. redir("/echo"), key, { private_headers = { "x-api-key" } })) .. "|" ..
+    select(2, http.get(W .. redir("http://localhost:$WP/echo"), key, { private_headers = { "X-API-KEY" } })) .. "|" ..
+    select(2, http.get(W .. redir("http://localhost:$WP/echo"), key))
+  R.badkey = select(2, pcall(http.get, W .. "/echo", key, { private_headers = "X-Api-Key" }))
   R.done = true
 end)
 function loop() end
@@ -213,6 +218,16 @@ pub fn run(t: &mut T) {
     });
     let v = t.eval("R.auth");
     t.check(v == "GET Bearer x |GET - ", "Authorization goes along on the same server only", |_| format!("auth: {v}"));
+    let v = t.eval("R.key");
+    t.check(v == "GET -  key=k1|GET - |GET -  key=k1", "... and so do the headers in private_headers", |_| {
+        format!("key: {v}")
+    });
+    let v = t.eval("R.badkey");
+    t.check(
+        v.contains("redir.lua:") && v.contains("private_headers must be a list"),
+        "private_headers is a list",
+        |_| format!("bad private_headers: {v}"),
+    );
     let webtls2 = FakeOauth::start(Vec::new(), Some(cert.config.clone()));
     let socks = SOCKS_LUA.replace("$TP", &webtls.port.to_string()).replace("$T2", &webtls2.port.to_string());
     t.write("socks.lua", format!("CA = [[\n{}]]\n{socks}", cert.pem));
