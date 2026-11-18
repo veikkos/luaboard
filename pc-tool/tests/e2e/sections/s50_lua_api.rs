@@ -1,6 +1,7 @@
 //! The Lua API's own rules: wrong calls point at the app's line, flags are
 //! booleans, sys.exit() leaves at once, an app's coroutine can wait inside
-//! a task, and the board has an id of its own.
+//! a task, the board has an id of its own, a stream reader keeps its
+//! timeout and a line's limit, and math.random is seeded per VM.
 
 use crate::harness::{grep, T};
 
@@ -71,6 +72,7 @@ pub fn run(t: &mut T) {
     let v = t.eval("disp.keep_awake(true), disp.keep_awake(false), disp.rect(0, 0, 2, 2, 1, true)");
     t.check(v == "true\tfalse", "true and false still work", |_| format!("flags: {v}"));
 
+    let rnd = t.eval("math.random(0)");
     let id = t.eval("sys.info().id");
     t.check(grep("^[0-9a-f]{12}$", &id), "sys.info().id: 12 hex digits", |_| format!("id: {id}"));
 
@@ -83,6 +85,26 @@ pub fn run(t: &mut T) {
     });
     let v = t.eval("OUTSIDE()");
     t.check(v.contains("sleep() only works inside task()"), "... but not outside one", |_| format!("outside: {v}"));
+
+    // A reader over a socket that always has data (one byte at a time, 2 ms
+    // apart) still times out; a line with no end is an error, not the heap.
+    t.eval(
+        r#"R2 = nil task(function()
+  local s = net.connect("127.0.0.1", 1)
+  local reader = s.reader
+  s:close()
+  local ok, err = reader({ recv = function() sys.delay(2) return "x" end }):read(100000, 20)
+  local l, lerr = reader({ recv = function() return ("y"):rep(4096) end }):line(nil, 1000)
+  R2 = tostring(ok) .. " " .. tostring(err) .. " / " .. tostring(l) .. " " .. tostring(lerr)
+end)"#,
+    );
+    let ok = t.wait_lua(2.0, "R2 ~= nil");
+    let v = t.eval("R2");
+    t.check(
+        ok && v == "nil timeout / nil line too long (max 1000 bytes)",
+        "a reader keeps its timeout and line limit",
+        |_| format!("reader: {v}"),
+    );
 
     // sys.exit() in the top-level code: nothing after it runs, not even setup().
     t.write(
@@ -112,4 +134,6 @@ pub fn run(t: &mut T) {
     t.boot();
     let again = t.eval("sys.info().id");
     t.check(again == id, "the id is the same after a restart", |_| format!("id {id}, then {again}"));
+    let rnd2 = t.eval("math.random(0)");
+    t.check(rnd != rnd2, "math.random draws other numbers after a restart", |_| format!("{rnd}, then {rnd2}"));
 }

@@ -4,7 +4,8 @@
 //! (forwarded to subscribers as QoS 0), retained messages, PINGREQ,
 //! DISCONNECT and the last will: if a client goes away without DISCONNECT,
 //! its will is published and logged as "WILL <client-id> <topic> <payload>".
-//! Also logged: CONNECT, AUTHFAIL, SUB and CLOSE <client-id>.
+//! Also logged: CONNECT, AUTHFAIL, SUB, UNSUB and CLOSE <client-id>. A
+//! subscription to a filter under "denied/" is refused (SUBACK 0x80).
 //! While silent, it reads and answers nothing: TCP stays open, as with a
 //! broker that hangs.
 
@@ -25,6 +26,8 @@ const PUBLISH: u8 = 3;
 const PUBACK: u8 = 4;
 const SUBSCRIBE: u8 = 8;
 const SUBACK: u8 = 9;
+const UNSUBSCRIBE: u8 = 10;
+const UNSUBACK: u8 = 11;
 const PINGREQ: u8 = 12;
 const PINGRESP: u8 = 13;
 const DISCONNECT: u8 = 14;
@@ -364,6 +367,11 @@ impl Client {
                             let qos = *body.get(pos).unwrap_or(&0);
                             pos += 1;
                             let filter = text(&f);
+                            if filter.starts_with("denied/") {
+                                self.log.line(format!("SUBREFUSED {name} {filter}"));
+                                granted.push(0x80);
+                                continue;
+                            }
                             self.log.line(format!("SUB {name} {filter}"));
                             st.subs.push(Sub { client: self.id, filter, out: tx.clone() });
                             granted.push(qos.min(1));
@@ -380,6 +388,17 @@ impl Client {
                         }
                         drop(st);
                         conn.send(&out)?;
+                    }
+                    UNSUBSCRIBE => {
+                        let mut pos = 2;
+                        let mut st = self.state.lock().unwrap();
+                        while let Some(f) = take_str(&body, &mut pos) {
+                            let filter = text(&f);
+                            self.log.line(format!("UNSUB {name} {filter}"));
+                            st.subs.retain(|s| s.client != self.id || s.filter != filter);
+                        }
+                        drop(st);
+                        conn.send(&packet(UNSUBACK << 4, body.get(..2).unwrap_or(&[0, 0])))?;
                     }
                     PINGREQ => conn.send(&packet(PINGRESP << 4, &[]))?,
                     DISCONNECT => return Ok(true),

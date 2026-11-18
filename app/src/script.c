@@ -7,6 +7,7 @@
 #include "app_config.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_random.h"
 #include "gfx.h"
 #include "hw.h"
 #include "lauxlib.h"
@@ -373,6 +374,14 @@ static bool vm_create(char *err, size_t errlen)
     open_lib(LUA_TABLIBNAME, luaopen_table);
     open_lib(LUA_STRLIBNAME, luaopen_string);
     open_lib(LUA_MATHLIBNAME, luaopen_math);
+    /* Lua seeds math.random from time() and an address: two boards that
+     * start without the time would draw the same numbers. */
+    lua_getglobal(L, LUA_MATHLIBNAME);
+    lua_getfield(L, -1, "randomseed");
+    lua_pushinteger(L, (lua_Integer)(((uint64_t)esp_random() << 32) | esp_random()));
+    lua_pushinteger(L, (lua_Integer)(((uint64_t)esp_random() << 32) | esp_random()));
+    lua_call(L, 2, 0);
+    lua_pop(L, 1);
     open_lib(LUA_UTF8LIBNAME, luaopen_utf8);
     open_lib(LUA_COLIBNAME, luaopen_coroutine);
     lua_pushnil(L); lua_setglobal(L, "dofile");   /* would touch the host FS */

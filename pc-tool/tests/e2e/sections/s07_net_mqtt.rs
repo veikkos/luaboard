@@ -29,6 +29,17 @@ task(function()
   assert(c:subscribe("dev1/cmd/#", function(topic, msg) c:publish("dev1/echo", topic .. "=" .. msg) end))
   for i = 1, 3 do assert(c:publish("dev1/temp", tostring(20 + i), {{ qos = 1 }})) end
   R.published = true
+  -- on_connect in the options is called for the first connection too;
+  -- keepalive = 0 is off (no pings, no timeout).
+  local first
+  local d = assert(mqtt.connect("mqtt://127.0.0.1:{bp}", {{ client_id = "dev2", username = "u", password = "p",
+    keepalive = 0, on_connect = function(cl) first = cl end, on_close = function() R.lost = true end }}))
+  R.first = first == d
+  R.refused = tostring(select(2, d:subscribe("denied/x", print)))
+  R.qos2 = select(2, pcall(d.subscribe, d, "a/b", print, 2))
+  assert(d:subscribe("dev2/in", print))
+  R.unsub = d:unsubscribe("dev2/in")
+  R.dev2 = true
 end)
 local srv = assert(net.listen({lp}))
 task(function()
@@ -58,6 +69,22 @@ end)
     }
     let ok = t.until(3.0, |_| log.has("PUB dev1 dev1/echo dev1/cmd/led=on"));
     t.check(ok, "MQTT subscribe: message in, reply out", |_| format!("subscribe: {}", log.text()));
+    t.wait_lua(5.0, "R.dev2");
+    let v = t.eval("R.first, R.refused, R.unsub");
+    t.check(
+        v == "true\trefused by the broker\ttrue",
+        "MQTT on_connect(c) for the first connection; a refused subscription is an error",
+        |_| format!("dev2: {v}"),
+    );
+    let ok = log.has("SUBREFUSED dev2 denied/x") && log.has("UNSUB dev2 dev2/in");
+    t.check(ok, "MQTT unsubscribe", |_| format!("unsubscribe: {}", log.text()));
+    let v = t.eval("R.qos2");
+    t.check(v.contains("mq.lua:") && v.contains("qos must be 0 or 1"), "MQTT subscribe with qos 2 is an error", |_| {
+        format!("qos 2: {v}")
+    });
+    t.advance(1500);
+    let v = t.eval("R.lost");
+    t.check(v == "nil", "MQTT keepalive = 0 keeps the connection", |_| format!("lost: {v}; {}", log.text()));
     let ok = tcp_read(lp) == "hello from luaboard";
     t.check(ok, "net.listen: inbound TCP", |_| "net.listen".into());
     t.e(&["run", "mq.lua"]); // restart: old sockets must be closed

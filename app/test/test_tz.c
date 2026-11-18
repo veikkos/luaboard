@@ -128,7 +128,19 @@ void test_tz(int *total, int *failed)
     CHECK(!parse_time("2026-11-15T10:30:00+2:00", &fi, &t));
     CHECK(!parse_time("2026-1-15", &fi, &t));
     CHECK(!parse_time("Sun, 15 Foo 2026 10:30:00 GMT", &fi, &t));
-    CHECK(!parse_time("Sun, 15 Nov 2026 10:30:00 EST", &fi, &t));
+    CHECK(parse_time("Sun, 15 Nov 2026 05:30:00 EST", &fi, &t) && t == 1794738600);
+    CHECK(parse_time("Sun, 15 Nov 2026 03:30:00 pdt", &fi, &t) && t == 1794738600);
+    CHECK(parse_time("Sun, 15 Nov 2026 10:30:00 UT", &fi, &t) && t == 1794738600);
+    CHECK(parse_time("SUN, 15 NOV 2026 10:30:00 Z", &fi, &t) && t == 1794738600);
+    CHECK(parse_time("Sunday,15  November 26 10:30 GMT", &fi, &t) && t == 1794738600);
+    CHECK(parse_time("15 Nov 99 10:30 GMT", &fi, &t) && t == 942661800);         /* 50..99 is 19xx */
+    CHECK(parse_time("15 Nov 2026 12:30", &fi, &t) && t == 1794738600);           /* no zone: in the zone */
+    CHECK(!parse_time("Sun, 15 Nov 2026 10:30:00 XYZ", &fi, &t));
+    CHECK(!parse_time("Sun, 15 No 2026 10:30:00 GMT", &fi, &t));
+    CHECK(parse_time("Sun 15 Nov 2026 10:30:00 GMT", &fi, &t) && t == 1794738600);
+    CHECK(!parse_time("Sun15 Nov 2026 10:30:00 GMT", &fi, &t));
+    CHECK(!parse_time("15 Nov 2026 10:30:00 GMT ", &fi, &t));
+    CHECK(parse_time("15 Nov 2026 12:30:00 +02", &fi, &t) && t == 1794738600);
     CHECK(tz_parse_time("2026-11-15T10:30:00Z", 10, &fi, &t) && t == 1794700800 - 7200);   /* len counts */
 
     *total += check_total;

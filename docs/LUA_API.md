@@ -8,7 +8,8 @@ of the standard library (`string`, `table`, `math`, `utf8`, `coroutine`, base
 functions, but no `io`, `os`, `debug`, `package`, `dofile`, `loadfile`), the
 firmware exposes the modules below. `load` takes Lua source only: precompiled
 bytecode is refused (unchecked bytecode can break out of the VM), and
-`string.dump` is gone. Names starting with `_` (`net._join`, `touch._event`)
+`string.dump` is gone. `math.random` is seeded from the hardware random
+number generator each time an app starts. Names starting with `_` (`net._join`, `touch._event`)
 are the firmware's own, not part of the API: they can change in any release.
 
 ## API version
@@ -536,7 +537,7 @@ loop period (33 ms at the default 30 Hz).
 | `sys.keep_on([on])` -> `on` | While on, the device's Turn off after setting doesn't turn the device off, for an app that works in the dark (a running countdown, a logger). Off again when the script ends. Without an argument, returns the current state. |
 | `sys.off([seconds])` | Turn the device off: the app is stopped at once, as by `sys.exit()` (what it keeps in `store` is written), and the board powers down. With `seconds` (10 to 27 days' worth) the device also turns itself on in time for the app to be running by then. It comes early, never late, by up to a minute or two for waits over 255 s, so the app waits out the rest itself. A wait over 255 minutes needs the time to be known (`sys.time()`). A time it can't honor is an error. See below. |
 | `sys.time()` -> `seconds` or `nil` | The time: UTC seconds since 1970, or `nil` while the time isn't known. At boot the time comes from the board's RTC chip if it kept it (it runs while the board has power: a reset or a crash, or with a battery also while off), otherwise from the network (NTP) a second or two after joining Wi-Fi. |
-| `sys.time(text, [zone])` -> `seconds` or `nil, err` | A date and time as web APIs send them, in seconds: `"2026-11-15T10:30:00Z"`, `"2026-11-15T12:30:00.250+02:00"`, `"2026-11-15 12:30"`, `"2026-11-15"` (midnight), `"Sun, 15 Nov 2026 10:30:00 GMT"`. Without an offset it's a time in `zone`. Fractions of a second are dropped. |
+| `sys.time(text, [zone])` -> `seconds` or `nil, err` | A date and time as web APIs send them, in seconds: `"2026-11-15T10:30:00Z"`, `"2026-11-15T12:30:00.250+02:00"`, `"2026-11-15 12:30"`, `"2026-11-15"` (midnight), `"Sun, 15 Nov 2026 10:30:00 GMT"`. The last form is also read as RSS feeds write it: any case, the month's name in full, a two-digit year (`00`..`49` is 20xx), a zone as a name (`UT`, `EST`, `PDT`...) or a number (`+0200`). Without an offset it's a time in `zone`. Fractions of a second are dropped. |
 | `sys.time(fields, [zone])` -> `seconds` | The other way from `sys.date`: `{year, month, day, [hour], [min], [sec]}` in `zone`, the times left out 0. A field out of range carries over, as in `os.time` (`month = 13` is January, `day = 0` the last of the month before). A time skipped when the clocks go forward counts as before the change (02:30 is 03:30), one repeated when they go back is the first. |
 | `sys.date([t], [zone])` -> `table` or `nil` | `t` (default: now, but `nil` if the time isn't known yet) in `zone`: `{year, month, day, hour, min, sec, wday, yday, isdst, offset, zone}`. `wday` 1 = Sunday (like `os.date`), `offset` = seconds east of UTC, `zone` e.g. `"EET"`/`"EEST"`. |
 | `sys.timezone()` -> `string` | The device's time zone as a POSIX TZ string, e.g. `"EET-2EEST,M3.5.0/3,M10.5.0/4"` (Finland, the default). Set with `luaboard tz`. |
@@ -604,7 +605,7 @@ network in the simulator). The waiting helpers need a `task`.
 | `s:send(data)` -> `n` | Bytes accepted right now (may be fewer or 0, and 0 while connecting). `nil, "closed"` (or a TLS error) at the end. |
 | `s:recv([max])` -> `data` | What has arrived, up to `max` bytes (default 1024, at most 16384): `""` if nothing yet, `nil, "closed"` at the end. |
 | `s:write_all(data)` -> `true` or `nil, err` | Send everything (waits inside a task, but outside one it gives up after about 50 ms with a full buffer). |
-| `s:reader()` -> `r` | Buffered reading, inside a task: `r:read(n, [timeout_ms])` (exactly n bytes), `r:line([timeout_ms])` (without the `\n` or `\r\n`), `r:chunk([timeout_ms])` (whatever has arrived). `nil, "closed"` at the end, `nil, "timeout"`. |
+| `s:reader()` -> `r` | Buffered reading, inside a task: `r:read(n, [timeout_ms])` (exactly n bytes), `r:line([timeout_ms], [max])` (without the `\n` or `\r\n`; a longer line than `max` bytes, default 16 KiB, is `nil, "line too long ..."`), `r:chunk([timeout_ms])` (whatever has arrived). `nil, "closed"` at the end, `nil, "timeout"` once `timeout_ms` has passed since the call, even while data keeps trickling in. |
 | `s:status()` | `"connecting"`, `"connected"`, `"listening"` or `"closed"` (+ error). |
 | `s:peer()`, `s:close()` | `"host:port"`. Close (also done when the socket is garbage-collected or the script ends). |
 
@@ -638,12 +639,13 @@ own `mqtt.lua` to replace it.
 |---|---|
 | `mqtt.connect(url, [opts])` -> `client` or `nil, err` | `url` is `mqtt://host[:port]`, `mqtts://host[:port]` (TLS) or `host[:port]` (default port 1883, 8883 with TLS, or `opts.port`). Inside a task. Options below. |
 | `c:publish(topic, payload, [opts])` -> `true` / `true, "queued"` / `nil, err` | `opts.qos` 0 (default) or 1, `opts.retain`. While disconnected the message is queued. QoS 1 waits for the broker's confirmation inside a task (`opts.timeout`, default 5000 ms). |
-| `c:subscribe(filter, fn, [qos])` -> `true` / `true, "queued"` / `nil, "timeout"` | `fn(topic, message)` for matching messages (`+` and `#` wildcards). Kept across reconnects. Inside a task it waits up to 5 s for the broker's confirmation. |
+| `c:subscribe(filter, fn, [qos])` -> `true` / `true, "queued"` / `nil, err` | `fn(topic, message)` for matching messages (`+` and `#` wildcards). `qos` 0 (default) or 1. Kept across reconnects. Inside a task it waits for the broker's answer (`opts.timeout`): `nil, "refused by the broker"` (the broker doesn't allow the filter) or `nil, "timeout"`. A subscription refused later, when it is sent again after a reconnect, is dropped. |
+| `c:unsubscribe(filter)` -> `true` or `nil, "timeout"` | Stop a filter's messages: every callback `subscribe` gave it. Inside a task it waits for the broker's answer. |
 | `c:close()` | Disconnect cleanly and stop reconnecting. The broker does not publish the will. |
 | `c:queued()`, `c.dropped` | Messages waiting in the offline queue. Messages dropped because it was full. |
 | `c.connected` | Current state. |
-| `c.on_connect = function() end` | Called after every reconnect, e.g. to publish `online`. Not called for the first connection (it isn't set yet). |
-| `c.on_close = function(err) end` | Called when the connection is lost (it will reconnect), and by `c:close()`. |
+| `c.on_connect = function(c) end` | Called after every connection, e.g. to publish `online`. Give it as `opts.on_connect` to have it called for the first one too (when set on the client, it isn't there yet for the first). |
+| `c.on_close = function(err) end` | Called when the connection is lost (it will reconnect), and by `c:close()`. Can also be given as `opts.on_close`. |
 | `mqtt.matches(filter, topic)` -> `bool` | Topic filter matching, as used for subscriptions. |
 
 Options for `mqtt.connect`:
@@ -655,13 +657,14 @@ Options for `mqtt.connect`:
 | `tls` | `false` | TLS, as `mqtts://` does. The broker's certificate is checked against the root certificate bundle. |
 | `ca` | none | PEM text of a CA to trust instead of the bundle (a broker with its own certificate). Implies `tls`. |
 | `username`, `password` | none | |
-| `keepalive` | 60 s | A broker silent for 1.5× this is treated as gone (e.g. Wi-Fi dropped). |
+| `keepalive` | 60 s | A broker silent for 1.5× this is treated as gone (e.g. Wi-Fi dropped). 0 turns it off: no pings, and a dead connection goes unnoticed until a write fails. |
 | `will` | none | `{ topic, payload, qos, retain }`: published by the broker if the device disappears without `close()` (power cut, crash, lost Wi-Fi). |
 | `reconnect` | `true` | Reconnect after 1, 2, 4 … 30 s, then re-subscribe and send the queue. The first connection is not retried: `mqtt.connect` returns `nil, err`. |
 | `queue` | 100 | Max messages kept while offline (oldest dropped first). 0 = don't queue. |
 | `max_size` | 64 KiB | The biggest packet taken from the broker. A bigger one drops the connection (then reconnects). |
 | `clean` | `true` | Clean session. |
-| `timeout` | 5000 ms | For connecting and the broker's answer. |
+| `timeout` | 5000 ms | For connecting and the broker's answers (to CONNECT, SUBSCRIBE, UNSUBSCRIBE). |
+| `on_connect`, `on_close` | none | As `c.on_connect` and `c.on_close`, set before the first connection. |
 
 Delivery: queued messages are sent in order after reconnecting. QoS 1
 messages that weren't confirmed when the connection dropped are sent again, so
@@ -679,9 +682,8 @@ task(function()
   local c = assert(mqtt.connect("mqtt://192.168.1.10", {
     client_id = "weather-1",
     will = { topic = "weather-1/status", payload = "offline", retain = true },
+    on_connect = function(c) c:publish("weather-1/status", "online", { retain = true }) end,
   }))
-  c.on_connect = function() c:publish("weather-1/status", "online", { retain = true }) end
-  c.on_connect()
   c:subscribe("weather-1/cmd/#", function(topic, msg) print(topic, msg) end)
   while true do
     c:publish("weather-1/knob", adc.read(adc.PORTB_IN), { qos = 1 })   -- queued while offline

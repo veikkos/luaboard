@@ -293,33 +293,78 @@ static bool parse_iso(scan_t *c, int64_t *local, bool *has_zone, int32_t *east)
     return tz_fields(y, mo, d, h, mi, se, local);
 }
 
-/* [Sun, ]15 Nov 2026 10:30[:00] (GMT|UTC|Z|+hhmm) */
+static char lower(char ch) { return ch >= 'A' && ch <= 'Z' ? (char)(ch - 'A' + 'a') : ch; }
+
+/* One or more spaces or tabs. */
+static bool blanks(scan_t *c)
+{
+    if (peek(c) != ' ' && peek(c) != '\t') return false;
+    while (peek(c) == ' ' || peek(c) == '\t') c->s++;
+    return true;
+}
+
+/* A run of letters, any case, as a lower-case word of at most cap - 1. */
+static bool word(scan_t *c, char *out, size_t cap)
+{
+    size_t n = 0;
+    while (is_alpha(peek(c))) {
+        if (n + 1 >= cap) return false;
+        out[n++] = lower(*c->s++);
+    }
+    out[n] = 0;
+    return n > 0;
+}
+
+/* RFC 822's named zones (and UT, UTC, Z), hours east of UTC. */
+static bool named_zone(const char *w, int32_t *east)
+{
+    static const struct { char name[4]; int8_t hours; } zones[] = {
+        { "gmt", 0 },  { "ut", 0 },   { "utc", 0 },  { "z", 0 },    { "est", -5 }, { "edt", -4 },
+        { "cst", -6 }, { "cdt", -5 }, { "mst", -7 }, { "mdt", -6 }, { "pst", -8 }, { "pdt", -7 },
+    };
+    for (size_t i = 0; i < sizeof zones / sizeof zones[0]; i++)
+        if (!strcmp(w, zones[i].name)) {
+            *east = zones[i].hours * 3600;
+            return true;
+        }
+    return false;
+}
+
+/* [Sun[,] ]15 Nov 2026 10:30[:00] [zone], as HTTP and RSS (RFC 822) send it:
+ * any case, the month's name in full or not, a two-digit year (00..49 is
+ * 20xx, 50..99 19xx), the zone a number (+hhmm) or a name (GMT, EST...). */
 static bool parse_http(scan_t *c, int64_t *local, bool *has_zone, int32_t *east)
 {
-    static const char *const months[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                                          "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+    static const char months[12][4] = { "jan", "feb", "mar", "apr", "may", "jun",
+                                        "jul", "aug", "sep", "oct", "nov", "dec" };
+    char w[12];
     if (is_alpha(peek(c))) {                                            /* the weekday: not checked */
-        while (is_alpha(peek(c))) c->s++;
-        if (!lit(c, ',') || !lit(c, ' ')) return false;
+        if (!word(c, w, sizeof w)) return false;
+        bool comma = lit(c, ',');
+        if (!blanks(c) && !comma) return false;
     }
     int d, mo = 0, y, h, mi, se = 0;
     if (!digits(c, 1, &d)) return false;                               /* 1 or 2 digits */
     if (is_digit(peek(c))) d = d * 10 + (*c->s++ - '0');
-    if (!lit(c, ' ') || c->end - c->s < 3) return false;
+    if (!blanks(c) || !word(c, w, sizeof w) || strlen(w) < 3) return false;
     for (int i = 0; i < 12; i++)
-        if (memcmp(c->s, months[i], 3) == 0) mo = i + 1;
-    if (!mo) return false;
-    c->s += 3;
-    if (!lit(c, ' ') || !digits(c, 4, &y) || !lit(c, ' ') || !digits(c, 2, &h) || !lit(c, ':') || !digits(c, 2, &mi))
-        return false;
+        if (!memcmp(w, months[i], 3)) mo = i + 1;
+    if (!mo || !blanks(c) || !digits(c, 2, &y)) return false;
+    if (is_digit(peek(c))) {
+        int lo;
+        if (!digits(c, 2, &lo)) return false;
+        y = y * 100 + lo;
+    } else {
+        y += y < 50 ? 2000 : 1900;
+    }
+    if (!blanks(c) || !digits(c, 2, &h) || !lit(c, ':') || !digits(c, 2, &mi)) return false;
     if (lit(c, ':') && !digits(c, 2, &se)) return false;
     if (!valid_date(y, mo, d) || h > 23 || mi > 59 || se > 60) return false;
     *has_zone = false;
-    if (lit(c, ' ')) {
-        if (c->end - c->s == 3 && (memcmp(c->s, "GMT", 3) == 0 || memcmp(c->s, "UTC", 3) == 0)) {
-            c->s += 3;
+    if (blanks(c)) {
+        if (is_alpha(peek(c))) {
+            if (!word(c, w, sizeof w) || !named_zone(w, east)) return false;
             *has_zone = true;
-            *east = 0;
         } else if (!zone_suffix(c, has_zone, east) || !*has_zone) {
             return false;
         }

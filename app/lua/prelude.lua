@@ -128,9 +128,10 @@ function sock:write_all(data)
 end
 
 -- Buffered reader: r:read(n, [timeout_ms]) returns exactly n bytes,
--- r:line([timeout_ms]) one line without "\n", r:chunk([timeout_ms]) whatever
--- has arrived. They wait (inside a task) and return nil, "closed" at the end
--- or nil, "timeout".
+-- r:line([timeout_ms], [max]) one line without "\n" (nil, "line too long"
+-- past max bytes, default 16 KiB), r:chunk([timeout_ms]) whatever has
+-- arrived. They wait (inside a task) and return nil, "closed" at the end or
+-- nil, "timeout": the time counts from the call, however the data trickles in.
 function sock:reader()
   local s = self
   -- Unread data: head from pos on, then the chunks received since (joined
@@ -139,11 +140,11 @@ function sock:reader()
   local nl = false                  -- one of parts has a "\n"
   local r = {}
   local function fill(deadline)
+    if deadline and sys.millis() >= deadline then return nil, 'timeout' end
     local d, err = s:recv(4096)
     if not d then return nil, err end
     if d == '' then
       if not current then return nil, 'reader() needs task()' end
-      if deadline and sys.millis() >= deadline then return nil, 'timeout' end
       yield()
     else
       parts[#parts + 1] = d
@@ -182,12 +183,15 @@ function sock:reader()
     join()
     return take(size)
   end
-  function r:line(timeout_ms)
+  function r:line(timeout_ms, max)
     local deadline = timeout_ms and sys.millis() + timeout_ms
+    max = max or 16384
     while true do
       local i = head:find('\n', pos, true)
+      if i and i - pos > max then i = nil end
       if i then return (take(i - pos + 1):sub(1, -2):gsub('\r$', '')) end
       if nl then join()
+      elseif size > max then return nil, 'line too long (max ' .. max .. ' bytes)'
       else
         local ok, err = fill(deadline)
         if not ok then return nil, err end

@@ -6,8 +6,8 @@
 --     local c = assert(mqtt.connect("mqtt://192.168.1.10:1883", {   -- or mqtts:// (TLS)
 --       client_id = "weather-1", username = "u", password = "p",
 --       will = { topic = "weather-1/status", payload = "offline", retain = true },
+--       on_connect = function(c) c:publish("weather-1/status", "online", { retain = true }) end,
 --     }))
---     c.on_connect = function() c:publish("weather-1/status", "online", { retain = true }) end
 --     c:subscribe("weather-1/cmd/#", function(topic, msg) print(topic, msg) end)
 --     c:publish("weather-1/temp", "21.5", { qos = 1 })
 --   end)
@@ -24,7 +24,8 @@
 local M = {}
 
 local CONNECT, CONNACK, PUBLISH, PUBACK = 0x10, 0x20, 0x30, 0x40
-local SUBSCRIBE, SUBACK, PINGREQ, PINGRESP, DISCONNECT = 0x82, 0x90, 0xC0, 0xD0, 0xE0
+local SUBSCRIBE, SUBACK, UNSUBSCRIBE, UNSUBACK = 0x82, 0x90, 0xA2, 0xB0
+local PINGREQ, DISCONNECT = 0xC0, 0xE0
 
 local CONNACK_ERRORS = {
   [1] = 'unacceptable protocol version', [2] = 'client id rejected',
@@ -161,11 +162,8 @@ function Client:_lost(err)
   local ids = {}
   for id in pairs(self.pending) do ids[#ids + 1] = id end
   table.sort(ids, function(a, b) return a > b end)
-  for _, id in ipairs(ids) do
-    local m = self.pending[id]
-    if m ~= true then self:_enqueue(m, true) end
-  end
-  self.pending = {}
+  for _, id in ipairs(ids) do self:_enqueue(self.pending[id], true) end
+  self.pending, self.acks = {}, {}                -- (subscriptions are sent again on reconnect)
   if self.on_close then self.on_close(err) end
 end
 
@@ -206,14 +204,39 @@ function Client:_open()
   task(function() self:_read_loop(gen) end)
 
   -- Restore subscriptions, then send what was queued while offline.
-  for _, sub in ipairs(self.subs) do
-    local id = self:_next_id()
-    self.pending[id] = true
-    self:_raw_send(packet(SUBSCRIBE, string.pack('>I2', id) .. str(sub.filter) .. string.char(sub.qos)))
-  end
+  for _, sub in ipairs(self.subs) do self:_send_sub(sub) end
   self:_flush()
-  if self.connected and self.on_connect then self.on_connect() end
+  if self.connected and self.on_connect then self.on_connect(self) end
   return true
+end
+
+-- Send a SUBSCRIBE for sub; the packet id, whose entry in `acks` goes when
+-- the broker answers. nil if the connection was lost.
+function Client:_send_sub(sub)
+  local id = self:_next_id()
+  self.acks[id] = sub
+  if not self:_raw_send(packet(SUBSCRIBE, string.pack('>I2', id) .. str(sub.filter) .. string.char(sub.qos))) then
+    return nil
+  end
+  return id
+end
+
+-- Wait (inside a task) for the broker's answer to packet `id`: true, nil
+-- and "timeout", or "lost" when the connection dropped first.
+function Client:_wait_ack(id)
+  if not in_task() then return true end
+  local deadline = sys.millis() + (self.opts.timeout or 5000)
+  while self.acks[id] do
+    if not self.connected then return 'lost' end
+    if sys.millis() >= deadline then return nil, 'timeout' end
+    yield()
+  end
+  if not self.connected then return 'lost' end    -- (_lost() let go of the acks)
+  return true
+end
+
+local function remove(list, x)
+  for i = #list, 1, -1 do if list[i] == x then table.remove(list, i) end end
 end
 
 -- A PUBLISH body: qos, topic, packet id (qos > 0), payload. Errors on a
@@ -242,9 +265,19 @@ function Client:_read_loop(gen)
       for _, s in ipairs(self.subs) do
         if matches(s.filter, topic) then s.fn(topic, payload) end
       end
-    elseif t == PUBACK or t == SUBACK then
-      if #body < 2 then self:_lost('bad ack from the broker') return end
-      self.pending[string.unpack('>I2', body)] = nil
+    elseif t == PUBACK or t == SUBACK or t == UNSUBACK then
+      if #body < 2 or (t == SUBACK and #body < 3) then self:_lost('bad ack from the broker') return end
+      local id = string.unpack('>I2', body)
+      if t == PUBACK then
+        self.pending[id] = nil
+      else
+        local sub = self.acks[id]
+        self.acks[id] = nil
+        if t == SUBACK and type(sub) == 'table' and body:byte(3) == 0x80 then   -- refused
+          sub.refused = true
+          remove(self.subs, sub)
+        end
+      end
     end                                           -- PINGRESP: last_recv updated above
   end
 end
@@ -255,7 +288,8 @@ function Client:_supervise()
   while not self.closing do
     if self.connected then
       local now = sys.millis()
-      if now - self.last_recv > self.keepalive * 1500 then
+      if self.keepalive == 0 then                 -- off: no pings, no timeout
+      elseif now - self.last_recv > self.keepalive * 1500 then
         self:_lost('keepalive timeout (broker silent)')
       elseif now - self.last_send >= self.keepalive * 500 then
         self:_raw_send(string.char(PINGREQ, 0))
@@ -299,21 +333,35 @@ function Client:publish(topic, payload, opts)
 end
 
 function Client:subscribe(filter, fn, qos)
+  if type(filter) ~= 'string' or filter == '' then fail('subscribe needs a topic filter') end
   if type(fn) ~= 'function' then fail('subscribe needs a callback') end
   qos = qos or 0
-  self.subs[#self.subs + 1] = { filter = filter, fn = fn, qos = qos }
+  if qos ~= 0 and qos ~= 1 then fail('qos must be 0 or 1') end
+  local sub = { filter = filter, fn = fn, qos = qos }
+  self.subs[#self.subs + 1] = sub
   if not self.connected then return true, 'queued' end      -- sent on (re)connect
-  local id = self:_next_id()
-  self.pending[id] = true
-  local ok, err = self:_raw_send(packet(SUBSCRIBE, string.pack('>I2', id) .. str(filter) .. string.char(qos)))
-  if not ok then return true, 'queued' end
-  if in_task() then
-    local deadline = sys.millis() + 5000
-    while self.pending[id] and self.connected do
-      if sys.millis() >= deadline then return nil, 'timeout' end
-      yield()
-    end
+  local id = self:_send_sub(sub)
+  if not id then return true, 'queued' end
+  local ok, err = self:_wait_ack(id)
+  if ok == 'lost' then return true, 'queued' end
+  if not ok then return nil, err end
+  if sub.refused then return nil, 'refused by the broker' end
+  return true
+end
+
+-- Stop the messages of a filter: every callback subscribe() gave it.
+function Client:unsubscribe(filter)
+  if type(filter) ~= 'string' then fail('unsubscribe needs a topic filter') end
+  local found = false
+  for i = #self.subs, 1, -1 do
+    if self.subs[i].filter == filter then table.remove(self.subs, i) found = true end
   end
+  if not found or not self.connected then return true end
+  local id = self:_next_id()
+  self.acks[id] = true
+  if not self:_raw_send(packet(UNSUBSCRIBE, string.pack('>I2', id) .. str(filter))) then return true end
+  local ok, err = self:_wait_ack(id)
+  if not ok then return nil, err end
   return true
 end
 
@@ -336,11 +384,20 @@ function Client:queued() return #self.queue end
 --       clean (default true), timeout (ms, default 5000),
 --       will = { topic, payload, qos, retain }, tls, ca (PEM),
 --       reconnect (default true), queue (max queued messages, default 100; 0 = off),
---       max_size (biggest packet taken from the broker, default 64 KiB)
+--       max_size (biggest packet taken from the broker, default 64 KiB),
+--       on_connect, on_close (as c.on_connect, c.on_close: set before the
+--       first connection, so on_connect(c) is called for it too)
 function M.connect(url, opts)
   if not in_task() then fail('mqtt.connect() must be called inside task()') end
   opts = opts or {}
   for _, k in ipairs({ 'tls', 'clean', 'reconnect' }) do flag(opts, k, 'mqtt.connect') end
+  local ka = opts.keepalive
+  if ka ~= nil and (math.type(ka) ~= 'integer' or ka < 0 or ka > 65535) then
+    fail('mqtt.connect: opts.keepalive must be whole seconds, 0..65535 (0 = off)')
+  end
+  for _, k in ipairs({ 'on_connect', 'on_close' }) do
+    if opts[k] ~= nil and type(opts[k]) ~= 'function' then fail('mqtt.connect: opts.' .. k .. ' must be a function') end
+  end
   local host, port, tls = parse_url(url, opts)
   -- The default id is the board's own, so two boards running the same app
   -- don't push each other off the broker.
@@ -351,7 +408,8 @@ function M.connect(url, opts)
     max_queue = opts.queue or 100,
     max_size = opts.max_size or 64 * 1024,
     connected = false, closing = false, gen = 0, pid = 1,
-    subs = {}, pending = {}, queue = {}, dropped = 0,
+    subs = {}, pending = {}, acks = {}, queue = {}, dropped = 0,
+    on_connect = opts.on_connect, on_close = opts.on_close,
   }, Client)
   local ok, err = c:_open()
   if not ok then return nil, err end
