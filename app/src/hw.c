@@ -499,7 +499,7 @@ static bool s_light;
 
 static void light_sleep_init(void)
 {
-    esp_pm_config_t cfg = { .max_freq_mhz = 160, .min_freq_mhz = 160, .light_sleep_enable = true };
+    esp_pm_config_t cfg = { .max_freq_mhz = 240, .min_freq_mhz = 240, .light_sleep_enable = true };
     if (esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "awake", &s_awake_lock) != ESP_OK) { s_awake_lock = NULL; return; }
     esp_pm_lock_acquire(s_awake_lock);
     if (esp_pm_configure(&cfg) != ESP_OK) ESP_LOGW(TAG, "power management not configured: no light sleep");

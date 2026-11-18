@@ -74,6 +74,10 @@ CONFIG_BT_NIMBLE_MAX_BONDS=8
 CONFIG_PM_ENABLE=y
 CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
 
+# The CPU runs at the chip's full 240 MHz (ESP-IDF's default is 160). hw.c
+# sets the same when it configures power management at boot.
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
 # ESP-IDF's light sleep GPIO workaround (on by default on this chip) would
 # isolate every pin whenever the chip sleeps: a relay or LED a script holds
 # on would float while the device is asleep, and so would the LCD's lines.

@@ -67,7 +67,9 @@ things to check on a real board, by part of the board.
   ends (the touch interrupt through the AW9523B to GPIO21, low when
   touched) or the chip's timer.
 - The current drawn awake, asleep and off (M5Stack gives about 110 mA
-  working and 0.1 mA in standby).
+  working and 0.1 mA in standby). The CPU runs at 240 MHz: compare the
+  current awake at 160 MHz (`hw.c` and `sdkconfig.defaults`) to see what
+  the higher clock costs.
 
 ## Clock
 
