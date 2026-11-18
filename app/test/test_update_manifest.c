@@ -262,6 +262,7 @@ void test_apps_index(int *total, int *failed);  /* test_apps_index.c */
 void test_check_sched(int *total, int *failed); /* test_check_sched.c */
 void test_qr(int *total, int *failed);          /* test_qr.c */
 void test_tz(int *total, int *failed);          /* test_tz.c */
+void test_text(int *total, int *failed);        /* test_text.c */
 
 int main(int argc, char **argv)
 {
@@ -284,6 +285,7 @@ int main(int argc, char **argv)
     test_check_sched(&check_total, &check_failed);
     test_qr(&check_total, &check_failed);
     test_tz(&check_total, &check_failed);
+    test_text(&check_total, &check_failed);
     if (check_failed) {
         printf("fw-unit: %d of %d checks FAILED\n", check_failed, check_total);
         return 1;

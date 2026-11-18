@@ -66,3 +66,16 @@ const char *text_skip(const char *s, int n)
     while (n-- > 0 && s < end) text_next(&s, end);
     return s;
 }
+
+void text_mark_cut(char *s, size_t cap)
+{
+    static const char mark[] = "\xE2\x80\xA6";      /* … */
+    if (cap < sizeof mark) return;
+    size_t n = strlen(s);
+    while (n > 0 && n + sizeof mark > cap) {          /* whole characters off the end */
+        n--;
+        while (n > 0 && ((unsigned char)s[n] & 0xC0) == 0x80) n--;
+    }
+    while (n > 0 && s[n - 1] == ' ') n--;
+    memcpy(s + n, mark, sizeof mark);
+}

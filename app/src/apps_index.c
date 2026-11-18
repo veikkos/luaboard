@@ -8,6 +8,7 @@
 #include "json.h"
 #include "names.h"
 #include "semver.h"
+#include "text.h"
 
 
 /* One version of an app, as far as choosing between them goes. */
@@ -56,6 +57,13 @@ static bool read_version(const char *text, size_t len, json_t *v, int api_min, i
     return false;
 }
 
+/* A text value; one too long for its field ends in "…". */
+static void text_field(json_t *a, char *out, size_t cap)
+{
+    bool cut = false;
+    if (json_string(a, out, cap, &cut) && cut) text_mark_cut(out, cap);
+}
+
 /* The app object at a, named name: into *e if some version of it runs here.
    False only if the text is broken (a->err). */
 static bool read_app(const char *text, size_t len, json_t *a, int api_min, int api, apps_entry_t *e, bool *runs)
@@ -65,10 +73,10 @@ static bool read_app(const char *text, size_t len, json_t *a, int api_min, int a
     char key[16];
     *runs = false;
     while (json_member(a, key, sizeof key)) {
-        if (!strcmp(key, "title")) json_string(a, e->title, sizeof e->title, NULL);
-        else if (!strcmp(key, "description")) json_string(a, e->description, sizeof e->description, NULL);
-        else if (!strcmp(key, "author")) json_string(a, e->author, sizeof e->author, NULL);
-        else if (!strcmp(key, "license")) json_string(a, e->license, sizeof e->license, NULL);
+        if (!strcmp(key, "title")) text_field(a, e->title, sizeof e->title);
+        else if (!strcmp(key, "description")) text_field(a, e->description, sizeof e->description);
+        else if (!strcmp(key, "author")) text_field(a, e->author, sizeof e->author);
+        else if (!strcmp(key, "license")) text_field(a, e->license, sizeof e->license);
         else if (!strcmp(key, "needs_setup")) {
             char b[8];
             e->needs_setup = json_value(a, b, sizeof b) && !strcmp(b, "true");

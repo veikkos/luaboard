@@ -104,7 +104,10 @@ title and info:
 ```
 
 `lua_api` is the [Lua API version](docs/LUA_API.md#api-version) the app was
-written for. A firmware too old for it says so instead of starting it.
+written for. A firmware too old for it says so instead of starting it. The
+app's options show the description in three lines of 48 characters; the
+board keeps up to 31 bytes of a title or author, and text cut short ends
+in "…".
 
 Uploaded apps stay in RAM until restart, installed apps live in flash. A
 `secrets.env` in the folder (gitignored) is stored as the app's secrets.

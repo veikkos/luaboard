@@ -17,6 +17,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "app_config.h"
+
 #define APPS_INDEX_FORMAT    1      /* the format this firmware reads; a later one: newer_format */
 #define APPS_INDEX_MAX_APPS  128
 #define APPS_INDEX_MAX_FILES 32     /* board files of one app version */
@@ -32,7 +34,8 @@ typedef struct {
 
 typedef struct {
     char name[APPS_NAME_MAX];
-    char title[32], description[120], author[32], license[24];
+    char title[APP_TITLE_MAX + 1], description[APP_DESC_MAX + 1];   /* cut ones end in "…" */
+    char author[APP_AUTHOR_MAX + 1], license[APP_LICENSE_MAX + 1];
     char version[24];
     int lua_api;
     char commit[41];

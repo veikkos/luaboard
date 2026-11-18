@@ -1,6 +1,7 @@
 /* UTF-8 text for the screen font (font5x7.h). */
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
 /** Decode the UTF-8 character at `*p` (before `end`) and step past it.
@@ -20,3 +21,7 @@ int text_utf8(uint32_t cp, char out[4]);
 
 /** Past the first `n` characters of the string s (or at its end). */
 const char *text_skip(const char *s, int n);
+
+/** Mark the string s, in a buffer of `cap` bytes, as cut short: its end
+ *  (whole characters, and spaces before them) gives way to "…". */
+void text_mark_cut(char *s, size_t cap);

@@ -801,6 +801,9 @@ static int text_wrap_cols(int y, const char *s, int lines, gfx_color_t c, int co
     return y;
 }
 
+_Static_assert((BOARD_LCD_W - 2 * PAD) / CHAR_W >= APP_DESC_COLS,
+               "an app's options show APP_DESC_COLS characters of its description a line");
+
 /* The same, as wide as the screen. */
 static int text_wrap(int y, const char *s, int lines, gfx_color_t c)
 {
@@ -847,7 +850,7 @@ static void draw_options(void)
     list_draw(&l);
     /* About the app: what it does (3 lines), version and author, and why it won't run */
     char line[160];
-    int y = text_wrap(BELOW(s_norows), s_ometa.description, 3, C_TEXT);
+    int y = text_wrap(BELOW(s_norows), s_ometa.description, APP_DESC_LINES, C_TEXT);
     if (s_ometa.version[0] || s_ometa.author[0]) {
         snprintf(line, sizeof line, "%s%s%s%s", s_ometa.version[0] ? "version " : "", s_ometa.version,
                  s_ometa.version[0] && s_ometa.author[0] ? ", by " : s_ometa.author[0] ? "by " : "", s_ometa.author);
@@ -1278,6 +1281,13 @@ static void store_home(void)
 #define QR_SCALE 3
 #define QR_QUIET 2
 
+/* An app's README address fits a version 5 QR code (106 bytes at the low
+   error correction), 37 modules a side: the description beside it keeps
+   APP_DESC_QR_COLS characters, as the marketplace's checks expect. */
+_Static_assert(sizeof APPS_README_URL - 1 + VFS_APP_NAME_MAX - 1 <= 106, "a README address in a version 5 QR code");
+_Static_assert((BOARD_LCD_W - 2 * PAD - (37 + 2 * QR_QUIET) * QR_SCALE - GAP) / CHAR_W >= APP_DESC_QR_COLS,
+               "the description beside the QR code keeps APP_DESC_QR_COLS characters");
+
 static const apps_entry_t *store_entry(void)
 {
     const apps_index_t *ix = app_update_index();
@@ -1335,7 +1345,7 @@ static void draw_store_app(void)
              e->license[0] ? e->license : "no license");
     fit(shown, sizeof shown, line, cols * CHAR_W, 1);
     gfx_text(PAD, y, shown, C_DIM, 1, NULL);
-    y = text_wrap_cols(y + LINE_H + PARA, e->description, e->needs_setup ? 4 : 8, C_TEXT, cols);
+    y = text_wrap_cols(y + LINE_H + PARA, e->description, e->needs_setup ? APP_DESC_QR_LINES : 8, C_TEXT, cols);
     if (e->needs_setup) {
         y = text_wrap_cols(y + PARA, "Setup needed: your own keys or a login. The steps:", 3, C_WARN, cols);
         text_wrap_cols(y, url + strlen("https://"), 3, C_DIM, cols);

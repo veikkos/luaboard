@@ -6,6 +6,7 @@
 
 #include "app_config.h"
 #include "json.h"
+#include "text.h"
 #include "vfs.h"
 
 _Static_assert(sizeof ((app_meta_t *)0)->version >= sizeof "1.0.0+a1b2c3d-dirty",
@@ -24,7 +25,10 @@ bool app_meta_parse(const char *text, size_t len, app_meta_t *m)
         else if (!strcmp(key, "description")) { dst = m->description; cap = sizeof m->description; }
         else if (!strcmp(key, "version")) { dst = m->version; cap = sizeof m->version; }
         else if (!strcmp(key, "author")) { dst = m->author; cap = sizeof m->author; }
-        if (!strcmp(key, "lua_api")) {
+        if (dst && json_peek(&j) == '"') {             /* text: a cut one ends in "…" */
+            bool cut = false;
+            if (json_string(&j, dst, cap, &cut) && cut) text_mark_cut(dst, cap);
+        } else if (!strcmp(key, "lua_api")) {
             json_t at = j;
             long v;
             if (!json_whole(&j, &v)) {                  /* maybe well-formed, but not a whole number */

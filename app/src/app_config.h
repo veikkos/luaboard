@@ -14,6 +14,22 @@
 #define APP_LUA_API          1
 #define APP_LUA_API_MIN      1
 
+/* app.json's text (and the marketplace index's copy of it): the most the
+   board keeps, in bytes. Longer text is cut, ending in "…". The
+   marketplace's checks (tools/build_index.py) keep its apps within these,
+   and a description within what the screens show of it: APP_DESC_LINES
+   lines of APP_DESC_COLS characters in the app's options, and on the
+   Marketplace page of an app that needs setup, APP_DESC_QR_LINES of
+   APP_DESC_QR_COLS beside the QR code (menu.c). */
+#define APP_DESC_LINES       3
+#define APP_DESC_COLS        48
+#define APP_DESC_QR_LINES    4
+#define APP_DESC_QR_COLS     26
+#define APP_TITLE_MAX        31
+#define APP_DESC_MAX         (APP_DESC_LINES * APP_DESC_COLS * 3)   /* what fits, in up to 3 bytes a character (€) */
+#define APP_AUTHOR_MAX       31
+#define APP_LICENSE_MAX      23
+
 /* Apps: files are "<app>/<file>". Installed apps live in a LittleFS
    partition (APPS_PARTITION, mounted at APPS_MOUNT); uploads that aren't
    installed yet are kept in RAM (VFS_RAM_*), shadowing the flash copy. */
