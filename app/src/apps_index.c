@@ -9,14 +9,12 @@
 #include "names.h"
 #include "semver.h"
 
-#define SETUP_FILE "secrets.env.example"   /* an app that ships it needs keys or a login */
 
 /* One version of an app, as far as choosing between them goes. */
 typedef struct {
     char version[24];
     int lua_api;
     char commit[41];
-    bool needs_setup;
     uint32_t files_at;
 } version_t;
 
@@ -24,25 +22,6 @@ static bool fail(char *err, size_t cap, const char *why)
 {
     if (cap) snprintf(err, cap, "%s", why);
     return false;
-}
-
-/* Whether other_files (the array at j) lists SETUP_FILE. */
-static bool lists_setup_file(json_t *j)
-{
-    bool first = true, found = false;
-    while (json_array_next(j, &first)) {
-        json_t f;
-        char key[8], path[APPS_PATH_MAX];
-        if (!json_object(j, &f)) return false;
-        while (json_member(&f, key, sizeof key)) {
-            bool cut = false;
-            if (!strcmp(key, "path") && json_string(&f, path, sizeof path, &cut) && !cut && !strcmp(path, SETUP_FILE))
-                found = true;
-            else if (strcmp(key, "path")) json_value(&f, NULL, 0);
-        }
-        if (f.err) return json_fail(j, f.err);
-    }
-    return found;
 }
 
 /* A version object at v. True if it is one this firmware can install. */
@@ -61,8 +40,7 @@ static bool read_version(const char *text, size_t len, json_t *v, int api_min, i
             json_peek(v);
             out->files_at = (uint32_t)(v->p - text);
             have_files = json_value(v, NULL, 0);
-        } else if (!strcmp(key, "other_files")) out->needs_setup = lists_setup_file(v);
-        else json_value(v, NULL, 0);
+        } else json_value(v, NULL, 0);
     }
     if (v->err) return false;
     semver_t sv;
@@ -91,6 +69,10 @@ static bool read_app(const char *text, size_t len, json_t *a, int api_min, int a
         else if (!strcmp(key, "description")) json_string(a, e->description, sizeof e->description, NULL);
         else if (!strcmp(key, "author")) json_string(a, e->author, sizeof e->author, NULL);
         else if (!strcmp(key, "license")) json_string(a, e->license, sizeof e->license, NULL);
+        else if (!strcmp(key, "needs_setup")) {
+            char b[8];
+            e->needs_setup = json_value(a, b, sizeof b) && !strcmp(b, "true");
+        }
         else if (!strcmp(key, "versions")) {
             bool first = true;
             while (json_array_next(a, &first)) {
@@ -109,7 +91,6 @@ static bool read_app(const char *text, size_t len, json_t *a, int api_min, int a
         memcpy(e->version, best.version, sizeof e->version);
         e->lua_api = best.lua_api;
         memcpy(e->commit, best.commit, sizeof e->commit);
-        e->needs_setup = best.needs_setup;
         e->files_at = best.files_at;
         *runs = true;
     }

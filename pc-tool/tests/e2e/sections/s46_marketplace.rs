@@ -1,8 +1,14 @@
 //! Marketplace: the last row of the home list opens the marketplace's apps,
 //! each with its tag (update, installed, (i) for setup needed); an app's
-//! screen shows the QR code of its setup steps and installs it.
+//! screen shows the QR code of its setup steps and installs it. With all
+//! three fixed rows at home (App updates, the firmware's update, Settings),
+//! the list is dragged up to reach Marketplace.
 
 use super::market::{self, app_json, first_check, said};
+use super::update::bin_url;
+use crate::fakes::marketplace::FakeMarket;
+use crate::fakes::releases::{manifest, FakeReleases, MANIFEST};
+use crate::fakes::tls;
 use crate::harness::{ui, T};
 
 type Rgb = (i32, i32, i32);
@@ -76,6 +82,8 @@ pub fn run(t: &mut T) {
     t.check(apps == "3", "it is in the home list", |_| format!("apps={apps}"));
     t.stop();
 
+    drag_to_marketplace(t);
+
     // No marketplace address (or no Wi-Fi): the store says so.
     t.wipe();
     t.boot();
@@ -83,5 +91,57 @@ pub fn run(t: &mut T) {
     t.advance(300);
     let said = store_log(t);
     t.check(said.ends_with("no marketplace address"), "without a marketplace the store says why", |_| said.clone());
+    t.stop();
+}
+
+/// Five apps, an app update and a firmware update: home has room for four
+/// rows above its three fixed ones, so Marketplace (the list's last row) is
+/// out of sight until the list is dragged up.
+fn drag_to_marketplace(t: &mut T) {
+    let cert = tls::self_signed();
+    let market = FakeMarket::start(&cert);
+    let rel = FakeReleases::start(&cert);
+    let ca = t.write("ca.pem", &cert.pem);
+    t.sim_env = vec![("SIM_CA_FILE".into(), ca)];
+    let upd = app_json("Upd", "1.0.1");
+    market.add("upd", "Upd", "1.0.1", 1, &[("app.json", upd.as_bytes()), ("main.lua", b"-- upd 2")], &[]);
+    rel.set_manifest(&manifest("v1.1.0", &bin_url(&rel, "v1.1.0"), b"not really firmware", 1, 1));
+    t.wipe();
+    let (apps_url, update_url) = (market.url(), format!("https://127.0.0.1:{}/latest/download/{MANIFEST}", rel.port));
+    t.boot_with(&[
+        "--set",
+        "fw_version=v1.0.0",
+        "--set",
+        &format!("update_every={}", market::DAY),
+        "--set",
+        &format!("apps_url={apps_url}"),
+        "--set",
+        &format!("update_url={update_url}"),
+    ]);
+    for name in ["a1", "a2", "a3", "a4"] {
+        market::install(t, name, &app_json(name, "1.0.0"), "-- app");
+    }
+    market::install(t, "upd", &app_json("Upd", "1.0.0"), "-- upd");
+    let ok = first_check(t) && t.until(5.0, |t| t.info("update") == "v1.1.0");
+    t.check(ok, "an app update and a firmware update are known", |t| format!("{} / {}", said(t), t.info("update")));
+
+    // Rows a1..a4 show; a drag of three rows up scrolls to the end, where
+    // Marketplace is the last of the four.
+    t.advance(300);
+    let (from, to) = (ui::row(3), ui::row(3) - 3 * ui::ROW_H);
+    t.ctl(&[
+        &format!("touch=60,{from}"),
+        "advance=50",
+        &format!("touch=60,{to}"),
+        "advance=50",
+        "touch=-",
+        "advance=250",
+    ]);
+    t.tap_at(60, ui::row(3));
+    t.advance(300);
+    let opened = store_log(t);
+    t.check(opened.ends_with("1 apps"), "dragging the home list up reaches Marketplace", |_| {
+        format!("the store's line in the log: '{opened}'")
+    });
     t.stop();
 }

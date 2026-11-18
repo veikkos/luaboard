@@ -130,10 +130,12 @@ fn index(st: &State) -> String {
                        "files": entry(&v.files), "other_files": entry(&other)})
             })
             .collect();
+        // As the real index says for an app whose secrets.env.example has a key left empty.
+        let setup = versions.last().is_some_and(|v| v.other.iter().any(|p| p == "secrets.env.example"));
         apps.insert(
             name.clone(),
             json!({"title": title, "description": format!("About {title}"), "author": "Tester",
-                   "license": "MIT", "versions": vs}),
+                   "license": "MIT", "needs_setup": setup, "versions": vs}),
         );
     }
     serde_json::to_string_pretty(&json!({"format": 1, "apps": apps})).unwrap()

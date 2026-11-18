@@ -3,7 +3,7 @@
  * tools/build_index.py): every app and the versions a board can install.
  *
  *   {"format": 1, "apps": {"<name>": {"title", "description", "author",
- *     "license", "versions": [{"version", "lua_api", "commit",
+ *     "license", "needs_setup", "versions": [{"version", "lua_api", "commit",
  *     "files": [{"path", "size", "sha256"}], "other_files": [...]}]}}}
  *
  * Parsing keeps, for each app, the newest version this firmware runs (its
@@ -36,7 +36,7 @@ typedef struct {
     char version[24];
     int lua_api;
     char commit[41];
-    bool needs_setup;               /* the version ships secrets.env.example */
+    bool needs_setup;               /* has keys to set before it works (a login, an API key) */
     uint32_t files_at;              /* where its "files" array starts in the text */
 } apps_entry_t;
 

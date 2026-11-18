@@ -96,7 +96,15 @@ add_custom_target(werror
     USES_TERMINAL VERBATIM)
 
 # What CI checks; `git push` runs it too after `cmake --build build --target hooks`.
-add_custom_target(check DEPENDS lint werror unit e2e)
+# Without marketplace/ (a clone without --recurse-submodules) it stops at once
+# with that one line, instead of after building everything else. The glob is
+# checked again at every build, so checking the submodule out is noticed.
+file(GLOB MARKETPLACE_HERE CONFIGURE_DEPENDS ${ROOT}/marketplace/hello/app.json)
+if(MARKETPLACE_HERE)
+    add_custom_target(check DEPENDS lint werror unit e2e)
+else()
+    add_custom_target(check COMMAND ${CMAKE_COMMAND} -DROOT=${ROOT} -P ${ROOT}/tools/need_marketplace.cmake VERBATIM)
+endif()
 
 add_custom_target(hooks
     COMMAND git config core.hooksPath .githooks

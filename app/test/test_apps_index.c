@@ -24,12 +24,13 @@ static const char *INDEX =
     "  \"future\": {\"title\": \"Future\", \"versions\": [{\"version\": \"1.0.0\", \"lua_api\": 2, \"commit\": \"" C3 "\","
     "   \"files\": " FILES ", \"other_files\": []}]},\n"
     "  \"hello\": {\"title\": \"Hello\", \"description\": \"A greeting\", \"author\": \"Veikko\", \"license\": \"MIT\",\n"
+    "   \"needs_setup\": false,\n"
     "   \"versions\": [\n"
     "    {\"version\": \"2.0.0\", \"lua_api\": 2, \"commit\": \"" C2 "\", \"files\": " FILES ", \"other_files\": []},\n"
     "    {\"version\": \"1.0.1\", \"lua_api\": 1, \"commit\": \"" C1 "\", \"files\": " FILES ",\n"
     "     \"other_files\": [{\"path\": \"README.md\", \"size\": 5, \"sha256\": \"" SHA_A "\"}]}\n"
     "   ]},\n"
-    "  \"stocks\": {\"title\": \"Stocks\", \"license\": \"MIT\", \"versions\": [{\"version\": \"1.0.0\", \"lua_api\": 1,"
+    "  \"stocks\": {\"title\": \"Stocks\", \"license\": \"MIT\", \"needs_setup\": true, \"versions\": [{\"version\": \"1.0.0\", \"lua_api\": 1,"
     "   \"commit\": \"" C3 "\", \"files\": " FILES ", \"other_files\": [{\"path\": \"secrets.env.example\", \"size\": 3,"
     "   \"sha256\": \"" SHA_A "\"}]}]}\n"
     " }\n}\n";
@@ -47,7 +48,7 @@ void test_apps_index(int *total, int *failed)
     CHECK(h && !strcmp(h->title, "Hello") && !strcmp(h->description, "A greeting") && !strcmp(h->author, "Veikko"));
     CHECK(h && !strcmp(h->license, "MIT") && !strcmp(h->version, "1.0.1") && h->lua_api == 1 && !strcmp(h->commit, C1));
     CHECK(h && !h->needs_setup);
-    CHECK(s && s->needs_setup);                                  /* it ships secrets.env.example */
+    CHECK(s && s->needs_setup);
     CHECK(!apps_index_find(&ix, "future"));                      /* needs Lua API 2 */
     CHECK(!apps_index_find(&ix, "badsha"));                      /* its only version is broken */
     CHECK(!apps_index_find(&ix, "bad name"));

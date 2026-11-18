@@ -44,10 +44,10 @@ fi
 # Git exports GIT_DIR (this submodule's) to hooks: the tests run git in
 # repositories of their own, so it must not leak into them.
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR GIT_PREFIX
-echo "pre-push: every app as the index sees it (tools/build_index.py)"
+echo "pre-push: every app as the index sees it, a changed one with a new version (tools/build_index.py)"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-python3 tools/build_index.py --out "$tmp/index.json" >/dev/null
+python3 tools/build_index.py --previous index.json --out "$tmp/index.json" >/dev/null
 echo "pre-push: luaboard's check on these apps"
 [ -f "$main/build/CMakeCache.txt" ] || { echo "pre-push: configure luaboard first: cmake --preset default"; exit 1; }
 cmake --build "$main/build" --config Release --target check
