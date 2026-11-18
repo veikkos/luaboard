@@ -83,7 +83,7 @@ The apps live in the [marketplace](https://github.com/veikkos/luaboard-marketpla
 
 ## Screenshots
 
-`docs/img/cores3.png` (and `cores3.png` in the marketplace's Spotify app)
+`docs/img/cores3.png` (and `img/cores3.png` in the marketplace's Spotify app)
 shows the cover of Ghosts I–IV by Nine Inch Nails, released under
 [CC BY-NC-SA 3.0](https://creativecommons.org/licenses/by-nc-sa/3.0/). That
 screenshot is shared under the same license.

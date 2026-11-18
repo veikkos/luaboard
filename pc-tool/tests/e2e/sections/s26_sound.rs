@@ -1,11 +1,12 @@
 //! sound: tones and WAV clips on the speaker, recorded by the simulator
 //! (--wav) as its amplifier plays them, then measured: how long each
-//! sound lasted and its pitch. And assets: a picture and a sound installed
+//! sound lasted and its pitch. And assets: pictures and a sound installed
 //! with an app, read with asset().
 
 use std::fs;
 
 use crate::harness::T;
+use crate::pngs::rgba;
 
 /// A WAV file made in Lua: `ms` of a square wave of `hz`, 8 kHz mono 16-bit.
 const WAV_LUA: &str = r#"local function wav(hz, ms)
@@ -114,13 +115,23 @@ pub fn run(t: &mut T) {
     t.write("art/main.lua", "function loop() end\n");
     t.write("art/ding.wav", wav_file(600, 150));
     t.write("art/cover.jpg", fs::read(t.root.join("pc-tool/tests/e2e/data/cover.jpg")).unwrap());
+    t.write("art/logo.png", rgba(3, 2, |_, _| [0, 128, 255, 255]));
     t.write("art/notes.txt", "not an asset");
+    t.write("art/img/shot.png", rgba(1, 1, |_, _| [0, 0, 0, 255]));
     t.e(&["install", &t.path("art"), "--run"]);
     let ls = t.e(&["ls"]);
-    let ok = ls.contains("art/ding.wav") && ls.contains("art/cover.jpg") && !ls.contains("art/notes.txt");
-    t.check(ok, "install takes the app's pictures and sounds along, not other files", |_| format!("ls: {ls}"));
+    let ok = ls.contains("art/ding.wav")
+        && ls.contains("art/cover.jpg")
+        && ls.contains("art/logo.png")
+        && !ls.contains("notes.txt")
+        && !ls.contains("shot.png");
+    t.check(ok, "install takes the app's pictures and sounds along, not other files or subfolders", |_| {
+        format!("ls: {ls}")
+    });
     let v = t.eval(r#"disp.jpeg_size(asset("cover.jpg"))"#);
     t.check(v.contains('\t'), "asset() reads a picture for disp.jpeg", |_| format!("jpeg_size: {v}"));
+    let v = t.eval(r#"disp.png_size(asset("logo.png"))"#);
+    t.check(v == "3\t2", "... and one for disp.png", |_| format!("png_size: {v}"));
     let v = t.eval(r#"sound.play(asset("ding.wav"))"#);
     t.check(v == "true", "... and a sound for sound.play", |_| format!("play asset: {v}"));
     t.until_sim(3.0, |t| t.eval("sound.playing()") == "false");

@@ -1,7 +1,6 @@
 //! disp.png and disp.png_size against PNGs made by the test (every colour
 //! type, bit depths, filters, alpha, scaling, broken files), and disp.grab.
-//! The device fetches them from a small server here: `put` sends only an
-//! app's .jpg and .wav files.
+//! The device fetches them from a small server here.
 
 use std::collections::HashMap;
 use std::sync::Arc;

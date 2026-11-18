@@ -92,8 +92,9 @@ pub fn is_plain_file_name(name: &str) -> bool {
 }
 
 /// Kinds of files an app can carry besides its Lua files and app.json, for
-/// `asset()` on the device: images for `disp.jpeg`, sounds for `sound.play`.
-pub const ASSET_EXTENSIONS: &[&str] = &["jpg", "jpeg", "wav"];
+/// `asset()` on the device: images for `disp.jpeg` and `disp.png`, sounds for
+/// `sound.play`.
+pub const ASSET_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "wav"];
 
 /// Is this file name an asset (by its extension, in any case)?
 pub fn is_asset(name: &str) -> bool {
@@ -313,8 +314,8 @@ mod tests {
 
     #[test]
     fn device_file_names_are_checked() {
-        assert!(is_asset("logo.jpg") && is_asset("Ding.WAV") && is_asset("a.jpeg"));
-        assert!(!is_asset("main.lua") && !is_asset("jpg") && !is_asset("x.png"));
+        assert!(is_asset("logo.jpg") && is_asset("Ding.WAV") && is_asset("a.jpeg") && is_asset("x.PNG"));
+        assert!(!is_asset("main.lua") && !is_asset("jpg") && !is_asset("x.gif"));
         assert!(is_plain_file_name("main.lua"));
         assert!(is_plain_file_name("app.json"));
         assert!(!is_plain_file_name(".."));

@@ -95,8 +95,8 @@ For the real device, see [app/idf/README.md](app/idf/README.md).
 ## Apps
 
 An app is a folder of Lua files starting at `main.lua`. Other Lua files are
-modules for `require`. Pictures (`.jpg`) and sounds (`.wav`) in the folder go
-along too, for `asset("logo.jpg")`. An optional `app.json` sets the menu
+modules for `require`. Pictures (`.jpg`, `.png`) and sounds (`.wav`) in the
+folder go along too, for `asset("logo.png")`. An optional `app.json` sets the menu
 title and info:
 
 ```json

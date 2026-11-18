@@ -102,8 +102,9 @@ end                     -- default rate 30 Hz, change with sys.rate(hz)
   another, is an error. Error messages name the file without the app
   (`main.lua:11: ...`).
 * `asset(name)` -> `data` or `nil, err` reads a file of the app as a string:
-  a picture for `disp.jpeg` or a sound for `sound.play`. The PC tools send
-  an app's `.jpg`, `.jpeg` and `.wav` files with its Lua files. Each file can
+  a picture for `disp.jpeg` or `disp.png`, or a sound for `sound.play`. The
+  PC tools send an app's `.jpg`, `.jpeg`, `.png` and `.wav` files with its
+  Lua files (not those in subfolders). Each file can
   be up to 256 KiB, and uploads that aren't installed yet share 512 KiB. Only
   the app's own files: a name with `/` is an error.
 

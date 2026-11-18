@@ -36,7 +36,7 @@ impl Studio {
                 .clicked()
             {
                 let picked = rfd::FileDialog::new()
-                    .add_filter("Lua, pictures, sounds", &["lua", "jpg", "jpeg", "wav"])
+                    .add_filter("Lua, pictures, sounds", &["lua", "jpg", "jpeg", "png", "wav"])
                     .pick_files();
                 if let Some(paths) = picked {
                     paths.into_iter().for_each(|p| self.open_file(p));
