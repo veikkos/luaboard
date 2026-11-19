@@ -87,6 +87,17 @@ pub fn run(t: &mut T) {
     t.ctl(&["button=B", "advance=900", "button=-", "advance=300"]); // home
     let apps = t.info("apps");
     t.check(apps == "3", "it is in the home list", |_| format!("apps={apps}"));
+
+    // An index in a later format than this firmware reads: the store says
+    // to update the firmware. Home: Hello, Stocks, Upd, then Marketplace.
+    market.set_raw(Some(r#"{"format": 2, "apps": {}}"#.into()));
+    let ok = market::next_check(t);
+    t.tap_at(60, ui::row(3));
+    t.advance(300);
+    let state = store_log(t);
+    t.check(ok && state.ends_with("later format"), "an index for a later firmware: the store says to update", |t| {
+        format!("{state} / {}", said(t))
+    });
     t.stop();
 
     drag_to_marketplace(t);
