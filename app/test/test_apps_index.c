@@ -1,9 +1,13 @@
 #include "apps_index.h"
 #include "check.h"
 
+#include <stdio.h>
 #include <string.h>
 
+#include "json.h"
+
 void test_apps_index(int *total, int *failed);
+int check_marketplace(const char *rules_path, const char *index_path);
 
 #define SHA_A "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
 #define SHA_B "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
@@ -93,4 +97,122 @@ void test_apps_index(int *total, int *failed)
 
     *total += check_total;
     *failed += check_failed;
+}
+
+/* A file's bytes into buf[cap]: how many, or -1 if it can't be read. One
+   that fills buf may be longer. */
+static long read_file(const char *path, char *buf, size_t cap)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        printf("fw-unit: can't read %s\n", path);
+        return -1;
+    }
+    size_t n = fread(buf, 1, cap, f);
+    fclose(f);
+    return (long)n;
+}
+
+/* The marketplace's limits (the "limits" of its tools/board.json, which its
+   index checks hold every app to) and the most this firmware reads of
+   each. A marketplace limit may be less, never more: an app past what the
+   firmware reads is left out of the board's Marketplace without a word. */
+static const struct { const char *name; long most; } LIMITS[] = {
+    { "apps", APPS_INDEX_MAX_APPS },
+    { "index_bytes", APPS_INDEX_MAX },
+    { "app_name", APPS_NAME_MAX - 1 },
+    { "files", APPS_INDEX_MAX_FILES },
+    { "file_name", APPS_PATH_MAX - 1 },
+    { "file_bytes", APPS_FILE_MAX },
+    { "title_bytes", APP_TITLE_MAX },
+    { "author_bytes", APP_AUTHOR_MAX },
+    { "license_bytes", APP_LICENSE_MAX },
+    { "description_bytes", APP_DESC_MAX },
+    { "description_lines", APP_DESC_LINES },
+    { "description_cols", APP_DESC_COLS },
+    { "description_qr_lines", APP_DESC_QR_LINES },
+    { "description_qr_cols", APP_DESC_QR_COLS },
+};
+#define N_LIMITS ((int)(sizeof LIMITS / sizeof LIMITS[0]))
+
+static void check_limits(const char *text, size_t len)
+{
+    json_t j, limits;
+    char key[32];
+    bool have = false, seen[N_LIMITS] = { false };
+    json_init(&j, text, len);
+    while (json_member(&j, key, sizeof key)) {
+        if (!strcmp(key, "limits")) have = json_object(&j, &limits);
+        else json_value(&j, NULL, 0);
+    }
+    CHECK(!j.err && have);
+    while (have && json_member(&limits, key, sizeof key)) {
+        long n = -1;
+        int i = 0;
+        json_whole(&limits, &n);
+        while (i < N_LIMITS && strcmp(key, LIMITS[i].name)) i++;
+        CHECK(i < N_LIMITS && n >= 0 && n <= LIMITS[i].most);
+        if (i == N_LIMITS) {
+            printf("fw-unit: marketplace limit %s: not one this firmware knows (LIMITS)\n", key);
+            continue;
+        }
+        seen[i] = true;
+        if (n < 0) printf("fw-unit: marketplace limit %s isn't a whole number\n", key);
+        else if (n > LIMITS[i].most) printf("fw-unit: marketplace limit %s is %ld, the firmware reads %ld\n", key, n, LIMITS[i].most);
+    }
+    CHECK(!have || !limits.err);
+    for (int i = 0; i < N_LIMITS; i++) {
+        CHECK(seen[i]);
+        if (!seen[i]) printf("fw-unit: marketplace limit %s: not in its board.json\n", LIMITS[i].name);
+    }
+}
+
+/* Every app of the index is one the firmware offers, whatever Lua API its
+   versions are for. */
+static void check_index(const char *text, size_t len)
+{
+    char err[64] = "", key[16], name[64];
+    json_t j, apps;
+    CHECK(len <= APPS_INDEX_MAX);
+    bool ok = apps_index_parse(text, len, 1, 999999999, &ix, err, sizeof err) && !ix.newer_format;
+    CHECK(ok);
+    if (!ok) {
+        printf("fw-unit: the firmware can't read the marketplace's index: %s\n", err[0] ? err : "a newer format");
+        return;
+    }
+    int n = 0;
+    json_init(&j, text, len);
+    while (json_member(&j, key, sizeof key)) {
+        if (strcmp(key, "apps") || !json_object(&j, &apps)) {
+            json_value(&j, NULL, 0);
+            continue;
+        }
+        while (json_member(&apps, name, sizeof name)) {
+            json_value(&apps, NULL, 0);
+            n++;
+            bool offered = apps_index_find(&ix, name) != NULL;
+            CHECK(offered);
+            if (!offered) printf("fw-unit: the firmware leaves out the marketplace's app '%s'\n", name);
+        }
+    }
+    CHECK(n > 0 && n == ix.n);
+}
+
+/* fw-unit --marketplace <board.json> <index.json>: the limits the
+   marketplace's checks keep (its tools/board.json) are within what this
+   firmware reads, and the firmware offers every app of its index. */
+int check_marketplace(const char *rules_path, const char *index_path)
+{
+    static char text[APPS_INDEX_MAX + 1];
+    long len = read_file(rules_path, text, sizeof text);
+    if (len < 0) return 1;
+    check_limits(text, (size_t)len);
+    if ((len = read_file(index_path, text, sizeof text)) < 0) return 1;
+    check_index(text, (size_t)len);
+    if (check_failed) {
+        printf("fw-unit: marketplace: %d of %d checks FAILED\n", check_failed, check_total);
+        return 1;
+    }
+    printf("fw-unit: marketplace ok (%d checks)\n", check_total);
+    return 0;
 }

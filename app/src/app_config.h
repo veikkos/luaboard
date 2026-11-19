@@ -16,7 +16,7 @@
 
 /* app.json's text (and the marketplace index's copy of it): the most the
    board keeps, in bytes. Longer text is cut, ending in "…". The
-   marketplace's checks (tools/build_index.py) keep its apps within these,
+   marketplace's checks (its tools/board.json) keep its apps within these,
    and a description within what the screens show of it: APP_DESC_LINES
    lines of APP_DESC_COLS characters in the app's options, and on the
    Marketplace page of an app that needs setup, APP_DESC_QR_LINES of

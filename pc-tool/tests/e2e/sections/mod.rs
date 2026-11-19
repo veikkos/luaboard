@@ -43,7 +43,6 @@ mod s43_app_stage;
 mod s44_app_updates;
 mod s45_app_updates_menu;
 mod s46_marketplace;
-mod s47_shared_rules;
 mod s48_secrets_push;
 mod s49_sim_wifi;
 mod s50_lua_api;
@@ -91,7 +90,6 @@ pub const ALL: &[(&str, Section)] = &[
     ("44-app-updates", s44_app_updates::run),
     ("45-app-updates-menu", s45_app_updates_menu::run),
     ("46-marketplace", s46_marketplace::run),
-    ("47-shared-rules", s47_shared_rules::run),
     ("48-secrets-push", s48_secrets_push::run),
     ("49-sim-wifi", s49_sim_wifi::run),
     ("50-lua-api", s50_lua_api::run),

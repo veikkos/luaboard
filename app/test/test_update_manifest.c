@@ -263,9 +263,11 @@ void test_check_sched(int *total, int *failed); /* test_check_sched.c */
 void test_qr(int *total, int *failed);          /* test_qr.c */
 void test_tz(int *total, int *failed);          /* test_tz.c */
 void test_text(int *total, int *failed);        /* test_text.c */
+int check_marketplace(const char *rules_path, const char *index_path);   /* test_apps_index.c */
 
 int main(int argc, char **argv)
 {
+    if (argc == 4 && !strcmp(argv[1], "--marketplace")) return check_marketplace(argv[2], argv[3]);
     if ((argc == 4 || argc == 5) && !strcmp(argv[1], "--manifest"))
         return check_release_manifest(argv[2], argv[3], argc == 5 ? argv[4] : NULL);
     test_newer();

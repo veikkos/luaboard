@@ -2,13 +2,23 @@
 
 use anyhow::{anyhow, bail, Context, Result};
 
-/// Is this a name the device accepts for an app (or a file in one)?
-/// 1..23 characters from `[A-Za-z0-9_.-]`, not starting with `.`.
-pub fn valid_app_name(name: &str) -> bool {
+/// The longest names the device takes for an app and for a file in one
+/// (the firmware's VFS_APP_NAME_MAX and VFS_FILE_NAME_MAX, less the NUL).
+pub const APP_NAME_MAX: usize = 23;
+pub const FILE_NAME_MAX: usize = 31;
+
+/// The device's rule for both: 1..`most` characters from `[A-Za-z0-9_.-]`,
+/// not starting with `.`.
+fn device_name(name: &str, most: usize) -> bool {
     !name.is_empty()
-        && name.len() <= 23
+        && name.len() <= most
         && !name.starts_with('.')
         && name.bytes().all(|c| c.is_ascii_alphanumeric() || b"_.-".contains(&c))
+}
+
+/// Is this a name the device accepts for an app?
+pub fn valid_app_name(name: &str) -> bool {
+    device_name(name, APP_NAME_MAX)
 }
 
 /// Name of the optional metadata file in a project (title, description, ...).
@@ -82,13 +92,10 @@ pub fn kept_secrets_note(app: &str, kept: &[String]) -> Option<String> {
 }
 
 /// A device file name that is safe to use as a local file name: the device's
-/// own rule (A-Z a-z 0-9 _ . -, not starting with '.', 1..31 characters), so
-/// no path separators or "..", whatever the other end sends.
+/// own rule for one, so no path separators or "..", whatever the other end
+/// sends.
 pub fn is_plain_file_name(name: &str) -> bool {
-    !name.is_empty()
-        && name.len() < 32
-        && !name.starts_with('.')
-        && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
+    device_name(name, FILE_NAME_MAX)
 }
 
 /// Kinds of files an app can carry besides its Lua files and app.json, for
@@ -127,7 +134,7 @@ pub fn app_name_for(dir: &std::path::Path) -> String {
     while name.starts_with('.') {
         name.remove(0);
     }
-    name.truncate(23);
+    name.truncate(APP_NAME_MAX);
     if name.is_empty() {
         "app".into()
     } else {
@@ -322,6 +329,27 @@ mod tests {
         assert!(!is_plain_file_name(".bashrc"));
         assert!(!is_plain_file_name("..\\..\\x.lua"));
         assert!(!is_plain_file_name(""));
+        assert!(is_plain_file_name(&"f".repeat(FILE_NAME_MAX)) && !is_plain_file_name(&"f".repeat(FILE_NAME_MAX + 1)));
+        assert!(valid_app_name(&"a".repeat(APP_NAME_MAX)) && !valid_app_name(&"a".repeat(APP_NAME_MAX + 1)));
+        assert!(!valid_app_name("") && !valid_app_name(".a") && !valid_app_name("a b") && !valid_app_name("ä"));
+        let long = app_name_for(std::path::Path::new("/x/a folder with a long name, and more"));
+        assert_eq!(long, "a-folder-with-a-long-na");
+        assert!(valid_app_name(&long));
+    }
+
+    /// The marketplace's index lists the files of an app that boards install
+    /// by the same rule as the CLI sends them (its tools/board.json).
+    #[test]
+    fn asset_types_are_the_marketplaces() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../marketplace/tools/board.json");
+        let text = std::fs::read_to_string(path).expect("marketplace/ is empty: run git submodule update --init");
+        let board: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let mut theirs: Vec<&str> =
+            board["asset_types"].as_array().unwrap().iter().filter_map(|t| t.as_str()).collect();
+        let mut ours = ASSET_EXTENSIONS.to_vec();
+        theirs.sort();
+        ours.sort();
+        assert_eq!(theirs, ours);
     }
 
     #[test]

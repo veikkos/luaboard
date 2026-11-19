@@ -59,11 +59,14 @@ add_custom_target(apps
 
 # The release script's round trip: a manifest made from a CHANGELOG fixture
 # must parse in the firmware's parser (fw-unit --manifest), and its notes.md
-# must have its relative links made absolute.
+# must have its relative links made absolute. The marketplace's limits and
+# index are held to the firmware's too (fw-unit --marketplace).
 set(REL_OUT ${CMAKE_BINARY_DIR}/fw-unit-release)
 add_custom_target(unit
+    COMMAND ${CMAKE_COMMAND} -DROOT=${ROOT} -P ${ROOT}/tools/need_marketplace.cmake
     COMMAND ${CARGO} test --release --quiet --lib --bins
     COMMAND $<TARGET_FILE:fw-unit>
+    COMMAND $<TARGET_FILE:fw-unit> --marketplace ${ROOT}/marketplace/tools/board.json ${ROOT}/marketplace/index.json
     COMMAND ${CMAKE_COMMAND} -E remove_directory ${REL_OUT}
     COMMAND ${CMAKE_COMMAND} -DROOT=${ROOT} -DTAG=v1.0.0 -DBOARD=m5stack-cores3 -DOUT=${REL_OUT}
             -DCHANGELOG=${ROOT}/app/test/CHANGELOG.fixture.md -DIMAGE=${ROOT}/app/test/CHANGELOG.fixture.md

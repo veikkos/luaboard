@@ -20,6 +20,10 @@
 #include "app_config.h"
 
 #define APPS_INDEX_FORMAT    1      /* the format this firmware reads; a later one: newer_format */
+/* The marketplace's checks keep its apps and index within these limits,
+   APPS_INDEX_MAX and app.json's text sizes (its tools/board.json, held to
+   them by fw-unit --marketplace): what is past one is left out here
+   without a word. */
 #define APPS_INDEX_MAX_APPS  128
 #define APPS_INDEX_MAX_FILES 32     /* board files of one app version */
 #define APPS_NAME_MAX        24     /* = VFS_APP_NAME_MAX (checked in app_update.c) */

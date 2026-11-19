@@ -57,6 +57,15 @@ pub fn run(t: &mut T) {
     t.check(ok, "file names ending in .tmp are refused", |t| {
         format!(".tmp upload: {}", t.e(&["put", &t.path("f.tmp"), "--app", "t"]))
     });
+    // The CLI's name lengths against the board's own check of a name. The
+    // size is one the board refuses, after the name: nothing is stored.
+    let (app, file) = ("a".repeat(luaboard::APP_NAME_MAX), "f".repeat(luaboard::FILE_NAME_MAX));
+    let put = |app: &str, file: &str| format!("PUT {app}/{file} 999999999 0");
+    let said = t.raw(&[&put(&app, &file), &put(&format!("{app}a"), &file), &put(&app, &format!("{file}f"))]);
+    let said: Vec<&str> = said.lines().collect();
+    let ok =
+        said.len() == 3 && said[0].starts_with("ERR size") && said[1..].iter().all(|l| l.starts_with("ERR bad name"));
+    t.check(ok, "the CLI's longest app and file names are the board's", |_| format!("PUT: {said:?}"));
     let help = t.raw(&["help", "NOSUCH"]);
     let ok = grep("^OK PING INFO .* SECRETS SECRET CRASH HELP - see docs/PROTOCOL.md$", &help)
         && help.contains("ERR unknown command 'NOSUCH'");
