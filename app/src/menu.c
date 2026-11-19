@@ -29,6 +29,9 @@
 
 static const char *TAG = "menu";
 
+/* The screens. What each one has (title, drawing, events, rows) is a switch
+   over view_t with a case for every view and no default, so the compiler
+   names a view a switch leaves out. */
 typedef enum { V_HOME, V_SETTINGS, V_OPTIONS, V_PICK, V_UPDATE, V_APPUPD, V_STORE, V_STORE_APP, V_APP } view_t;
 /* What a touch event means to the menu (menu_tick turns buttons.c's events into these). */
 typedef enum { M_NONE, M_UP, M_DOWN, M_OK, M_BACK, M_HOME, M_TAP, M_HOLD,
@@ -1426,8 +1429,7 @@ static void store_sync(void)
     redraw();
 }
 
-/* The header's title: every view has one (no default, so the compiler
-   names a view left out). */
+/* The header's title. */
 static const char *view_title(void)
 {
     const apps_entry_t *e;
@@ -1448,14 +1450,17 @@ static void redraw(void)
 {
     if (s_view == V_OPTIONS && app_index(s_oapp) < 0) s_view = V_HOME;   /* removed meanwhile */
     if (s_view == V_UPDATE && !update_available() && !update_manual()) s_view = V_HOME;   /* forgotten meanwhile */
-    if (s_view == V_HOME) draw_home();
-    else if (s_view == V_UPDATE) draw_update();
-    else if (s_view == V_APPUPD) draw_appupd();
-    else if (s_view == V_STORE) draw_store();
-    else if (s_view == V_STORE_APP) draw_store_app();
-    else if (s_view == V_SETTINGS) draw_settings();
-    else if (s_view == V_PICK) { build_pick(); draw_pick(); }
-    else if (s_view == V_OPTIONS) draw_options();
+    switch (s_view) {
+    case V_HOME: draw_home(); break;
+    case V_SETTINGS: draw_settings(); break;
+    case V_PICK: build_pick(); draw_pick(); break;
+    case V_OPTIONS: draw_options(); break;
+    case V_UPDATE: draw_update(); break;
+    case V_APPUPD: draw_appupd(); break;
+    case V_STORE: draw_store(); break;
+    case V_STORE_APP: draw_store_app(); break;
+    case V_APP: break;                                        /* the app's own screen */
+    }
 }
 
 /* ------------------------------------------------------------ actions */
@@ -1866,8 +1871,9 @@ static int row_under(int x, int y)
     case V_APPUPD: return list_row_at(appupd_list(), y);
     case V_STORE: return list_row_at(store_list(), y);
     case V_STORE_APP: return list_row_at(store_app_list(), y);
-    default: return -1;
+    case V_APP: return -1;
     }
+    return -1;
 }
 
 /* One action for the view on the screen. */
@@ -1891,14 +1897,17 @@ static void menu_act(act_t ev, const btn_event_t *e)
         else if (s_view != V_HOME) { s_view = V_HOME; draw_home(); }
         return;
     }
-    if (s_view == V_HOME) home_event(ev, e);
-    else if (s_view == V_OPTIONS) options_event(ev, e);
-    else if (s_view == V_UPDATE) update_event(ev, e);
-    else if (s_view == V_APPUPD) appupd_event(ev, e);
-    else if (s_view == V_STORE) store_event(ev, e);
-    else if (s_view == V_STORE_APP) store_app_event(ev, e);
-    else if (s_view == V_PICK) pick_event(ev, e);
-    else settings_event(ev, e);
+    switch (s_view) {
+    case V_HOME: home_event(ev, e); break;
+    case V_SETTINGS: settings_event(ev, e); break;
+    case V_PICK: pick_event(ev, e); break;
+    case V_OPTIONS: options_event(ev, e); break;
+    case V_UPDATE: update_event(ev, e); break;
+    case V_APPUPD: appupd_event(ev, e); break;
+    case V_STORE: store_event(ev, e); break;
+    case V_STORE_APP: store_app_event(ev, e); break;
+    case V_APP: break;                                        /* above */
+    }
 }
 
 /* Row i of the view on the screen again, e.g. now that it's (not) pressed. */
@@ -1919,7 +1928,7 @@ static void redraw_row(int i)
     case V_APPUPD: l = appupd_list(); break;
     case V_STORE: l = store_list(); break;
     case V_STORE_APP: l = store_app_list(); break;
-    default: return;
+    case V_APP: return;
     }
     list_redraw_row(&l, i);
 }
