@@ -422,14 +422,16 @@ static int app_rows(void) { return HOME_ROWS - fixed_rows(); }
 static int fixed_y(int i) { return FOOT_Y - (set_index() - i + 1) * ROW_H; }
 static int divider_y(void) { return FOOT_Y - fixed_rows() * ROW_H - (DIVIDER_H + ROW_GAP) / 2; }
 
-/* The name the menu shows: the title from app.json, else the folder name. */
-static const char *app_title(int i) { return s_apps[i].title[0] ? s_apps[i].title : s_apps[i].app.name; }
+/* The name the menu shows an app by, an installed one or the marketplace's:
+   the title from app.json, else the folder name. */
+static const char *shown_as(const char *title, const char *name) { return title[0] ? title : name; }
+static const char *app_title(int i) { return shown_as(s_apps[i].title, s_apps[i].app.name); }
 
 /* By the shown name, then the folder name (the same order every time). */
 static int cmp_apps(const void *pa, const void *pb)
 {
     const menu_app_t *a = pa, *b = pb;
-    int c = strcasecmp(a->title[0] ? a->title : a->app.name, b->title[0] ? b->title : b->app.name);
+    int c = strcasecmp(shown_as(a->title, a->app.name), shown_as(b->title, b->app.name));
     return c ? c : strcmp(a->app.name, b->app.name);
 }
 
@@ -1004,7 +1006,7 @@ static void appupd_text(int r, int y, bool sel)
     }
     fit(shown, sizeof shown, right, w / 2, 1);
     row_value(y, shown, why ? C_WARN : C_DIM);
-    fit(t, sizeof t, e->title[0] ? e->title : e->name, w - 2 * PAD - 8 - gfx_text_width(shown, 1) - 8, 2);
+    fit(t, sizeof t, shown_as(e->title, e->name), w - 2 * PAD - 8 - gfx_text_width(shown, 1) - 8, 2);
     row_label(y, t, C_TEXT);
 }
 
@@ -1046,7 +1048,7 @@ static void appupd_progress(void)
     const apps_index_t *ix = app_update_index();
     const apps_entry_t *e = ix ? apps_index_find(ix, s_queue[s_qi]) : NULL;
     char line[80];
-    snprintf(line, sizeof line, "%s: %s", e && e->title[0] ? e->title : s_queue[s_qi], app_install_file());
+    snprintf(line, sizeof line, "%s: %s", shown_as(e ? e->title : "", s_queue[s_qi]), app_install_file());
     screen_progress(s_qn > 1 ? "Updating apps" : "Updating", line, pct, "Keep the power on.");
 }
 
@@ -1164,7 +1166,7 @@ static const apps_index_t *s_sort_ix;  /* for cmp_store */
 static int cmp_store(const void *pa, const void *pb)
 {
     const apps_entry_t *a = &s_sort_ix->app[*(const int *)pa], *b = &s_sort_ix->app[*(const int *)pb];
-    int c = strcasecmp(a->title[0] ? a->title : a->name, b->title[0] ? b->title : b->name);
+    int c = strcasecmp(shown_as(a->title, a->name), shown_as(b->title, b->name));
     return c ? c : strcmp(a->name, b->name);
 }
 
@@ -1230,7 +1232,7 @@ static void store_text(int r, int y, bool sel)
     else if (e->needs_setup) { tag = "(i)"; c = C_WARN; }
     if (*tag) row_value(y, tag, c);
     char t[48];
-    fit(t, sizeof t, e->title[0] ? e->title : e->name, w - 2 * PAD - 8 - (*tag ? gfx_text_width(tag, 1) + 8 : 0), 2);
+    fit(t, sizeof t, shown_as(e->title, e->name), w - 2 * PAD - 8 - (*tag ? gfx_text_width(tag, 1) + 8 : 0), 2);
     row_label(y, t, C_TEXT);
 }
 
@@ -1440,8 +1442,8 @@ static const char *view_title(void)
     case V_UPDATE: return "Firmware update";
     case V_APPUPD: return "App updates";
     case V_STORE: return "Marketplace";
-    case V_STORE_APP: return (e = store_entry()) ? (e->title[0] ? e->title : e->name) : "Marketplace";
-    case V_OPTIONS: return s_ometa.title[0] ? s_ometa.title : s_oapp;
+    case V_STORE_APP: return (e = store_entry()) ? shown_as(e->title, e->name) : "Marketplace";
+    case V_OPTIONS: return shown_as(s_ometa.title, s_oapp);
     }
     return FW_NAME;
 }
@@ -1596,7 +1598,7 @@ static void uninstall_app(void)
 {
     char name[VFS_APP_NAME_MAX], msg[64];
     snprintf(name, sizeof name, "%s", s_oapp);
-    const char *shown = s_ometa.title[0] ? s_ometa.title : name;
+    const char *shown = shown_as(s_ometa.title, name);
     esp_err_t err = app_remove(name);                     /* its data goes with it */
     s_armed = false;
     s_view = V_HOME;
@@ -1614,7 +1616,7 @@ static void uninstall_app(void)
 static void clear_app_data(void)
 {
     char msg[64];
-    const char *shown = s_ometa.title[0] ? s_ometa.title : s_oapp;
+    const char *shown = shown_as(s_ometa.title, s_oapp);
     s_armed = false;
     if (appdata_clear(s_oapp) == ESP_OK) {
         proto_eventf("cleared %s", s_oapp);
@@ -1913,7 +1915,7 @@ static void menu_act(act_t ev, const btn_event_t *e)
 /* Row i of the view on the screen again, e.g. now that it's (not) pressed. */
 static void redraw_row(int i)
 {
-    list_t l;
+    list_t l = { 0 };                                         /* no rows: nothing to draw */
     switch (s_view) {
     case V_HOME:
         if (i == set_index()) { home_settings_row(); return; }
