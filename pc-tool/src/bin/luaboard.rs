@@ -220,6 +220,14 @@ enum Cmd {
         #[arg(long)]
         secs: Option<u64>,
     },
+    /// Lend the device this computer's network over USB, for when it has no
+    /// Wi-Fi, and print its output (LOG/EVT) until Ctrl-C
+    Tether {
+        /// Let the device's apps connect to this computer's own addresses
+        /// (127.0.0.1, localhost), not only to other computers
+        #[arg(long)]
+        allow_local: bool,
+    },
     /// Send control lines to a simulator started with --control (the run
     /// target's is on): its --set keys, advance=MS to fast-forward its clock,
     /// quit=1 to power it off. Each waits until it has taken effect.
@@ -268,8 +276,10 @@ fn raw(port: &str, baud: u32, linger: f64) -> Result<()> {
         // Read before draining: once stdin has ended, everything it sent is queued.
         let stdin_done = done.load(Ordering::SeqCst);
         while let Ok(data) = rx.try_recv() {
-            link.write_all(&data)?;
-            link.flush()?;
+            // (what comes meanwhile is printed: the device may wait for that)
+            luaboard::write_all_reading(&mut *link, &data, Duration::from_secs(3), &mut |b| {
+                let _ = out.write_all(b);
+            })?;
             quiet_since = Instant::now();
         }
         match link.read(&mut buf) {
@@ -690,7 +700,11 @@ fn main() -> Result<()> {
             let tz = get("tz");
             let zone = luaboard::timezone::name_of(tz).map(|n| format!("{n}, ")).unwrap_or_default();
             if get("synced") == "1" {
-                let from = if get("source") == "rtc" { ", from the RTC chip: no NTP yet" } else { "" };
+                let from = match get("source") {
+                    "rtc" => ", from the RTC chip: no NTP yet",
+                    "usb" => ", from the computer over USB: no NTP yet",
+                    _ => "",
+                };
                 println!("{}  ({zone}{tz}{from})", get("local").replacen('T', " ", 1));
             } else {
                 println!("not set yet: the device takes the time from the network once Wi-Fi is up ({zone}{tz})");
@@ -713,6 +727,21 @@ fn main() -> Result<()> {
                 }
                 if end.is_some_and(|e| Instant::now() >= e) {
                     break;
+                }
+            }
+        }
+        Cmd::Tether { allow_local } => {
+            if luaboard::wifi::parse_tcp_port(&port).is_some() {
+                bail!("the tether works only over USB (the device has Wi-Fi when it's reached over it)");
+            }
+            let mut dev = open()?;
+            let mut relay = luaboard::tether::Relay::new(allow_local);
+            eprintln!("lending {port} this computer's network (Ctrl-C to quit)");
+            loop {
+                // (a turn at once while bytes move, else every 30 ms)
+                let wait = Duration::from_millis(if relay.busy() { 2 } else { 30 });
+                for m in relay.pump(&mut dev, wait)? {
+                    print_async(m);
                 }
             }
         }

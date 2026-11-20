@@ -189,6 +189,12 @@ impl TcpLink {
     }
 }
 
+impl crate::Link for TcpLink {
+    fn set_wait(&mut self, wait: Duration) {
+        let _ = self.stream.set_read_timeout(Some(wait.max(Duration::from_millis(1))));
+    }
+}
+
 impl Read for TcpLink {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         loop {

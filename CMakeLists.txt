@@ -284,7 +284,8 @@ file(GLOB UNIT_SRCS CONFIGURE_DEPENDS ${ROOT}/app/test/*.c)
 add_executable(fw-unit ${UNIT_SRCS} ${ROOT}/app/src/update_manifest.c ${ROOT}/app/src/hex.c
     ${ROOT}/app/src/json.c ${ROOT}/app/src/text.c ${ROOT}/app/src/wake_time.c
     ${ROOT}/app/src/semver.c ${ROOT}/app/src/apps_index.c ${ROOT}/app/src/names.c
-    ${ROOT}/app/src/check_sched.c ${ROOT}/app/src/tz.c ${ROOT}/third_party/qrcodegen/qrcodegen.c)
+    ${ROOT}/app/src/check_sched.c ${ROOT}/app/src/tz.c ${ROOT}/app/src/b64.c ${ROOT}/app/src/tun.c
+    ${ROOT}/third_party/qrcodegen/qrcodegen.c)
 target_include_directories(fw-unit PRIVATE ${ROOT}/app/src ${ROOT}/third_party/qrcodegen)
 target_compile_options(fw-unit PRIVATE ${LANG_FLAGS} ${WARN})
 if(MSVC)

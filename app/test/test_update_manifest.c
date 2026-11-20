@@ -264,6 +264,8 @@ void test_qr(int *total, int *failed);          /* test_qr.c */
 void test_tz(int *total, int *failed);          /* test_tz.c */
 void test_text(int *total, int *failed);        /* test_text.c */
 int check_marketplace(const char *rules_path, const char *index_path);   /* test_apps_index.c */
+void test_b64(int *total, int *failed);         /* test_b64.c */
+void test_tun(int *total, int *failed);         /* test_tun.c */
 
 int main(int argc, char **argv)
 {
@@ -288,6 +290,8 @@ int main(int argc, char **argv)
     test_qr(&check_total, &check_failed);
     test_tz(&check_total, &check_failed);
     test_text(&check_total, &check_failed);
+    test_b64(&check_total, &check_failed);
+    test_tun(&check_total, &check_failed);
     if (check_failed) {
         printf("fw-unit: %d of %d checks FAILED\n", check_failed, check_total);
         return 1;

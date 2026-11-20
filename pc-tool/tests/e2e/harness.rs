@@ -910,6 +910,11 @@ impl T {
     fn device(&self) -> anyhow::Result<luaboard::Device> {
         luaboard::Device::open(&self.tty, 115200)
     }
+    /// The device over its serial link, for a section that speaks the
+    /// protocol itself.
+    pub fn dev(&self) -> luaboard::Device {
+        self.device().expect("the device's serial link")
+    }
     /// The result of EXPR on the device; "Error: ..." if it failed. What
     /// the device logs meanwhile (a script's prints, its notices) isn't part
     /// of it: eval_out has that too.

@@ -21,6 +21,7 @@
 #include "lua_net.h"
 #include "protocol.h"
 #include "settings.h"
+#include "tun.h"
 #include "wifilink.h"
 
 static const char *TAG = "net";
@@ -162,10 +163,11 @@ static int tcp_read(void *ctx, uint8_t *buf, size_t cap)
 }
 
 /* The protocol's writes: encrypted. */
-static void tcp_write(void *ctx, const void *data, size_t len)
+static bool tcp_write(void *ctx, const void *data, size_t len)
 {
     client_t *c = ctx;
     if (c->fd >= 0) wl_write(&c->wl, data, len, raw_send, c);
+    return c->fd >= 0;                          /* (raw_send drops a client that stops reading) */
 }
 
 static void raw_send(void *ctx, const void *data, size_t len)
@@ -420,6 +422,10 @@ void net_poll(void)
 }
 
 const char *net_ip(void) { return s_ip; }
+
+bool net_wifi_up(void) { return s_state == NET_CONNECTED; }
+
+bool net_online(void) { return net_wifi_up() || tun_up(); }
 
 bool net_wifi_failing(void) { return s_state == NET_CONNECTING && s_retries > 0; }
 

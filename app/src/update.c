@@ -62,8 +62,6 @@ static uint32_t check_every(void)
 #endif
 }
 
-static bool wifi_up(void) { return strcmp(net_ip(), "-") != 0; }
-
 static bool on_body(void *ctx, const uint8_t *data, size_t len)
 {
     (void)ctx;
@@ -191,8 +189,9 @@ static void install_over(const char *why, const char *full)
 
 static void install_poll(void)
 {
-    /* Without Wi-Fi it would only time out, a while later. */
-    if (!wifi_up()) { install_over("Wi-Fi dropped", NULL); return; }
+    /* Over Wi-Fi without it, it would only time out, a while later. (One
+       through the USB tether ends with the tether.) */
+    if (!net_wifi_up() && !httpc_tethered(s_dl)) { install_over("Wi-Fi dropped", NULL); return; }
     httpc_status_t st = httpc_poll(s_dl);
     if (st == HTTPC_BUSY) {
         if (hw_millis() - s_dl_start > UPDATE_INSTALL_MAX_MS) install_over(TOO_LONG, NULL);
@@ -224,7 +223,7 @@ void update_poll(void)
         case HTTPC_FAILED: check_failed(s_too_big ? "manifest too big" : httpc_error(s_http)); return;
         }
     }
-    if (!settings_update_check() || !manifest_url() || !wifi_up()) return;
+    if (!settings_update_check() || !manifest_url() || !net_online()) return;
     if (!check_sched_due(&s_sched, hw_millis(), UPDATE_FIRST_CHECK_MS) || ota_active()) return;
     check_start();
 }
@@ -233,7 +232,7 @@ const update_manifest_t *update_available(void) { return s_have ? &s_release : N
 
 void update_check_now(void)
 {
-    if (s_http || s_dl || !manifest_url() || !wifi_up() || ota_active()) return;
+    if (s_http || s_dl || !manifest_url() || !net_online() || ota_active()) return;
     check_start();
 }
 
@@ -248,7 +247,7 @@ bool update_install(char *err, size_t cap)
     const update_manifest_t *u = update_available();
     if (!u) { snprintf(err, cap, "no update known"); return false; }
     if (ota_active()) { snprintf(err, cap, "an update is already running"); return false; }
-    if (!wifi_up()) { snprintf(err, cap, "no Wi-Fi"); return false; }
+    if (!net_online()) { snprintf(err, cap, "no Wi-Fi"); return false; }
     if (strncmp(u->url, "https://", 8)) { snprintf(err, cap, "the release address isn't https"); return false; }
     /* A check under way gives way to it: its turn comes again once this
        is over. */
@@ -282,5 +281,5 @@ void update_setting_changed(void)
     }
     if (s_http) return;                  /* the check under way sets the next */
     check_sched_reset(&s_sched);         /* else when Wi-Fi comes up */
-    if (wifi_up()) check_sched_soon(&s_sched, hw_millis(), UPDATE_FIRST_CHECK_MS);
+    if (net_online()) check_sched_soon(&s_sched, hw_millis(), UPDATE_FIRST_CHECK_MS);
 }

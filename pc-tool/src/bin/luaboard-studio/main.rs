@@ -35,6 +35,7 @@ use eframe::egui;
 use luaboard::firmware::{self, FlashEvent, ImageInfo};
 use luaboard::login;
 use luaboard::ota;
+use luaboard::tether::Relay;
 use luaboard::{AppInfo, AppState, Device, FileInfo, Frame, Msg, DEFAULT_BAUD, SIM_LINK};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -90,6 +91,9 @@ struct Studio {
     ports_at: std::time::Instant,
     /// Live update on: the project is uploaded and run when its code changes.
     live: bool,
+    /// Lend the device this computer's network over USB (the worker's
+    /// Cmd::Tether): on unless turned off.
+    tether: bool,
     /// When the code last changed plus LIVE_QUIET: upload then.
     live_due: Option<Instant>,
     /// The project as last uploaded and run (project_hash), not sent again.
@@ -160,6 +164,7 @@ impl Studio {
             ports,
             ports_at: std::time::Instant::now(),
             live: false,
+            tether: true,
             live_due: None,
             live_sent: None,
             disk_at: Instant::now(),

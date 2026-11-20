@@ -18,6 +18,7 @@
 #include "clock.h"
 #include "crc32.h"
 #include "esp_log.h"
+#include "esp_random.h"
 #include "hw.h"
 #include "lua.h"
 #include "nvs.h"
@@ -32,6 +33,7 @@
 #include "script.h"
 #include "secrets.h"
 #include "settings.h"
+#include "tun.h"
 #include "update.h"
 #include "vfs.h"
 
@@ -82,9 +84,9 @@ static bool session_open(const session_t *s)
 
 /* ------------------------------------------------------------- output */
 
-static void sess_write(session_t *s, const void *data, size_t len)
+static bool sess_write(session_t *s, const void *data, size_t len)
 {
-    if (s && s->used) s->link.write(s->link.ctx, data, len);
+    return s && s->used && s->link.write(s->link.ctx, data, len);
 }
 
 static void sess_puts(session_t *s, const char *str) { sess_write(s, str, strlen(str)); }
@@ -634,6 +636,39 @@ static void cmd_tz(char *args)
     reply_ok("tz=%s", clock_tz());
 }
 
+/* The USB tether (tun.c): the session that turned it on gets its frames. */
+static session_t *s_tun;
+
+static bool tun_out(const char *line, size_t len) { return sess_write(s_tun, line, len); }
+
+/* TUN ON <utc> | TUN OFF -> OK TUN ON [started] | OK TUN OFF
+   TUN OPENED|DATA|ACK|CLOSE <id> ...: the computer's frames, no reply */
+static void cmd_tun(char *args)
+{
+    size_t n = strcspn(args, " ");               /* (a frame goes on whole) */
+    bool on = n == 2 && !strncasecmp(args, "ON", 2);
+    if (on || (n == 3 && !strncasecmp(args, "OFF", 3))) {
+        char *rest = args;
+        next_word(&rest);
+        if (!s_cur->link.trusted) { reply_err("the tether works only over USB"); return; }
+        if (!on) {
+            tun_off();
+            reply_ok("TUN OFF");
+            return;
+        }
+        char *utc_s = next_word(&rest), *end;
+        long long utc = strtoll(utc_s, &end, 10);
+        if (!*utc_s || *end || *rest) { reply_err("usage: TUN ON <utc> | TUN OFF"); return; }
+        if (s_tun != s_cur) tun_off();           /* (another link had it) */
+        s_tun = s_cur;
+        bool starts = tun_on(hw_millis());
+        if (starts) clock_set_usb(utc);
+        reply_ok(starts ? "TUN ON started" : "TUN ON");
+        return;
+    }
+    if (s_cur == s_tun && tun_up()) tun_frame(args);
+}
+
 static void cmd_eval(char *code)
 {
     char out[256];
@@ -794,6 +829,7 @@ static const struct {
     { "SECRETS", cmd_secrets, false },
     { "SECRET", cmd_secret, false },
     { "CRASH", cmd_crash, true },
+    { "TUN", cmd_tun, true },
     { "HELP", cmd_help, true },
 };
 #define N_COMMANDS (sizeof s_commands / sizeof *s_commands)
@@ -832,6 +868,7 @@ static void handle_line(char *line)
 void proto_init(void)
 {
     memset(s_sessions, 0, sizeof s_sessions);
+    tun_init(&(tun_io_t){ .out = tun_out, .alloc = hw_big_alloc, .free = free, .first_id = esp_random() });
 }
 
 int proto_add_link(const proto_link_t *link)
@@ -915,6 +952,7 @@ static void poll_session(session_t *s)
             if (c == '\n') {
                 if (s->line_overflow) reply_err("line too long (max %d)", PROTO_LINE_MAX - 1);
                 else { s->line[s->line_len] = 0; handle_line(s->line); }
+                if (s == s_tun) tun_heard(hw_millis());     /* (once done: a long command doesn't count) */
                 s->line_len = 0;
                 s->line_overflow = false;
                 if (s->state == ST_UPLOAD && s->up.size == 0) upload_finish();
@@ -947,4 +985,5 @@ void proto_poll(void)
 {
     for (int i = 0; i < PROTO_MAX_LINKS; i++)
         if (s_sessions[i].used) poll_session(&s_sessions[i]);
+    tun_poll(hw_millis());     /* (after them: lines that came while the loop was busy count) */
 }

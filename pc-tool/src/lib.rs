@@ -16,6 +16,7 @@ pub mod ota;
 mod project;
 pub mod simctl;
 pub mod syntax;
+pub mod tether;
 pub mod timezone;
 pub mod wifi;
 

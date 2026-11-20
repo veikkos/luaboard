@@ -45,6 +45,10 @@ connects to the first running simulator (`/tmp/esp32-sim`, Windows `\\.\pipe\esp
   opens this window.
 - Wi-Fi...: network status, set or forget the network, pair this computer
   for Wi-Fi (over USB), switch this session to Wi-Fi.
+- Share this computer's network (under the clock, on by default over USB):
+  without Wi-Fi the device's apps and update checks connect through this
+  computer, as with `luaboard tether`. TLS is still checked on the device,
+  and this computer's own addresses (`127.0.0.1`) are left out.
 - Browser login: when a script calls `browser.login()` (OAuth), the studio
   opens the login page and passes the result to the device. It never sees
   passwords or tokens.
@@ -77,6 +81,7 @@ $E -p tcp://192.168.1.23:3333 ls
 | `touch X Y`, `touch A\|B\|C`, `touch power` `[--hold MS]` | Touch the device from here: a point on the screen, a touch button, or the power key. `--hold 800` is a long press |
 | `eval CODE` | Run Lua and print the result |
 | `monitor [--secs N]` | Stream output and events |
+| `tether [--allow-local]` | Lend the device this computer's network over USB while it has no Wi-Fi, and stream its output. Its apps and update checks then connect through this computer, TLS still checked on the device. `--allow-local` lets them reach this computer's own addresses (`127.0.0.1`) too, see [USB tether](../docs/PROTOCOL.md#usb-tether) |
 | `raw` | Pass bytes between stdin/stdout and the serial link, unchanged (protocol debugging, and the tests use it) |
 | `wifi`, `wifi set SSID [PASSWORD]`, `wifi off` | Wi-Fi network |
 | `time [--sync]`, `tz [ZONE]`, `tz --list` | Clock and time zone (name or POSIX TZ) |

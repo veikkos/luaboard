@@ -20,6 +20,7 @@ static atomic_bool s_synced;          /* set from the SNTP task */
 static atomic_uint s_syncs;           /* NTP syncs so far (the SNTP task counts) */
 static unsigned s_saved_syncs;        /* ...of which the RTC chip has been given */
 static bool s_from_rtc;               /* time taken from the RTC chip at boot */
+static bool s_from_usb;               /* time taken from the USB tether's computer */
 static int64_t s_last_sync;           /* UTC of the last NTP sync the main loop saw */
 static bool s_started, s_announced;
 
@@ -74,11 +75,24 @@ esp_err_t clock_sync_now(void)
 unsigned clock_syncs(void) { return s_saved_syncs; }
 int64_t clock_last_sync(void) { return s_last_sync; }
 
-bool clock_valid(void) { return s_from_rtc || atomic_load(&s_synced); }
+void clock_set_usb(int64_t utc)
+{
+    if (atomic_load(&s_synced) || utc < SANE_TIME) return;
+    struct timeval tv = { .tv_sec = (time_t)utc };
+    settimeofday(&tv, NULL);
+    s_from_usb = true;
+    esp_err_t err = hw_rtc_write(utc);
+    if (err != ESP_OK) ESP_LOGW(TAG, "RTC write: %s", esp_err_to_name(err));
+    char iso[40];
+    clock_iso_local(utc, iso, sizeof iso);
+    proto_eventf("time usb %s", iso);
+}
+
+bool clock_valid(void) { return s_from_rtc || s_from_usb || atomic_load(&s_synced); }
 
 const char *clock_source(void)
 {
-    return atomic_load(&s_synced) ? "ntp" : s_from_rtc ? "rtc" : "-";
+    return atomic_load(&s_synced) ? "ntp" : s_from_usb ? "usb" : s_from_rtc ? "rtc" : "-";
 }
 
 int64_t clock_now(void)

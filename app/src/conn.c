@@ -8,11 +8,13 @@
 #include "app_config.h"
 #include "lwip/sockets.h"
 #include "net.h"
+#include "tun.h"
 
 void conn_init(conn_t *c)
 {
     memset(c, 0, sizeof *c);
     c->fd = -1;
+    c->tun = -1;
     c->dns = -1;
     c->state = CONN_CLOSED;
 }
@@ -22,19 +24,76 @@ void conn_close(conn_t *c)
     if (c->dns >= 0) dns_abandon(c->dns);
     c->dns = -1;
     if (c->tls) {
-        tls_free(c->tls, c->state == CONN_OPEN);
+        tls_free(c->tls, c->state == CONN_OPEN);   /* (its goodbye still goes out) */
         free(c->tls);
         c->tls = NULL;
     }
+    if (c->tun >= 0) tun_close(c->tun);
+    c->tun = -1;
     if (c->fd >= 0) close(c->fd);
     c->fd = -1;
     c->state = CONN_CLOSED;
 }
 
+/* A connection through the tether that the computer or the tether's end
+   closed with a reason: that reason in errmsg. */
+static bool tun_failed(conn_t *c)
+{
+    const char *why;
+    if (c->tun < 0 || tun_state(c->tun, &why) != TUN_CLOSED || !*why) return false;
+    snprintf(c->errmsg, sizeof c->errmsg, "%s", why);
+    return true;
+}
+
 static void tls_failed(conn_t *c, const char *what, int rc)
 {
-    tls_describe(c->tls, what, rc, c->errmsg, sizeof c->errmsg);
+    if (!tun_failed(c)) tls_describe(c->tls, what, rc, c->errmsg, sizeof c->errmsg);
     conn_close(c);
+}
+
+/* The bytes on the wire: the socket's, or the tether's. Bytes moved, 0 for
+   none now, CONN_EOF or CONN_FAIL (the reason in err or errmsg; not closed
+   yet). */
+static int io_send(conn_t *c, const void *buf, size_t len)
+{
+    if (c->tun >= 0) {
+        int n = tun_send(c->tun, buf, len);
+        if (n == TUN_FAIL && !tun_failed(c)) c->err = EPIPE;   /* (the computer had closed it) */
+        return n >= 0 ? n : CONN_FAIL;
+    }
+    ssize_t n = send(c->fd, buf, len, 0);
+    if (n >= 0) return (int)n;
+    if (errno == EAGAIN || errno == EWOULDBLOCK) return 0;
+    c->err = errno;
+    return CONN_FAIL;
+}
+
+static int io_recv(conn_t *c, void *buf, size_t cap)
+{
+    if (c->tun >= 0) {
+        int n = tun_recv(c->tun, buf, cap);
+        if (n == TUN_FAIL) tun_failed(c);
+        return n >= 0 ? n : n == TUN_EOF ? CONN_EOF : CONN_FAIL;
+    }
+    ssize_t n = recv(c->fd, buf, cap, MSG_DONTWAIT);
+    if (n > 0) return (int)n;
+    if (n == 0) return CONN_EOF;
+    if (errno == EAGAIN || errno == EWOULDBLOCK) return 0;
+    c->err = errno;
+    return CONN_FAIL;
+}
+
+/* TLS's I/O. */
+static int bio_send(void *ctx, const unsigned char *buf, size_t len)
+{
+    int n = io_send(ctx, buf, len);
+    return n > 0 ? n : n == 0 ? MBEDTLS_ERR_SSL_WANT_WRITE : -0x004E;   /* NET_SEND_FAILED */
+}
+
+static int bio_recv(void *ctx, unsigned char *buf, size_t len)
+{
+    int n = io_recv(ctx, buf, len);
+    return n > 0 ? n : n == 0 ? MBEDTLS_ERR_SSL_WANT_READ : n == CONN_EOF ? 0 : -0x004C;   /* NET_RECV_FAILED */
 }
 
 /* This device's own control port, by any address that reaches it. Apps
@@ -82,12 +141,19 @@ const char *conn_open(conn_t *c, const char *host, uint16_t port, bool tls, cons
     c->port = port;
     c->app = app;
     struct in_addr addr;
-    bool numeric = inet_pton(AF_INET, host, &addr) == 1;
-    if (!numeric && (c->dns = dns_start(host)) < 0) return "too many name lookups at once";
-    c->state = CONN_RESOLVING;
+    bool tether = !net_wifi_up() && tun_up();       /* (the computer looks the name up) */
+    bool numeric = !tether && inet_pton(AF_INET, host, &addr) == 1;
+    if (tether) {
+        const char *why;
+        if ((c->tun = tun_open(host, port, &why)) < 0) return why;
+        c->state = CONN_CONNECTING;
+    } else {
+        if (!numeric && (c->dns = dns_start(host)) < 0) return "too many name lookups at once";
+        c->state = CONN_RESOLVING;
+    }
     if (tls) {
         c->tls = calloc(1, sizeof *c->tls);
-        const char *e = c->tls ? tls_setup(c->tls, &c->fd, host, ca_pem, ca_len) : "out of memory";
+        const char *e = c->tls ? tls_setup(c->tls, bio_send, bio_recv, c, host, ca_pem, ca_len) : "out of memory";
         if (e) { conn_close(c); return e; }
     }
     if (numeric) start_connect(c, addr);       /* else once the lookup is done (conn_step) */
@@ -104,6 +170,29 @@ void conn_adopt(conn_t *c, int fd)
     c->state = CONN_OPEN;
 }
 
+/* CONN_CONNECTING: has it connected? False while it hasn't yet, and when
+   it failed (then it's closed, the reason in err or errmsg). */
+static bool connected(conn_t *c)
+{
+    if (c->tun >= 0) {
+        const char *why;
+        tun_state_t st = tun_state(c->tun, &why);
+        if (st == TUN_CLOSED && *why) {
+            snprintf(c->errmsg, sizeof c->errmsg, "%s", why);
+            conn_close(c);
+            return false;
+        }
+        return st != TUN_OPENING;        /* (ended normally already: it had connected, its bytes are still read) */
+    }
+    struct pollfd pfd = { .fd = c->fd, .events = POLLOUT };   /* connected once writable, */
+    if (poll(&pfd, 1, 0) <= 0) return false;
+    int e = 0;                                                 /* the error in SO_ERROR */
+    socklen_t len = sizeof e;
+    getsockopt(c->fd, SOL_SOCKET, SO_ERROR, &e, &len);
+    if (e) { c->err = e; conn_close(c); return false; }
+    return true;
+}
+
 void conn_step(conn_t *c)
 {
     if (c->state == CONN_RESOLVING) {
@@ -118,13 +207,8 @@ void conn_step(conn_t *c)
         }
         start_connect(c, addr);
     }
-    if (c->state == CONN_CONNECTING) {               /* connected once writable, the error in SO_ERROR */
-        struct pollfd pfd = { .fd = c->fd, .events = POLLOUT };
-        if (poll(&pfd, 1, 0) <= 0) return;
-        int e = 0;
-        socklen_t len = sizeof e;
-        getsockopt(c->fd, SOL_SOCKET, SO_ERROR, &e, &len);
-        if (e) { c->err = e; conn_close(c); return; }
+    if (c->state == CONN_CONNECTING) {
+        if (!connected(c)) return;
         c->state = c->tls ? CONN_HANDSHAKE : CONN_OPEN;
     }
     if (c->state == CONN_HANDSHAKE) {                /* (its crypto can take a while on the chip) */
@@ -145,12 +229,9 @@ int conn_send(conn_t *c, const void *data, size_t len)
         tls_failed(c, "send", rc);
         return CONN_FAIL;
     }
-    ssize_t n = send(c->fd, data, len, 0);
-    if (n >= 0) return (int)n;
-    if (errno == EAGAIN || errno == EWOULDBLOCK) return 0;
-    c->err = errno;
-    conn_close(c);
-    return CONN_FAIL;
+    int n = io_send(c, data, len);
+    if (n < 0) conn_close(c);
+    return n;
 }
 
 int conn_recv(conn_t *c, void *buf, size_t cap)
@@ -167,11 +248,7 @@ int conn_recv(conn_t *c, void *buf, size_t cap)
         tls_failed(c, "receive", rc);
         return CONN_FAIL;
     }
-    ssize_t n = recv(c->fd, buf, cap, MSG_DONTWAIT);
-    if (n > 0) return (int)n;
-    if (n == 0) { conn_close(c); return CONN_EOF; }
-    if (errno == EAGAIN || errno == EWOULDBLOCK) return 0;
-    c->err = errno;
-    conn_close(c);
-    return CONN_FAIL;
+    int n = io_recv(c, buf, cap);
+    if (n < 0) conn_close(c);
+    return n;
 }

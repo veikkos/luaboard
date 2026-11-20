@@ -14,7 +14,8 @@ pub(crate) struct DeviceClock {
     pub(crate) offset: i64,
     /// POSIX TZ string.
     pub(crate) tz: String,
-    /// "ntp", "rtc" (the board's clock chip, NTP not yet) or "-".
+    /// "ntp", "usb" (the computer on the USB tether, NTP not yet), "rtc" (the
+    /// board's clock chip, neither yet) or "-".
     pub(crate) source: String,
     pub(crate) at: Instant,
 }
@@ -58,6 +59,8 @@ pub(crate) enum Cmd {
     /// board plugged in later), retrying quietly like after a lost link.
     Await(String),
     Disconnect,
+    /// Lend the device this computer's network over USB (on by default).
+    Tether(bool),
     /// Store `secrets`, upload `files` (bare names) to RAM as app `app`, then run `<app>/<run>`.
     Upload {
         app: String,
@@ -197,6 +200,18 @@ pub(crate) fn refresh(d: &mut Device, send: &dyn Fn(Ev), a: &mut dyn FnMut(Msg))
     Ok(())
 }
 
+/// A turn for the USB tether: the device's other messages go to the UI. A
+/// device that turns the tether down says so, once: it isn't asked again.
+/// Err only for a broken link.
+fn tether_turn(r: &mut Relay, d: &mut Device, wait: Duration, send: &dyn Fn(Ev)) -> anyhow::Result<()> {
+    match r.pump(d, wait) {
+        Ok(msgs) => msgs.into_iter().for_each(|m| send(Ev::Device(m))),
+        Err(e) if luaboard::is_link_error(&e) => return Err(e),
+        Err(e) => send(Ev::Error(format!("not sharing this computer's network: {e:#}"))),
+    }
+    Ok(())
+}
+
 /// A device connected: tell the UI, and send it the device's lists.
 fn adopt(port: &str, info: String, mut d: Device, send: &dyn Fn(Ev)) -> Device {
     send(Ev::Connected(port.to_string(), info));
@@ -213,13 +228,24 @@ pub(crate) fn worker(rx: Receiver<Cmd>, tx: Sender<Ev>, ctx: egui::Context) {
     // Apps whose kept-secrets note was shown on Upload: once is enough, as
     // Upload & Run is the edit-and-try loop.
     let mut noted: std::collections::HashSet<String> = Default::default();
+    // The USB tether: lent while connected over USB, unless turned off.
+    let mut tether = true;
+    let mut relay: Option<Relay> = None;
     let send = |ev: Ev| {
         let _ = tx.send(ev);
         ctx.request_repaint();
     };
 
     loop {
-        let cmd = match rx.recv_timeout(Duration::from_millis(15)) {
+        let usb = want.as_deref().is_some_and(|p| luaboard::wifi::parse_tcp_port(p).is_none());
+        if dev.is_none() || !tether || !usb {
+            relay = None;
+        } else if relay.is_none() {
+            relay = Some(Relay::new(false));
+        }
+        // (with bytes moving through the tether, no pause between its turns)
+        let busy = relay.as_ref().is_some_and(|r| r.busy());
+        let cmd = match rx.recv_timeout(Duration::from_millis(if busy { 0 } else { 15 })) {
             Ok(c) => Some(c),
             Err(RecvTimeoutError::Timeout) => None,
             Err(RecvTimeoutError::Disconnected) => return,
@@ -227,16 +253,18 @@ pub(crate) fn worker(rx: Receiver<Cmd>, tx: Sender<Ev>, ctx: egui::Context) {
 
         let Some(cmd) = cmd else {
             if let Some(d) = dev.as_mut() {
-                // Idle: forward asynchronous device output (LOG / EVT).
-                match d.poll(Duration::from_millis(30)) {
-                    Ok(msgs) => msgs.into_iter().for_each(|m| send(Ev::Device(m))),
-                    Err(e) => {
-                        dev = None;
-                        next_retry = std::time::Instant::now() + Duration::from_secs(1);
-                        send(Ev::Disconnected(format!(
-                            "connection lost ({e:#}), waiting for the device to come back…"
-                        )));
-                    }
+                // Idle: forward asynchronous device output (LOG / EVT), and
+                // move the tether's connections along.
+                let polled = match relay.as_mut() {
+                    Some(r) => tether_turn(r, d, Duration::from_millis(if busy { 2 } else { 30 }), &send),
+                    None => d.poll(Duration::from_millis(30)).map(|msgs| {
+                        msgs.into_iter().for_each(|m| send(Ev::Device(m)));
+                    }),
+                };
+                if let Err(e) = polled {
+                    dev = None;
+                    next_retry = std::time::Instant::now() + Duration::from_secs(1);
+                    send(Ev::Disconnected(format!("connection lost ({e:#}), waiting for the device to come back…")));
                 }
             } else if let Some(port) = want.as_ref().filter(|_| std::time::Instant::now() >= next_retry) {
                 // Lost link: quietly retry, e.g. until a new simulator instance appears.
@@ -279,6 +307,15 @@ pub(crate) fn worker(rx: Receiver<Cmd>, tx: Sender<Ev>, ctx: egui::Context) {
             next_retry = std::time::Instant::now();
             continue;
         }
+        if let Cmd::Tether(on) = cmd {
+            tether = on;
+            if !on {
+                if let (Some(mut r), Some(d)) = (relay.take(), dev.as_mut()) {
+                    let _ = r.stop(d);
+                }
+            }
+            continue;
+        }
         if let Cmd::Disconnect = cmd {
             dev = None;
             want = None;
@@ -297,8 +334,7 @@ pub(crate) fn worker(rx: Receiver<Cmd>, tx: Sender<Ev>, ctx: egui::Context) {
                 // The chip resets and its USB port re-enumerates; reconnect when it's back.
                 for _ in 0..15 {
                     thread::sleep(Duration::from_secs(1));
-                    if let Ok(mut d) = Device::open(&port, DEFAULT_BAUD) {
-                        let info = d.info(&mut |_| {}).unwrap_or_default();
+                    if let Ok((d, info)) = connect(&port) {
                         dev = Some(adopt(&port, info, d, &send));
                         break;
                     }
@@ -336,7 +372,11 @@ pub(crate) fn worker(rx: Receiver<Cmd>, tx: Sender<Ev>, ctx: egui::Context) {
             }
             continue;
         };
-        let mut fwd = |m: Msg| send(Ev::Device(m));
+        // (the tether's frames come with any command's reply too)
+        let mut fwd = |m: Msg| match m {
+            Msg::Tun(frame) => relay.iter_mut().for_each(|r| r.take(&frame)),
+            m => send(Ev::Device(m)),
+        };
         let result: anyhow::Result<()> = (|| {
             match cmd {
                 Cmd::Upload { app, files, secrets, run } => {
@@ -463,7 +503,12 @@ pub(crate) fn worker(rx: Receiver<Cmd>, tx: Sender<Ev>, ctx: egui::Context) {
                     Err(e) if luaboard::is_link_error(&e) => return Err(e),
                     Err(e) => send(Ev::TouchDone(Err(format!("{e:#}")))),
                 },
-                Cmd::Connect(_) | Cmd::Await(_) | Cmd::Disconnect | Cmd::Flash { .. } | Cmd::Update(_) => {
+                Cmd::Connect(_)
+                | Cmd::Await(_)
+                | Cmd::Disconnect
+                | Cmd::Tether(_)
+                | Cmd::Flash { .. }
+                | Cmd::Update(_) => {
                     unreachable!()
                 }
             }
@@ -479,6 +524,12 @@ pub(crate) fn worker(rx: Receiver<Cmd>, tx: Sender<Ev>, ctx: egui::Context) {
             } else {
                 send(Ev::Error(format!("{e:#}")));
             }
+        }
+        // A turn for the tether after each command too: with the preview's
+        // requests coming one after another, the worker may seldom be idle.
+        // (a broken link shows in the next idle poll)
+        if let (Some(r), Some(d)) = (relay.as_mut(), dev.as_mut()) {
+            let _ = tether_turn(r, d, Duration::ZERO, &send);
         }
     }
 }

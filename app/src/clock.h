@@ -1,6 +1,6 @@
 /*
- * Wall clock: set by NTP once Wi-Fi has an address, or at boot from the RTC
- * chip if it kept its time. Shown in the device's time zone (POSIX TZ string).
+ * Wall clock: set by NTP once Wi-Fi has an address, by the computer when the
+ * USB tether starts, or at boot from the RTC chip if it kept its time. Shown in the device's time zone (POSIX TZ string).
  * Until then the time is unknown and scripts get nil from sys.time().
  */
 #pragma once
@@ -25,8 +25,13 @@ esp_err_t clock_sync_now(void);
 unsigned clock_syncs(void);
 int64_t clock_last_sync(void);
 
+/** The USB tether's computer told its time (TUN ON): taken unless NTP has
+ *  set the clock, and given to the RTC chip. */
+void clock_set_usb(int64_t utc);
+
 bool clock_valid(void);
-/** Where the time came from: "ntp", "rtc" (the RTC chip, at boot; NTP not yet) or "-". */
+/** Where the time came from: "ntp", "usb" (the USB tether's computer; NTP
+ *  not yet), "rtc" (the RTC chip, at boot; neither yet) or "-". */
 const char *clock_source(void);
 /** UTC seconds since 1970, or 0 if the time isn't known yet. */
 int64_t clock_now(void);

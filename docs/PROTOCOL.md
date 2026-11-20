@@ -27,7 +27,7 @@ Over Wi-Fi it is wrapped in encrypted frames, so a terminal won't do there.
 * Host → device: one command per line, terminated by `\n` (`\r` is ignored).
   Maximum line length is 2047 bytes, and a longer line gets `ERR line too
   long (max 2047)`. Command names are case-insensitive, and so are the words
-  after `WIFI`, `PAIR`, `TIME`, `TOUCH` and `KEY`. Everything else is
+  after `WIFI`, `PAIR`, `TIME`, `TOUCH`, `KEY` and `TUN`. Everything else is
   case-sensitive, the subcommands of `SECRET` and the `CANCEL` of `BROWSER`
   included.
 * Device → host: lines terminated by `\n`. Every line starts with a tag:
@@ -41,10 +41,12 @@ Over Wi-Fi it is wrapped in encrypted frames, so a terminal won't do there.
 | `SECRET <app> <name> <bytes>` | Data line of a `SECRETS` reply. |
 | `LOG <text>` | Asynchronous: output of `print()` in a script (one line per line of output), and device notices about a script that draws nothing. |
 | `EVT <event> [details]` | Asynchronous: device state change. |
+| `TUN <frame>` | Asynchronous: a connection of the [USB tether](#usb-tether). |
 | anything else | Not part of the protocol (e.g. ESP32 ROM boot messages on real hardware). Ignore it. |
 
-Each command gets exactly one `OK` or `ERR` reply. `LOG`/`EVT` lines can
-appear at any time, including between a command and its reply (for example
+Each command gets exactly one `OK` or `ERR` reply (the computer's `TUN`
+frames aren't commands and get none). `LOG`/`EVT`/`TUN` lines can appear at
+any time, including between a command and its reply (for example
 `print()` output during `RUN` or `EVAL`).
 
 Messages never contain newlines: the device replaces them with spaces. The
@@ -74,7 +76,7 @@ raw payloads after `GET` and `FB` replies are the only non-line data.
 | `STOP` | `OK STOPPED` (+ `EVT stopped` if a script was running) | The device goes back to its home menu. The VM is kept, so `EVAL` still sees its globals. |
 | `SAVE` | `OK SAVED <n> apps` | `INSTALL` for every app with uploads in RAM (restarting the one on the screen if it changed). |
 | `FORMAT` | `OK FORMATTED` | Stops the script, deletes all apps in RAM and flash, the autostart setting, all secrets and Bluetooth bonds. |
-| `TIME` | `OK synced=0\|1 utc=<seconds or -> local=<ISO 8601 or -> tz=<POSIX TZ> source=ntp\|rtc\|- last_sync=<utc or -> syncs=<n>` | The clock. At boot it's taken from the board's RTC chip (BM8563) if that kept its time (`source=rtc`). NTP (`pool.ntp.org`) sets it once Wi-Fi is up (`source=ntp`) and the chip is updated from it. Otherwise unknown (`-`). `local` is like `2026-11-06T15:30:00+02:00`. |
+| `TIME` | `OK synced=0\|1 utc=<seconds or -> local=<ISO 8601 or -> tz=<POSIX TZ> source=ntp\|rtc\|usb\|- last_sync=<utc or -> syncs=<n>` | The clock. At boot it's taken from the board's RTC chip (BM8563) if that kept its time (`source=rtc`). NTP (`pool.ntp.org`) sets it once Wi-Fi is up (`source=ntp`) and the chip is updated from it. Without Wi-Fi the [USB tether](#usb-tether)'s computer can set it (`source=usb`). Otherwise unknown (`-`). `local` is like `2026-11-06T15:30:00+02:00`. |
 | `TIME SYNC` | `OK SYNCING` or `ERR no network ...` | Ask the time server now (it's also asked every 6 hours by itself). `syncs` in `TIME` goes up when it has answered. |
 | `TZ [<posix tz>]` | `OK tz=<POSIX TZ>` | Show or set the time zone, a POSIX TZ string such as `EET-2EEST,M3.5.0/3,M10.5.0/4` (the default, Finland) or `UTC0`. Offsets are west-positive (UTC+2 is `-2`). Stored in NVS. `ERR not a POSIX TZ string ...` if it doesn't parse. |
 | `AUTORUN [<app>\|off\|-]` | `OK AUTORUN <app>\|off` | The app started at boot instead of the home menu (default off). Must be installed (`installed` or `modified`). Stored in NVS, and also set from the device's Settings. |
@@ -86,6 +88,7 @@ raw payloads after `GET` and `FB` replies are the only non-line data.
 | `PAIR NEW` | `OK PAIR <id> <key: 64 hex>` | A new random key (and id) for the Wi-Fi link. Every Wi-Fi client is dropped (`EVT bye paired anew`). USB only. |
 | `PAIR KEY` | `OK PAIR <id> <key: 64 hex>` | The current key, to pair another computer. `ERR not paired ...` without one. USB only. |
 | `PAIR OFF` | `OK paired=off` | Forget the key: the Wi-Fi link takes no commands, and Wi-Fi clients are dropped. USB only: over Wi-Fi every `PAIR` subcommand gets `ERR pairing only works over USB`. |
+| `TUN ON <utc>`, `TUN OFF` | `OK TUN ON [started]`, `OK TUN OFF` | The computer lends the device its network, see [USB tether](#usb-tether). |
 | `HELP` | `OK <command list>` | |
 
 Files are named `<app>/<file>`: app names 1..23 and file names 1..31
@@ -332,6 +335,83 @@ one that stops reading for 2 s, and all of them when Wi-Fi is lost or turned
 off. Connections from the device's own scripts (`net.connect` to its own
 address) are refused: apps can't drive the device.
 
+## USB tether
+
+A computer on the USB link can lend the device its network. The device's
+TCP connections (the scripts' `net`, `http` and `mqtt`, the update checks)
+then go through the computer: the device asks it to connect, and the
+connection's bytes travel as lines of this protocol. TLS still runs on the
+device, which checks the server's certificate itself, so the computer only
+ever passes on encrypted bytes. The device uses Wi-Fi when it is connected
+and the tether otherwise. A connection keeps the way it started on.
+
+The computer turns the tether on with this, and keeps it on by sending it
+again at least every 2 seconds:
+
+| Command | Reply | Notes |
+|---|---|---|
+| `TUN ON <utc>` | `OK TUN ON`, `OK TUN ON started` | `<utc>`: the computer's clock, seconds since 1970. The tether stays on until the device has heard nothing from the computer for 5 s (any line counts, from when the device is done with it), so it ends by itself when the computer's tool exits or the cable is pulled. `started`: it was off until now, so none of the computer's earlier connections are left on the device. When it starts, the device takes its time from `<utc>` unless NTP has set the clock (`TIME` then says `source=usb`). USB only: over Wi-Fi it's `ERR the tether works only over USB`. |
+| `TUN OFF` | `OK TUN OFF` | End it now. |
+
+When the tether ends, every connection through it closes, and the scripts
+see the error `the computer's network went away`.
+
+The connections are carried by frames, in both directions. A frame is a
+line that starts with `TUN`. Frames aren't commands: they get no reply,
+and they can come between a command and its reply, like `EVT` lines.
+Device frames go only to the link that has the tether.
+
+| Frame | From | Meaning |
+|---|---|---|
+| `TUN OPEN <id> <host> <port>` | device | Connect to `<host>` (a name or an IPv4 address) on TCP port `<port>`. |
+| `TUN OPENED <id>` | computer | Connected. |
+| `TUN DATA <id> <base64>` | both | Bytes of the connection, 1 to 1500 of them, in standard base64 with padding. |
+| `TUN ACK <id> <n>` | both | `<n>` more bytes of the other side's data have been taken (read by the script, written to the server). |
+| `TUN CLOSE <id> [<why>]` | both | The connection is over. Without `<why>` it ended normally (the server or the device closed it), else `<why>` says what went wrong, such as `cannot resolve example.com`, `connection refused` or `not allowed`. Sent instead of `OPENED` when the connection can't be made. |
+
+The device picks the ids: whole numbers counting up from a random one, never
+used twice while it runs, so a late frame for a connection that has closed
+can't be taken for a new one, also after the device restarts. A frame with
+an id that isn't open is answered with `TUN CLOSE <id>`, for the computer to
+drop what it still has of it. `CLOSE` gets no answer, and after it neither
+side sends anything more with that id. Data sent before a `CLOSE` is
+delivered before it: the device reads what came before the computer's, and
+the computer writes what came before the device's to the server.
+
+Each side may have at most 8192 bytes of `DATA` for a connection that the
+other side hasn't acknowledged with `ACK`. That is all the room the device
+keeps for a connection, so a computer that sends more gets the connection
+closed (`TUN CLOSE <id> window exceeded`), as does a frame the device can't
+read (`bad frame`). A computer that stops reading long enough for the
+device to drop one of a connection's frames gets the connection ended
+with `USB tether: the computer stopped reading`, as the other side would
+wait for that frame forever.
+
+A program that starts lending its computer's network sends `TUN OFF`
+first: connections an earlier one left on the device are over, as that
+program's sockets went with it. When `TUN ON` says `started`, it drops the
+connections it has: the tether had ended, so the device's ends are gone.
+
+The computer decides where it lets the device connect. luaboard's tools
+refuse addresses on the computer itself (`127.0.0.1`, `::1`, so a script
+can't reach services that only listen there) unless told otherwise. Other
+addresses on the computer's network are allowed, as they are to a device on
+Wi-Fi.
+
+```
+> TUN OFF
+< OK TUN OFF
+> TUN ON 1795075200
+< OK TUN ON started
+< TUN OPEN 3141592653 example.com 443
+> TUN OPENED 3141592653
+< TUN DATA 3141592653 FgMBAgABAAH8AwM...
+> TUN DATA 3141592653 FgMDAHoCAAB2AwM...
+> TUN ACK 3141592653 517
+< TUN ACK 3141592653 1452
+< TUN CLOSE 3141592653
+```
+
 ## Secrets
 
 | Command | Reply | Notes |
@@ -406,6 +486,7 @@ script ends. `ERR no pending browser request <id>` if the id isn't pending.
 | `EVT wifi connected ip=<addr> port=3333` | Joined the network, and the TCP server is up. |
 | `EVT time rtc <ISO 8601>` | At boot: the time was taken from the RTC chip. |
 | `EVT time synced <ISO 8601>` | The clock was set from the network for the first time since boot. |
+| `EVT time usb <ISO 8601>` | The [USB tether](#usb-tether) started, and the clock was set from the computer's. |
 | `EVT wifi lost reason=<n>` | Lost the network after being connected (ESP-IDF disconnect reason). The device keeps retrying with back-off up to 30 s. |
 | `EVT bye <why>` | Sent to a Wi-Fi client just before the device drops it: `another client connected`, `another client logged in`, `no login in time`, `paired anew` or `unpaired`. Encrypted to a logged-in client, in clear text to one that hasn't finished `HELLO`, and not sent to one in between. |
 | `EVT cleared <app>` | The app's data (secrets, stored values, Bluetooth bonds) was cleared from the device's menu. |

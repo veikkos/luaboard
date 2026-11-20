@@ -18,7 +18,7 @@ const char *hw_model_name(void);               /* "CoreS3" or "CoreS3 SE" */
 
 /* Serial link to the PC (USB-Serial/JTAG on the CoreS3). */
 int  hw_serial_read(uint8_t *buf, size_t cap);          /* non-blocking */
-void hw_serial_write(const void *data, size_t len);
+bool hw_serial_write(const void *data, size_t len);  /* false: some was dropped */
 void hw_serial_puts(const char *s);
 
 /* ADC1. Channels are configured lazily on first read. raw: 0..4095 */
@@ -108,6 +108,9 @@ void hw_lcd_reset(void);
 
 uint32_t hw_millis(void);   /* wraps after 49.7 days: compare differences only */
 uint64_t hw_millis64(void); /* never wraps: what Lua sees */
+
+/* A big buffer: in PSRAM where there is some, else internal RAM. free() it. */
+void *hw_big_alloc(size_t n);
 
 /* Hardware watchdog on the calling (main) task: reset the chip unless fed
    regularly. Stretch it around operations that legitimately take long

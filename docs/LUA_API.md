@@ -597,8 +597,10 @@ end)
 
 ## net - TCP sockets
 
-Non-blocking TCP client and server (Wi-Fi on the device, the computer's
-network in the simulator). The waiting helpers need a `task`.
+Non-blocking TCP client and server (Wi-Fi on the device, the computer's network
+in the simulator). Without Wi-Fi a device on USB can use the computer's network
+(`luaboard tether`): connections then go through the computer, TLS still
+checked on the device, and `net.listen` takes none. The waiting helpers need a `task`.
 
 | Function | Description |
 |---|---|

@@ -24,6 +24,7 @@
 #include <string.h>
 
 #include "app_config.h"
+#include "b64.h"
 #include "browser.h"
 #include "esp_random.h"
 #include "hex.h"
@@ -159,38 +160,15 @@ static int l_hex(lua_State *L)
     return 1;
 }
 
-static const char B64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-static const char B64URL[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-
 static int l_base64(lua_State *L)
 {
     size_t len;
-    const unsigned char *d = (const unsigned char *)luaL_checklstring(L, 1, &len);
+    const char *d = luaL_checklstring(L, 1, &len);
     bool url = lua_api_optbool(L, 2, false);
-    const char *tab = url ? B64URL : B64;
     luaL_Buffer b;
-    luaL_buffinit(L, &b);
-    for (size_t i = 0; i < len; i += 3) {
-        uint32_t v = (uint32_t)d[i] << 16;
-        if (i + 1 < len) v |= (uint32_t)d[i + 1] << 8;
-        if (i + 2 < len) v |= d[i + 2];
-        luaL_addchar(&b, tab[(v >> 18) & 63]);
-        luaL_addchar(&b, tab[(v >> 12) & 63]);
-        if (i + 1 < len) luaL_addchar(&b, tab[(v >> 6) & 63]); else if (!url) luaL_addchar(&b, '=');
-        if (i + 2 < len) luaL_addchar(&b, tab[v & 63]); else if (!url) luaL_addchar(&b, '=');
-    }
-    luaL_pushresult(&b);
+    char *out = luaL_buffinitsize(L, &b, b64_encoded_len(len, url) + 1);
+    luaL_pushresultsize(&b, b64_encode(d, len, out, url));
     return 1;
-}
-
-static int b64val(int c)
-{
-    if (c >= 'A' && c <= 'Z') return c - 'A';
-    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
-    if (c >= '0' && c <= '9') return c - '0' + 52;
-    if (c == '+' || c == '-') return 62;
-    if (c == '/' || c == '_') return 63;
-    return -1;
 }
 
 static int l_unbase64(lua_State *L)
@@ -198,19 +176,10 @@ static int l_unbase64(lua_State *L)
     size_t len;
     const char *t = luaL_checklstring(L, 1, &len);
     luaL_Buffer b;
-    luaL_buffinit(L, &b);
-    uint32_t acc = 0;
-    int bits = 0;
-    for (size_t i = 0; i < len; i++) {
-        int c = (unsigned char)t[i];
-        if (c == '=' || c == '\n' || c == '\r' || c == ' ') continue;
-        int v = b64val(c);
-        if (v < 0) { lua_pushnil(L); return 1; }
-        acc = (acc << 6) | (uint32_t)v;
-        bits += 6;
-        if (bits >= 8) { bits -= 8; luaL_addchar(&b, (char)((acc >> bits) & 0xFF)); }
-    }
-    luaL_pushresult(&b);
+    char *out = luaL_buffinitsize(L, &b, B64_DECODED_MAX(len));
+    long n = b64_decode(t, len, out, B64_DECODED_MAX(len));
+    if (n < 0) { lua_pushnil(L); return 1; }
+    luaL_pushresultsize(&b, (size_t)n);
     return 1;
 }
 

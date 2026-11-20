@@ -1,31 +1,15 @@
-/* TLS client sessions on a non-blocking socket. See tls.h. */
+/* TLS client sessions. See tls.h. */
 #include "tls.h"
 
-#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "esp_crt_bundle.h"
-#include "lwip/sockets.h"
 #include "psa/crypto.h"
 
-/* mbedTLS I/O on our non-blocking socket. */
-static int bio_send(void *ctx, const unsigned char *buf, size_t len)
-{
-    ssize_t n = send(*(int *)ctx, buf, len, 0);
-    if (n >= 0) return (int)n;
-    return (errno == EAGAIN || errno == EWOULDBLOCK) ? MBEDTLS_ERR_SSL_WANT_WRITE : -0x004E; /* NET_SEND_FAILED */
-}
-
-static int bio_recv(void *ctx, unsigned char *buf, size_t len)
-{
-    ssize_t n = recv(*(int *)ctx, buf, len, MSG_DONTWAIT);
-    if (n >= 0) return (int)n;                                  /* 0: peer closed */
-    return (errno == EAGAIN || errno == EWOULDBLOCK) ? MBEDTLS_ERR_SSL_WANT_READ : -0x004C; /* NET_RECV_FAILED */
-}
-
-const char *tls_setup(tls_t *t, int *fd, const char *host, const char *ca_pem, size_t ca_len)
+const char *tls_setup(tls_t *t, mbedtls_ssl_send_t *send, mbedtls_ssl_recv_t *recv, void *ctx, const char *host,
+                      const char *ca_pem, size_t ca_len)
 {
     static bool psa_ready;
     if (!psa_ready) {
@@ -54,7 +38,7 @@ const char *tls_setup(tls_t *t, int *fd, const char *host, const char *ca_pem, s
     }
     if (mbedtls_ssl_setup(&t->ssl, &t->conf) != 0) return "TLS setup failed";
     if (mbedtls_ssl_set_hostname(&t->ssl, host) != 0) return "bad TLS host name";
-    mbedtls_ssl_set_bio(&t->ssl, fd, bio_send, bio_recv, NULL);
+    mbedtls_ssl_set_bio(&t->ssl, ctx, send, recv, NULL);
     return NULL;
 }
 

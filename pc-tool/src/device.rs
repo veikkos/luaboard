@@ -2,10 +2,13 @@
 //! replies and the device's own messages (`Msg`).
 
 use anyhow::{anyhow, bail, Context, Result};
-use std::io::{Read, Write};
+use std::io::Read;
 use std::time::{Duration, Instant};
 
-use crate::{crash, crc32, is_asset, kept_secrets_note, keys, login, open_link, wifi, Link};
+use crate::{
+    crash, crc32, is_asset, kept_secrets_note, keys, login, open_link_poll, tether, wifi, write_all_reading, Link,
+    LINK_WAIT,
+};
 
 /// Bytes per write of an upload: one full frame on the Wi-Fi link.
 const WRITE_CHUNK: usize = 4096;
@@ -51,6 +54,8 @@ pub enum Msg {
     App(String),
     /// A `FRAME <call>` line of a CRASH reply.
     Frame(String),
+    /// A `TUN <frame>` line: a connection of the USB tether (`tether::Frame`).
+    Tun(String),
     /// Anything else (e.g. ROM bootloader chatter on real hardware).
     Other(String),
 }
@@ -70,13 +75,14 @@ impl Msg {
             "SECRET" => Msg::Secret(rest),
             "APP" => Msg::App(rest),
             "FRAME" => Msg::Frame(rest),
+            "TUN" => Msg::Tun(rest),
             _ => Msg::Other(line.to_string()),
         }
     }
 
     /// True for messages the device sends on its own (not part of a reply).
     pub fn is_async(&self) -> bool {
-        matches!(self, Msg::Log(_) | Msg::Evt(_) | Msg::Other(_))
+        matches!(self, Msg::Log(_) | Msg::Evt(_) | Msg::Tun(_) | Msg::Other(_))
     }
 }
 
@@ -164,18 +170,41 @@ pub const FLASH_TIMEOUT: Duration = Duration::from_secs(60);
 /// device allows 5 minutes (WATCHDOG_FORMAT_MS), plus a margin.
 pub const FORMAT_TIMEOUT: Duration = Duration::from_secs(5 * 60 + 15);
 
+/// The device's ERR reply to a command (as text: "device: <why>").
+#[derive(Debug)]
+pub struct ErrReply(pub String);
+
+impl std::fmt::Display for ErrReply {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "device: {}", self.0)
+    }
+}
+
+impl std::error::Error for ErrReply {}
+
 pub struct Device {
     port: Box<dyn Link>,
     rx: Vec<u8>,
     pub timeout: Duration,
+    serial: u64,
 }
 
 impl Device {
     pub fn open(path: &str, baud: u32) -> Result<Self> {
-        let port = open_link(path, baud)?;
-        let mut dev = Device { port, rx: Vec::new(), timeout: Duration::from_secs(3) };
+        let mut dev = Device::on(open_link_poll(path, baud, LINK_WAIT)?);
         dev.sync()?;
         Ok(dev)
+    }
+
+    pub(crate) fn on(port: Box<dyn Link>) -> Device {
+        static OPENED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let serial = OPENED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Device { port, rx: Vec::new(), timeout: Duration::from_secs(3), serial }
+    }
+
+    /// Which open this is: a reconnect, to the same port too, is another.
+    pub fn serial(&self) -> u64 {
+        self.serial
     }
 
     /// Get the line protocol into a known state: terminate any partial line,
@@ -183,7 +212,7 @@ impl Device {
     /// PONG (stale output, an error for the partial line) is dropped, as the
     /// link keeps order, so there is no need to wait for the line to go quiet.
     fn sync(&mut self) -> Result<()> {
-        self.port.write_all(b"\n")?;
+        self.write_all(b"\n")?;
         self.rx.clear();
         for _ in 0..3 {
             self.send_line("PING")?;
@@ -199,9 +228,10 @@ impl Device {
         bail!("no answer to PING - is the firmware running and the baud rate right?")
     }
 
-    /// Read whatever is available (waits at most the port timeout).
-    fn fill(&mut self) -> Result<usize> {
+    /// Read whatever comes within `wait` (at least a millisecond's).
+    fn fill(&mut self, wait: Duration) -> Result<usize> {
         let mut tmp = [0u8; 1024];
+        self.port.set_wait(wait.max(Duration::from_millis(1)));
         match self.port.read(&mut tmp) {
             Ok(n) => {
                 self.rx.extend_from_slice(&tmp[..n]);
@@ -219,9 +249,15 @@ impl Device {
             bail!("command must be a single line");
         }
         // One write: over Wi-Fi each write is a frame of its own.
-        self.port.write_all(format!("{line}\n").as_bytes())?;
-        self.port.flush()?;
-        Ok(())
+        self.write_all(format!("{line}\n").as_bytes())
+    }
+
+    /// Write everything, keeping what comes meanwhile (`write_all_reading`).
+    fn write_all(&mut self, data: &[u8]) -> Result<()> {
+        self.port.set_wait(LINK_WAIT);
+        let rx = &mut self.rx;
+        write_all_reading(&mut *self.port, data, self.timeout, &mut |b| rx.extend_from_slice(b))
+            .context("writing to the device failed")
     }
 
     /// Next complete line, or None if none arrived within `timeout`.
@@ -233,20 +269,22 @@ impl Device {
                 let s = String::from_utf8_lossy(&raw[..raw.len() - 1]);
                 return Ok(Some(printable(s.trim_end_matches('\r'))));
             }
-            if Instant::now() >= end {
+            let left = end.saturating_duration_since(Instant::now());
+            if left.is_zero() {
                 return Ok(None);
             }
-            self.fill()?;
+            self.fill(left)?;
         }
     }
 
     fn read_bytes(&mut self, n: usize) -> Result<Vec<u8>> {
         let end = Instant::now() + self.timeout;
         while self.rx.len() < n {
-            if Instant::now() >= end {
+            let left = end.saturating_duration_since(Instant::now());
+            if left.is_zero() {
                 bail!("timeout reading {n} bytes (got {})", self.rx.len());
             }
-            self.fill()?;
+            self.fill(left)?;
         }
         Ok(self.rx.drain(..n).collect())
     }
@@ -326,7 +364,7 @@ impl Device {
             let Some(line) = self.read_line(left)? else { continue };
             match Msg::parse(&line) {
                 Msg::Ok(s) => return Ok((s, data)),
-                Msg::Err(s) => bail!("device: {s}"),
+                Msg::Err(s) => return Err(ErrReply(s).into()),
                 Msg::File(s) | Msg::Secret(s) | Msg::App(s) | Msg::Frame(s) => data.push(s),
                 m => on_async(m),
             }
@@ -396,8 +434,7 @@ impl Device {
     fn send_payload(&mut self, data: &[u8], progress: &mut dyn FnMut(usize, usize)) -> Result<()> {
         let mut done = 0;
         for chunk in data.chunks(WRITE_CHUNK) {
-            self.port.write_all(chunk)?;
-            self.port.flush()?;
+            self.write_all(chunk)?;
             done += chunk.len();
             progress(done, data.len());
         }
@@ -746,11 +783,30 @@ impl Device {
         let one_line = code.replace(['\r', '\n'], " ");
         self.command_within(&format!("EVAL {one_line}"), LUA_CALL_TIMEOUT, a).map(|r| r.0)
     }
+
+    /// Lend the device this computer's network (again within
+    /// `tether::KEEP_EVERY` to keep it), telling it the time (UTC seconds).
+    /// True if the tether starts now: the device has no connections through
+    /// it from before.
+    pub fn tun_on(&mut self, utc: u64, a: &mut dyn FnMut(Msg)) -> Result<bool> {
+        self.command(&format!("TUN ON {utc}"), a).map(|r| r.0.ends_with(" started"))
+    }
+
+    pub fn tun_off(&mut self, a: &mut dyn FnMut(Msg)) -> Result<()> {
+        self.command("TUN OFF", a).map(|_| ())
+    }
+
+    /// The computer's frames, in one write: no reply comes.
+    pub fn tun_send(&mut self, frames: &[tether::Frame]) -> Result<()> {
+        let lines: String = frames.iter().map(|f| f.line() + "\n").collect();
+        self.write_all(lines.as_bytes())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
 
     /// A device that answers each command only once it gets the next line,
     /// i.e. always too late.
@@ -771,6 +827,10 @@ mod tests {
             self.rx.drain(..n);
             Ok(n)
         }
+    }
+
+    impl Link for LateDevice {
+        fn set_wait(&mut self, _: Duration) {}
     }
 
     impl Write for LateDevice {
@@ -798,7 +858,8 @@ mod tests {
     #[test]
     fn a_late_reply_is_not_read_as_the_next_ones() {
         let late = LateDevice { replies: ["", "OK 42\n"].into(), rx: Vec::new(), line: Vec::new() };
-        let mut dev = Device { port: Box::new(late), rx: Vec::new(), timeout: Duration::from_millis(50) };
+        let mut dev = Device::on(Box::new(late));
+        dev.timeout = Duration::from_millis(50);
         let mut a = |_m: Msg| {};
         assert!(dev.command("EVAL slow()", &mut a).is_err());
         // The 42 came after the resync PING and was dropped with everything

@@ -16,8 +16,9 @@ typedef struct {
     bool trusted;
     /** Non-blocking read: bytes read, 0 if none available. */
     int  (*read)(void *ctx, uint8_t *buf, size_t cap);
-    /** Write everything (may wait briefly for the peer); drops data if nobody listens. */
-    void (*write)(void *ctx, const void *data, size_t len);
+    /** Write everything (may wait briefly for the peer); drops data if
+     *  nobody listens. False if some was dropped. */
+    bool (*write)(void *ctx, const void *data, size_t len);
     void *ctx;
 } proto_link_t;
 

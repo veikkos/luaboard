@@ -5,10 +5,10 @@
 #include <string.h>
 
 #include "auth.h"
-#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_random.h"
 #include "hex.h"
+#include "hw.h"
 #include "psa/crypto.h"
 
 static const char *TAG = "wifilink";
@@ -17,17 +17,11 @@ static const char *TAG = "wifilink";
 #define FRAME_MAX (2 + WL_MAX_PLAIN + TAG_LEN)
 #define HELLO_MAX 128
 
-static void *alloc(size_t n)
-{
-    void *p = heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    return p ? p : malloc(n);
-}
-
 bool wl_open(wl_t *w)
 {
     wl_close(w);
-    w->in = alloc(FRAME_MAX);
-    w->plain = alloc(WL_MAX_PLAIN);
+    w->in = hw_big_alloc(FRAME_MAX);
+    w->plain = hw_big_alloc(WL_MAX_PLAIN);
     if (!w->in || !w->plain) { wl_close(w); return false; }
     return true;
 }
@@ -36,8 +30,8 @@ void wl_close(wl_t *w)
 {
     if (w->krx) psa_destroy_key(w->krx);
     if (w->ktx) psa_destroy_key(w->ktx);
-    heap_caps_free(w->in);
-    heap_caps_free(w->plain);
+    free(w->in);
+    free(w->plain);
     memset(w, 0, sizeof *w);
 }
 

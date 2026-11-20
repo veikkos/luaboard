@@ -43,7 +43,7 @@ static const char *TAG = "main";
 
 /* The USB-C serial link as a protocol link. */
 static int usb_read(void *ctx, uint8_t *buf, size_t cap) { (void)ctx; return hw_serial_read(buf, cap); }
-static void usb_write(void *ctx, const void *d, size_t n) { (void)ctx; hw_serial_write(d, n); }
+static bool usb_write(void *ctx, const void *d, size_t n) { (void)ctx; return hw_serial_write(d, n); }
 
 /* Crash-loop guard: count boots that start the autostart app. The count is
    cleared when the app stops, when it has run for BOOT_STABLE_MS, and at a

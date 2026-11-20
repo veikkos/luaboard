@@ -1,8 +1,9 @@
 /* A TCP connection out, with TLS if asked, in non-blocking steps: the name
    lookup (dns.c), the connect, the TLS handshake (tls.c), then sending and
-   receiving. Shared by the Lua sockets (lua_net.c) and the firmware's own
-   HTTP client (httpc.c). A conn_t must stay where it is while it's open
-   (TLS keeps a pointer to its fd). */
+   receiving. Over Wi-Fi, or else through the USB tether (tun.c), where the
+   computer looks up the name and connects; TLS still runs here. Shared by
+   the Lua sockets (lua_net.c) and the firmware's own HTTP client (httpc.c).
+   A conn_t must stay where it is while it's open (TLS keeps a pointer to it). */
 #pragma once
 
 #include <stdbool.h>
@@ -17,6 +18,7 @@ typedef enum { CONN_RESOLVING, CONN_CONNECTING, CONN_HANDSHAKE, CONN_OPEN, CONN_
 typedef struct {
     conn_state_t state;
     int fd;
+    int tun;                   /* >= 0: through the USB tether, tun.c's handle (fd unused) */
     tls_t *tls;                /* NULL: plain TCP */
     int dns;                   /* CONN_RESOLVING: the lookup's slot */
     uint16_t port;

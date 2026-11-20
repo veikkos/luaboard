@@ -2,10 +2,10 @@
 //! named pipe, or the Wi-Fi link (wifi::TcpLink), behind `Link`.
 
 use anyhow::{Context, Result};
-use std::io::{Read, Write};
+use std::io::{self, ErrorKind, Read, Write};
 #[cfg(not(windows))]
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::wifi;
 
@@ -134,16 +134,69 @@ pub fn list_ports() -> Vec<String> {
 }
 
 /// Byte transport to the device: a real serial port, or a raw PTY (simulator).
-pub trait Link: Read + Write + Send {}
-impl<T: Read + Write + Send> Link for T {}
+pub trait Link: Read + Write + Send {
+    /// How long a read waits for data before it gives up (TimedOut). It
+    /// returns as soon as some comes. A serial port's write waits as long
+    /// for room.
+    fn set_wait(&mut self, wait: Duration);
+}
+
+impl Link for Box<dyn serialport::SerialPort> {
+    fn set_wait(&mut self, wait: Duration) {
+        let _ = self.set_timeout(wait);
+    }
+}
+
+/// Write all of `data`, handing what arrives meanwhile to `on_read`. A
+/// link's write gives up after its wait when the device isn't taking data,
+/// and the device may be waiting for us to read before it reads again: its
+/// output would be cut short if we only wrote. So the link's wait is to be
+/// well within the 50 ms the device waits for us (LINK_WAIT). Fails after
+/// `stall` without progress.
+pub fn write_all_reading(
+    link: &mut dyn Link,
+    mut data: &[u8],
+    stall: Duration,
+    on_read: &mut dyn FnMut(&[u8]),
+) -> io::Result<()> {
+    let waiting =
+        |e: &io::Error| matches!(e.kind(), ErrorKind::TimedOut | ErrorKind::WouldBlock | ErrorKind::Interrupted);
+    let mut moved = Instant::now();
+    while !data.is_empty() {
+        match link.write(data) {
+            Ok(0) => return Err(io::Error::new(ErrorKind::BrokenPipe, "device disconnected")),
+            Ok(n) => {
+                data = &data[n..];
+                moved = Instant::now();
+            }
+            Err(e) if waiting(&e) => {
+                if moved.elapsed() > stall {
+                    return Err(io::Error::new(ErrorKind::TimedOut, "the device stopped taking data"));
+                }
+                let mut buf = [0u8; 4096];
+                match link.read(&mut buf) {
+                    Ok(n) => on_read(&buf[..n]),
+                    Err(e) if waiting(&e) => {}
+                    Err(e) => return Err(e),
+                }
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    link.flush()
+}
 
 /// Open a serial link. Real ports (ESP32-S3 USB CDC, CP2102/CH340/FTDI) go through `serialport`;
 /// if that fails on Unix - typically because the path is a pseudo-terminal from
 /// the simulator, where macOS rejects the baud-rate ioctl - fall back to a raw
 /// termios file handle.
 pub fn open_link(path: &str, baud: u32) -> Result<Box<dyn Link>> {
-    open_link_poll(path, baud, Duration::from_millis(20))
+    open_link_poll(path, baud, LINK_WAIT)
 }
+
+/// How long a read on a link waits for data before it gives up (TimedOut),
+/// unless told otherwise (`Link::set_wait`).
+pub const LINK_WAIT: Duration = Duration::from_millis(20);
 
 /// open_link, with how long a read waits for data before it gives up
 /// (TimedOut). Short, for a program that also has something to send
@@ -263,6 +316,12 @@ mod pipe {
             }
         }
 
+        impl crate::Link for PipeLink {
+            fn set_wait(&mut self, wait: Duration) {
+                self.wait = wait;
+            }
+        }
+
         impl Read for PipeLink {
             fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
                 let until = Instant::now() + self.wait;
@@ -366,8 +425,18 @@ mod pty {
                 if libc::tcsetattr(fd, libc::TCSANOW, &t) != 0 {
                     return Err(io::Error::last_os_error());
                 }
+                // (a write takes what fits: see write)
+                if libc::fcntl(fd, libc::F_SETFL, libc::fcntl(fd, libc::F_GETFL) | libc::O_NONBLOCK) != 0 {
+                    return Err(io::Error::last_os_error());
+                }
             }
             Ok(RawTty { file, wait_ms: wait.as_millis().clamp(1, 60_000) as i32 })
+        }
+    }
+
+    impl crate::Link for RawTty {
+        fn set_wait(&mut self, wait: std::time::Duration) {
+            self.wait_ms = wait.as_millis().clamp(1, 60_000) as i32;
         }
     }
 
@@ -406,8 +475,25 @@ mod pty {
     }
 
     impl Write for RawTty {
+        /// Like a serial port's write: what fits, else TimedOut after the
+        /// read timeout (never blocked for good: the caller may need to
+        /// read first, so that the other side can go on and read in turn).
         fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            self.file.write(buf)
+            let mut pfd = libc::pollfd { fd: self.file.as_raw_fd(), events: libc::POLLOUT, revents: 0 };
+            let r = unsafe { libc::poll(&mut pfd, 1, self.wait_ms) };
+            if r < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            if pfd.revents & (libc::POLLHUP | libc::POLLERR) != 0 {
+                return Err(io::Error::new(io::ErrorKind::BrokenPipe, "device disconnected"));
+            }
+            if r == 0 {
+                return Err(io::ErrorKind::TimedOut.into());
+            }
+            match self.file.write(buf) {
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => Err(io::ErrorKind::TimedOut.into()),
+                r => r,
+            }
         }
         fn flush(&mut self) -> io::Result<()> {
             self.file.flush()

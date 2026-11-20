@@ -46,6 +46,7 @@ mod s46_marketplace;
 mod s48_secrets_push;
 mod s49_sim_wifi;
 mod s50_lua_api;
+mod s51_tether;
 pub mod update;
 
 pub type Section = fn(&mut T);
@@ -93,4 +94,5 @@ pub const ALL: &[(&str, Section)] = &[
     ("48-secrets-push", s48_secrets_push::run),
     ("49-sim-wifi", s49_sim_wifi::run),
     ("50-lua-api", s50_lua_api::run),
+    ("51-tether", s51_tether::run),
 ];

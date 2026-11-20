@@ -1196,7 +1196,7 @@ static const char *store_state(char *buf, size_t cap)
     if (ix) { snprintf(buf, cap, "%d apps", s_nstore); return buf; }
     if (app_update_checking()) return "checking";
     if (!app_update_configured()) return "no marketplace address";
-    if (!strcmp(net_ip(), "-")) return "no Wi-Fi";
+    if (!net_online()) return "no Wi-Fi";
     if (app_update_error()[0]) { snprintf(buf, cap, "unreachable: %s", app_update_error()); return buf; }
     return "checking";
 }
@@ -1209,7 +1209,7 @@ static const char *store_message(char *buf, size_t cap)
     if (ix) return s_nstore ? NULL : "The marketplace has no apps for this firmware.";
     if (app_update_checking()) return "Looking for apps...";
     if (!app_update_configured()) return "No marketplace address.";
-    if (!strcmp(net_ip(), "-")) return "No Wi-Fi. Set it up from a computer: luaboard wifi set, or the studio.";
+    if (!net_online()) return "No Wi-Fi. Set it up from a computer: luaboard wifi set, or the studio.";
     if (app_update_error()[0]) {
         snprintf(buf, cap, "Couldn't reach the marketplace: %s", app_update_error());
         return buf;
@@ -1801,7 +1801,7 @@ static void settings_event(act_t ev, const btn_event_t *e)
         if (s_ssel == S_SLEEP) { sleep_now(); break; }
         if (s_ssel == S_AUTOSTART) { open_pick(); break; }
         if (s_ssel == S_CHECK) {                      /* both checks now; the answer comes as a toast */
-            if (!strcmp(net_ip(), "-")) { menu_toast("no Wi-Fi"); break; }
+            if (!net_online()) { menu_toast("no Wi-Fi"); break; }
             update_check_now();
             app_update_check_force();
             s_checking = update_checking() || app_update_checking();

@@ -105,6 +105,21 @@ impl Studio {
             }
         });
         self.clock_ui(ui);
+        self.tether_ui(ui);
+    }
+
+    /// Lending the device this computer's network: over USB only.
+    fn tether_ui(&mut self, ui: &mut egui::Ui) {
+        let usb = self.connected_port.as_deref().is_some_and(|p| luaboard::wifi::parse_tcp_port(p).is_none());
+        if !usb {
+            return;
+        }
+        let tip = "Without Wi-Fi, the device's apps and update checks connect through this computer, \
+                   over USB. TLS is still checked on the device. Not to this computer's own addresses \
+                   (127.0.0.1): run luaboard tether --allow-local for those.";
+        if ui.checkbox(&mut self.tether, "Share this computer's network").on_hover_text(tip).changed() {
+            self.send(Cmd::Tether(self.tether));
+        }
     }
 
     /// The device's clock and its time-zone picker.
@@ -116,8 +131,14 @@ impl Studio {
             match clock.now_local() {
                 Some(t) => {
                     let r = ui.small(t);
-                    if clock.source == "rtc" {
-                        r.on_hover_text("From the board's clock chip (kept while powered); NTP sets it once on Wi-Fi.");
+                    match clock.source.as_str() {
+                        "rtc" => {
+                            r.on_hover_text("From the board's clock chip (kept while powered); NTP sets it once on Wi-Fi.");
+                        }
+                        "usb" => {
+                            r.on_hover_text("From this computer, over USB; NTP sets it once on Wi-Fi.");
+                        }
+                        _ => {}
                     }
                     ui.ctx().request_repaint_after(Duration::from_millis(500));
                 }

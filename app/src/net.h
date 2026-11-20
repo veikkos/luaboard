@@ -29,3 +29,9 @@ bool net_wifi_failing(void);
 void net_drop_clients(const char *why);
 /** "1.2.3.4" when connected, "-" otherwise. */
 const char *net_ip(void);
+/** Joined the Wi-Fi network (has an address). */
+bool net_wifi_up(void);
+/** The device can reach the internet: over Wi-Fi, or else the USB tether
+ *  (tun.c). Ask this, not the Wi-Fi state, before anything that goes online
+ *  (update checks, installs). */
+bool net_online(void);

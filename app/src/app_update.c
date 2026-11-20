@@ -9,7 +9,6 @@
 #include "app_config.h"
 #include "appmeta.h"
 #include "check_sched.h"
-#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "httpc.h"
 #include "hw.h"
@@ -88,21 +87,12 @@ static uint32_t check_every(void)
 #endif
 }
 
-static bool wifi_up(void) { return strcmp(net_ip(), "-") != 0; }
-
-/* In PSRAM where there is some (the index is tens of KB). */
-static void *big_alloc(size_t n)
-{
-    void *p = heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    return p ? p : malloc(n);
-}
-
 static bool have_buffers(void)
 {
-    if (!s_body) s_body = big_alloc(APPS_INDEX_MAX);
-    if (!s_text) s_text = big_alloc(APPS_INDEX_MAX);
-    if (!s_ix) s_ix = big_alloc(sizeof *s_ix);
-    if (!s_next) s_next = big_alloc(sizeof *s_next);
+    if (!s_body) s_body = hw_big_alloc(APPS_INDEX_MAX);
+    if (!s_text) s_text = hw_big_alloc(APPS_INDEX_MAX);
+    if (!s_ix) s_ix = hw_big_alloc(sizeof *s_ix);
+    if (!s_next) s_next = hw_big_alloc(sizeof *s_next);
     return s_body && s_text && s_ix && s_next;
 }
 
@@ -272,7 +262,7 @@ static void next_file(void)
     const apps_file_t *f = &s_in.files[s_in.i];
     char url[700], err[80];
     snprintf(url, sizeof url, "%s/%s/%s/%s", base_url(), s_in.e.commit, s_in.e.name, f->path);
-    s_in.buf = big_alloc(f->size ? f->size : 1);
+    s_in.buf = hw_big_alloc(f->size ? f->size : 1);
     if (!s_in.buf) { install_over("out of memory"); return; }
     s_in.len = 0;
     s_in.too_big = false;
@@ -317,7 +307,7 @@ bool app_install_start(const char *app, char *err, size_t cap)
     if (s_in.busy) { snprintf(err, cap, "an install is under way"); return false; }
     if (!e) { snprintf(err, cap, s_have ? "not in the marketplace" : "the marketplace isn't known yet"); return false; }
     if (!strncmp(running, app, n) && running[n] == '/') { snprintf(err, cap, "the app is running"); return false; }
-    if (!wifi_up()) { snprintf(err, cap, "no Wi-Fi"); return false; }
+    if (!net_online()) { snprintf(err, cap, "no Wi-Fi"); return false; }
     memset(&s_in, 0, sizeof s_in);
     s_in.e = *e;
     s_in.n = apps_index_files(s_text, s_text_len, e, s_in.files, APPS_INDEX_MAX_FILES);
@@ -368,7 +358,7 @@ void app_update_poll(void)
         }
     }
     if (!s_compared || s_gen != vfs_generation()) compare();
-    if (!settings_update_check() || !base_url() || !wifi_up()) return;
+    if (!settings_update_check() || !base_url() || !net_online()) return;
     if (!check_sched_due(&s_sched, hw_millis(), UPDATE_FIRST_CHECK_MS) || ota_active() || s_in.busy) return;
     check_start();
 }
@@ -385,7 +375,7 @@ void app_update_setting_changed(void)
     }
     if (s_http) return;
     check_sched_reset(&s_sched);
-    if (wifi_up()) check_sched_soon(&s_sched, hw_millis(), UPDATE_FIRST_CHECK_MS);
+    if (net_online()) check_sched_soon(&s_sched, hw_millis(), UPDATE_FIRST_CHECK_MS);
 }
 
 void app_update_check_now(void)
@@ -396,7 +386,7 @@ void app_update_check_now(void)
 
 void app_update_check_force(void)
 {
-    if (s_http || !base_url() || !wifi_up() || ota_active() || s_in.busy) return;
+    if (s_http || !base_url() || !net_online() || ota_active() || s_in.busy) return;
     check_start();
 }
 

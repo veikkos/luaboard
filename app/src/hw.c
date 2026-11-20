@@ -1,5 +1,6 @@
 #include "hw.h"
 
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -10,6 +11,7 @@
 #include "driver/i2s_std.h"
 #include "driver/usb_serial_jtag.h"
 #include "esp_adc/adc_oneshot.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_task_wdt.h"
@@ -253,7 +255,7 @@ int hw_serial_read(uint8_t *buf, size_t cap)
     return n < 0 ? 0 : n;
 }
 
-void hw_serial_write(const void *data, size_t len)
+bool hw_serial_write(const void *data, size_t len)
 {
     /* The driver queues a write into its TX ring buffer in one piece, and a
        write bigger than the buffer fails outright, so send in chunks. Wait up
@@ -262,18 +264,19 @@ void hw_serial_write(const void *data, size_t len)
        gets through again, so a chatty script doesn't stall the main loop.
        No host at all (battery, or a charger): drop without waiting. */
     static bool s_stalled;
-    if (!usb_serial_jtag_is_connected()) return;
+    if (!usb_serial_jtag_is_connected()) return false;
     const uint8_t *p = data;
     while (len > 0) {
         size_t n = len < USB_TX_CHUNK ? len : USB_TX_CHUNK;
         if (usb_serial_jtag_write_bytes(p, n, s_stalled ? 0 : pdMS_TO_TICKS(50)) != (int)n) {
             s_stalled = true;
-            return;
+            return false;
         }
         s_stalled = false;
         p += n;
         len -= n;
     }
+    return true;
 }
 
 void hw_serial_puts(const char *s) { hw_serial_write(s, strlen(s)); }
@@ -727,6 +730,12 @@ bool hw_reset_was_fw_crash(void)
 }
 
 uint64_t hw_millis64(void) { return (uint64_t)(esp_timer_get_time() / 1000); }
+
+void *hw_big_alloc(size_t n)
+{
+    void *p = heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    return p ? p : malloc(n);
+}
 
 /* ------------------------------------------------------------- watchdog */
 /* The task watchdog (CONFIG_ESP_TASK_WDT_PANIC, sdkconfig.defaults) resets

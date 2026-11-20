@@ -27,6 +27,8 @@ long httpc_length(const httpc_t *c);
 /** After HTTPC_FAILED, why: "HTTP 404", "too many redirects", "timed out",
  *  "connection closed early", a TLS error, ... */
 const char *httpc_error(const httpc_t *c);
+/** Whether its connection goes through the USB tether (else Wi-Fi). */
+bool httpc_tethered(const httpc_t *c);
 /** Free it; one in progress is dropped. NULL is fine. */
 void httpc_free(httpc_t *c);
 /** A short reason for an httpc_error, for one screen line (at most

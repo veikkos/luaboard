@@ -67,7 +67,7 @@ pub fn run(t: &mut T) {
         said.len() == 3 && said[0].starts_with("ERR size") && said[1..].iter().all(|l| l.starts_with("ERR bad name"));
     t.check(ok, "the CLI's longest app and file names are the board's", |_| format!("PUT: {said:?}"));
     let help = t.raw(&["help", "NOSUCH"]);
-    let ok = grep("^OK PING INFO .* SECRETS SECRET CRASH HELP - see docs/PROTOCOL.md$", &help)
+    let ok = grep("^OK PING INFO .* SECRETS SECRET CRASH TUN HELP - see docs/PROTOCOL.md$", &help)
         && help.contains("ERR unknown command 'NOSUCH'");
     t.check(ok, "HELP lists the commands (in any case), an unknown one is refused", |_| format!("help: {help}"));
     let ok = first_line_matches(t, "WIFI SET 0x41", "^ERR usage");

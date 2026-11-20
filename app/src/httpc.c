@@ -418,6 +418,8 @@ long httpc_length(const httpc_t *c) { return c->status == 200 && c->state >= H_B
 
 const char *httpc_error(const httpc_t *c) { return c->err; }
 
+bool httpc_tethered(const httpc_t *c) { return c->conn.tun >= 0; }
+
 void httpc_free(httpc_t *c)
 {
     if (!c) return;

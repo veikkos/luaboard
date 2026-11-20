@@ -67,7 +67,8 @@ impl Raw {
             let mut buf = [0u8; 8192];
             while !st.load(Ordering::SeqCst) {
                 while let Ok(data) = rx.try_recv() {
-                    let _ = link.write_all(&data).and_then(|_| link.flush());
+                    let mut got = |b: &[u8]| o.lock().unwrap().extend_from_slice(b);
+                    let _ = luaboard::write_all_reading(&mut *link, &data, Duration::from_secs(5), &mut got);
                     let _ = sent_tx.send(());
                 }
                 match link.read(&mut buf) {
