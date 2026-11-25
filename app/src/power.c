@@ -46,15 +46,16 @@ static uint32_t s_idle_checked;
 void power_keep_on(bool on) { s_keep_on = on; }
 bool power_kept_on(void) { return s_keep_on; }
 
-/* The Turn off after setting: asleep for its minutes, on battery, and no
-   app keeping the device on. Looked at once a second. */
+/* The Turn off after setting: its minutes without a touch or key (as Sleep
+   after counts, asleep or not), on battery, and no app keeping the device
+   on. Looked at once a second. */
 static void idle_poll(void)
 {
     uint32_t now = hw_millis();
     if (now - s_idle_checked < 1000) return;
     s_idle_checked = now;
     int min = settings_turn_off();
-    if (min <= 0 || s_keep_on || !sleep_active() || now - sleep_since() < (uint32_t)min * 60000u) return;
+    if (min <= 0 || s_keep_on || now - sleep_idle_since() < (uint32_t)min * 60000u) return;
     if (hw_usb_powered()) return;
     power_off_request(0, "setting");
 }

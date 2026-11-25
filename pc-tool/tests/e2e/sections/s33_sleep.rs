@@ -83,7 +83,8 @@ pub fn run(t: &mut T) {
     t.say("   the Turn off after setting, and sys.keep_on");
     t.ctl(&["power=short", "advance=300"]); // home
     t.tap_at(60, ui::SETTINGS); // Settings
-    t.tap_at(60, ui::row(3)); // Turn off after: never -> 5 min
+    t.tap_at(60, ui::row(3)); // Turn off after: never -> 1 min
+    t.tap_at(60, ui::row(3)); // -> 5 min
     t.e(&["run", "sleeper"]);
     t.until(2.0, |t| t.e(&["info"]).contains("running: sleeper/main.lua"));
     let v = t.eval("tostring(sys.keep_on())");
@@ -109,6 +110,17 @@ pub fn run(t: &mut T) {
     t.check(ok && app, "the power key: the app the setting turned off under starts again", |t| {
         format!("boot {}, info: {}", t.eval("sys.info().boot"), t.e(&["info"]))
     });
+    // The setting counts from the last touch, as Sleep after does, asleep or not.
+    t.tap_at(160, 120);
+    t.advance(290_000);
+    let on = t.is("on");
+    t.advance(12_000);
+    let off = t.wait_off();
+    t.check(on && off, "awake and left alone for the time, it turns off too", |_| {
+        format!("on before the time {on}, off after it {off}")
+    });
+    t.ctl(&["power=short"]);
+    t.until(3.0, |t| t.eval("sys.info().boot") == "power");
     t.eval("sys.off()");
     let off = t.wait_off();
     t.ctl(&["touch=60,60", "power=short"]); // a finger held as it comes on

@@ -26,8 +26,8 @@ key goes home, and that hold never reaches the app.
 
 App options cover autostart, clearing data and uninstalling. Settings has
 brightness and volume (bars to tap or drag), sleep after (1 to 60 minutes
-without a touch, default never), turn off after (5 to 60 minutes asleep, on
-battery, default never), sleep now, autostart app, check for updates (on by
+without a touch, default never), turn off after (the same, on battery,
+default never), sleep now, autostart app, check for updates (on by
 default), check now (looks for firmware and app updates right away and says
 what it found) and time sync.
 
@@ -47,9 +47,9 @@ touch, with Sleep now, or when the power key is held 1.5 s. A touch or the
 power key wakes it and does nothing else.
 
 Off, the power is cut: on battery the board's power chip turns it off, and
-nothing runs. Turn off after does it once the device has been asleep that
-long, unless the app that runs keeps it on (`sys.keep_on(true)`). A device
-that never sleeps never turns off. An app can turn the device off too
+nothing runs. Turn off after does it once the device hasn't been touched for
+that long, asleep or not, unless the app that runs keeps it on
+(`sys.keep_on(true)`) or keeps the screen awake. On USB power it stays on. An app can turn the device off too
 (`sys.off()`), and holding the power key 6 s does it in the power chip
 itself. The power key turns it on again. An app can also ask to be woken:
 the device then turns itself on in time.

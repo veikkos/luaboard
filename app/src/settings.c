@@ -8,7 +8,7 @@
 
 static int s_brightness = DISPLAY_DEFAULT_BRIGHTNESS;
 static int s_screen_off;                 /* minutes, 0 never */
-static int s_turn_off;                   /* minutes asleep, 0 never */
+static int s_turn_off;                   /* minutes without a touch, 0 never */
 static int s_volume = SOUND_DEFAULT_VOLUME;
 static char s_autostart[VFS_APP_NAME_MAX];
 static char s_tz[TZ_MAX] = TZ_DEFAULT;

@@ -370,12 +370,16 @@ pub fn run(t: &mut T) {
     t.ctl(&["power=short", "advance=300"]); // wakes it, doesn't go home
     let ok = off && screen(t) == "on" && t.eval(MENU_PX) == "true";
     t.check(ok, "Sleep now; the power key wakes it", |t| format!("sleep now: {}", screen(t)));
-    // The tap moved the selection from Volume to Sleep now: one row shows selected, not both.
+    // A tap on Sleep now selects nothing: awake again, the row selected before (Volume) still is.
     let shot = t.shot("woke.ppm");
     let selected: Vec<i32> = (0..7)
         .filter(|&i| shot.count(6..7, row(i) as usize..row(i) as usize + 1, |r, _, b| r < 60 && b > 120) == 1)
         .collect();
-    t.check(selected == [4], "... and only the row tapped shows selected", |_| format!("selected rows: {selected:?}"));
+    let lit = |i: i32| shot.count(6..7, row(i) as usize..row(i) as usize + 1, |r, g, b| r.max(g).max(b) > 60) == 1;
+    let ok = selected == [1] && !lit(4);
+    t.check(ok, "... and Sleep now isn't left selected, or shown pressed", |_| {
+        format!("selected rows: {selected:?}, Sleep now's row lit: {}", lit(4))
+    });
     t.ctl(&["power=long", "advance=300"]);
     let off = screen(t) == "off";
     t.tap_at(160, 120);

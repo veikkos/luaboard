@@ -13,7 +13,6 @@
 #include "sound.h"
 
 static uint32_t s_active_at;    /* last touch or key */
-static uint32_t s_since;        /* when the screen went off */
 static bool s_usb;              /* USB power, as last read */
 static uint32_t s_usb_at;
 static bool s_usb_read;
@@ -25,11 +24,10 @@ void sleep_now(void)
     if (hw_screen_is_off()) return;
     hw_screen_off(true);                /* the light first: the panel going to sleep isn't seen */
     gfx_sleep(true);
-    s_since = hw_millis();
     proto_eventf("screen off");
 }
 
-uint32_t sleep_since(void) { return s_since; }
+uint32_t sleep_idle_since(void) { return s_active_at; }
 
 bool sleep_light_allowed(void)
 {

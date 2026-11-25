@@ -25,8 +25,9 @@ void sleep_keep_awake(bool on);
 bool sleep_kept_awake(void);
 /** Turn the screen off if it has been idle for the setting's time. */
 void sleep_tick(uint32_t now);
-/** hw_millis() when the screen went off (while sleep_active()). */
-uint32_t sleep_since(void);
+/** hw_millis() of the last touch or key (now, while an app keeps the screen
+ *  awake): what the Sleep after and Turn off after settings count from. */
+uint32_t sleep_idle_since(void);
 /** Asleep with nothing in the way of the chip's light sleep: on battery,
  *  no sound playing, no update running, Bluetooth idle. The main loop
  *  slows down while it holds (main.c). */

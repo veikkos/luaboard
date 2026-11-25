@@ -42,7 +42,7 @@ enum { S_BRIGHTNESS, S_VOLUME, S_SCREEN_OFF, S_TURN_OFF, S_SLEEP, S_AUTOSTART, S
 #define S_INFO(i) ((i) >= S_VERSION && (i) <= S_WIFI)
 static const int s_off_choices[] = { 0, 1, 5, 15, 30, 60 };   /* Sleep after: minutes, 0 never */
 #define OFF_N ((int)(sizeof s_off_choices / sizeof s_off_choices[0]))
-static const int s_turn_choices[] = { 0, 5, 15, 30, 60 };     /* Turn off after: minutes asleep, 0 never */
+static const int s_turn_choices[] = { 0, 1, 5, 15, 30, 60 };  /* Turn off after: minutes, 0 never */
 #define TURN_N ((int)(sizeof s_turn_choices / sizeof s_turn_choices[0]))
 enum { O_OPEN, O_AUTOSTART, O_CLEAR, O_UNINSTALL, O_BACK, O_COUNT };   /* app options (hold B on an app) */
 enum { U_INSTALL, U_BACK, U_COUNT };                              /* the firmware update's confirm screen */
@@ -618,10 +618,9 @@ static void settings_text(int i, int y, bool sel)
     case S_SCREEN_OFF:
     case S_TURN_OFF: {
         int m = i == S_SCREEN_OFF ? settings_screen_off() : settings_turn_off();
-        const char *of = i == S_TURN_OFF ? " asleep" : "";   /* what Turn off after counts */
         if (!m) snprintf(v, sizeof v, "never");
-        else if (m % 60 == 0) snprintf(v, sizeof v, "%d h%s", m / 60, of);
-        else snprintf(v, sizeof v, "%d min%s", m, of);
+        else if (m % 60 == 0) snprintf(v, sizeof v, "%d h", m / 60);
+        else snprintf(v, sizeof v, "%d min", m);
         break;
     }
     case S_AUTOSTART: autostart_label(autostart_index(), v, sizeof v); break;
@@ -932,7 +931,7 @@ static void draw_update(void)
     }
     char line[300], names[200], titles[240];
     unsigned tenths = (unsigned)((u->size * 10 + 512 * 1024) / (1024 * 1024));   /* MB, one decimal */
-    snprintf(line, sizeof line, "%s, %u.%u MB (now %s)", u->version, tenths / 10, tenths % 10, fw_version());
+    snprintf(line, sizeof line, "%s, %u.%u MB", u->version, tenths / 10, tenths % 10);
     y = text_line(y, line, C_TEXT);
     y = text_wrap(y, u->notes, 2, C_DIM);
     wont_run(u, names, sizeof names, titles, sizeof titles);
@@ -999,13 +998,8 @@ static void appupd_text(int r, int y, bool sel)
     if (!e) return;
     char right[64], shown[64], t[48];
     const char *why = failed_why(e->name);
-    if (why) {
-        snprintf(right, sizeof right, "failed: %s", why);
-    } else {
-        app_meta_t m;
-        app_meta_load(e->name, &m);
-        snprintf(right, sizeof right, "%s -> %s", m.version[0] ? m.version : "?", e->version);
-    }
+    if (why) snprintf(right, sizeof right, "failed: %s", why);
+    else snprintf(right, sizeof right, "%s", e->version);   /* the one offered (the installed one is in the app's options) */
     fit(shown, sizeof shown, right, w / 2, 1);
     row_value(y, shown, why ? C_WARN : C_DIM);
     fit(t, sizeof t, shown_as(e->title, e->name), w - 2 * PAD - 8 - gfx_text_width(shown, 1) - 8, 2);
@@ -1764,6 +1758,7 @@ static void settings_event(act_t ev, const btn_event_t *e)
         }
         if (s_editing) ev = M_OK;                            /* elsewhere: done */
         else if (bar_of(r)) { s_ssel = r; draw_settings(); return; }   /* its name: the bar does the rest */
+        else if (r == S_SLEEP) { sleep_now(); return; }       /* done at once: no row to leave selected for the waking */
         else if (r >= 0) { s_ssel = r; ev = M_OK; }
         else return;
     }
@@ -1800,11 +1795,7 @@ static void settings_event(act_t ev, const btn_event_t *e)
             draw_settings();
             break;
         }
-        if (s_ssel == S_SLEEP) {                      /* drawn first: a tap may have moved the selection here */
-            draw_settings();
-            sleep_now();
-            break;
-        }
+        if (s_ssel == S_SLEEP) { sleep_now(); break; }
         if (s_ssel == S_AUTOSTART) { open_pick(); break; }
         if (s_ssel == S_CHECK) {                      /* both checks now; the answer comes as a toast */
             if (!net_online()) { menu_toast("no Wi-Fi"); break; }
