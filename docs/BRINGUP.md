@@ -42,8 +42,19 @@ things to check on a real board, by part of the board.
 
 ## Power and sleep
 
-- Whether the AW9523B power-path bits (BUS_OUT_EN / USB_OTG_EN) need
-  setting.
+- USB power in. The IO expander's P0_5 is held low, which lets it in: seen
+  on a Lite, where left an input (pulled high) the board ran from its
+  battery on USB without charging. Still to check: an SE, which has no
+  battery to carry it, starts and stays up on USB alone.
+- The PMIC's rails (register 0x90 and the voltages in 0x92..0x95) are left
+  as the chip has them, and it keeps what the factory firmware wrote while
+  it has power. M5Unified writes them at every start. Check a board whose
+  PMIC lost all power (a flat battery, an SE unplugged): the display, the
+  microSD card and the speaker work.
+- 5V out to the ports is switched on in one step. M5Unified first charges
+  the bus with short pulses, as on a weak USB supply the inrush can pull
+  the PMIC's converters under their limit and power the board off. Check
+  on a weak supply and a long cable.
 - The IO expander's port 0 as push-pull (0x11 bit 4, set at boot). After
   reset it's open-drain, and the touch reset, the 5V out to the ports and
   the amplifier's reset are on that port.

@@ -95,21 +95,34 @@ esp_err_t hw_init(void)
     if (add_dev(BOARD_RTC_ADDR, &s_rtc) != ESP_OK) s_rtc = NULL;   /* optional */
 
     /* AW9523B: P0_0 (touch reset) and P1_1 (LCD reset) as outputs, held high.
-       Config registers: 1 = input. VERIFY on hardware: M5Unified also sets
-       bus/OTG power-path bits on this chip, which we leave at reset defaults. */
+       Config registers: 1 = input. */
     /* Also P0_1 and P1_7: 5V out to the Grove ports, on from the start
        (hw_port_power). */
+    /* And P0_5 an output held low: USB power comes in. As an input the board
+       pulls it high, which sends the board's 5V out to the USB socket and
+       lets none in: it ran from the battery without charging it, and a board
+       with no battery would lose power here. */
     s_ioexp_out[0] = (uint8_t)(1u << BOARD_IOEXP_TOUCH_RST | 1u << BOARD_IOEXP_BUS_EN);
     s_ioexp_out[1] = (uint8_t)(1u << BOARD_IOEXP_LCD_RST | 1u << BOARD_IOEXP_BOOST_EN);
     reg_write(s_ioexp, 0x02, s_ioexp_out[0]);
     reg_write(s_ioexp, 0x03, s_ioexp_out[1]);
     /* P0_2 too: the speaker amplifier's reset, low (off) until a sound plays. */
     reg_write(s_ioexp, 0x04,
-              (uint8_t)~(1u << BOARD_IOEXP_TOUCH_RST | 1u << BOARD_IOEXP_BUS_EN | 1u << BOARD_IOEXP_AMP_RST));
+              (uint8_t)~(1u << BOARD_IOEXP_TOUCH_RST | 1u << BOARD_IOEXP_BUS_EN | 1u << BOARD_IOEXP_AMP_RST |
+                         1u << BOARD_IOEXP_USB_OUT_EN));
     /* Port 0 push-pull (GCR 0x11 bit 4), as M5Unified sets it: after reset
        it's open-drain, so its "high" outputs would float. VERIFY on hardware. */
     reg_write(s_ioexp, 0x11, 0x10);
     reg_write(s_ioexp, 0x05, (uint8_t)~(1u << BOARD_IOEXP_LCD_RST | 1u << BOARD_IOEXP_BOOST_EN));
+
+    /* The charger, as M5Unified sets it, since chips differ in what they
+       start with: 4.2 V (0x64 = 3: one has been seen with a reserved value),
+       and the TS pin a plain input (0x50 bit 4). It has no battery
+       thermistor on it but the 5V bus, which a chip measuring temperature
+       there takes for a cold battery, and never charges. */
+    reg_write(s_pmic, 0x64, 0x03);
+    uint8_t ts = 0;
+    if (reg_read(s_pmic, 0x50, &ts, 1) == ESP_OK) reg_write(s_pmic, 0x50, ts | 0x10);
 
     /* BMI270 chip ID: CoreS3 and Lite have one, the SE doesn't. */
     uint8_t id = 0;

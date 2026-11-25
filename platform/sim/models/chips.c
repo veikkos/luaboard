@@ -74,6 +74,7 @@ static void aw_write(i2c_regs_t *r, uint8_t addr, uint8_t v)
         for (int b = 0; b < 8; b++)
             if (((old ^ v) >> b) & 1) m->on_pin(m, port, b, (v >> b) & 1);
     }
+    if ((addr == 0x04 || addr == 0x05) && m->on_config) m->on_config(m);
 }
 
 void aw9523_init(aw9523_t *m)
@@ -82,9 +83,8 @@ void aw9523_init(aw9523_t *m)
     m->r.user = m;
     m->r.on_write = aw_write;
     m->r.reg[0x10] = 0x23;   /* ID */
-    m->r.reg[0x04] = 0xFF;   /* all inputs after reset */
-    m->r.reg[0x05] = 0xFF;
     m->on_pin = 0;
+    m->on_config = 0;
 }
 
 /* ---------------------------------------------------------------- AW88298 */
@@ -165,12 +165,7 @@ void ft6336u_init(ft6336u_t *m)
     m->in_reset = false;
 }
 
-void ft6336u_set_firmware(ft6336u_t *m, uint8_t id)
-{
-    pthread_mutex_lock(&m->r.lock);
-    m->r.reg[0xA6] = id;
-    pthread_mutex_unlock(&m->r.lock);
-}
+void ft6336u_set_firmware(ft6336u_t *m, uint8_t id) { i2c_regs_set(&m->r, 0xA6, id); }
 
 void ft6336u_set_touch(ft6336u_t *m, bool down, int x, int y)
 {

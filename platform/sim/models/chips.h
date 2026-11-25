@@ -32,13 +32,17 @@ void axp2101_set_battery(axp2101_t *m, int percent, bool usb_power);   /* percen
 void axp2101_power_key(axp2101_t *m, bool long_press);
 
 /* ---- AW9523B GPIO expander ---------------------------------------------
- *   0x02/0x03 output P0/P1, 0x04/0x05 config P0/P1 (1 = input)
+ *   0x02/0x03 output P0/P1, 0x04/0x05 config P0/P1 (1 = input): outputs
+ *   after a reset, low here
  *   0x10 ID (0x23)                                                       */
 typedef struct aw9523 aw9523_t;
 struct aw9523 {
     i2c_regs_t r;
     /* Called when an output pin changes: port 0/1, bit, new level. */
     void (*on_pin)(aw9523_t *m, int port, int bit, int level);
+    /* Called when pins were made inputs or outputs. Both are called with
+       the registers locked: they read r.reg as it is. */
+    void (*on_config)(aw9523_t *m);
     void *user;
 };
 void aw9523_init(aw9523_t *m);

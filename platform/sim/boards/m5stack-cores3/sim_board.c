@@ -73,8 +73,13 @@ static uint32_t s_pwr_at;       /* ... since (SDL ticks) */
 static int s_pwr_long;          /* ... and held long enough for a long press, already sent */
 #define PWR_LONG_MS 1500        /* the AXP2101's default long-press time */
 
+/* USB power gets in only while the IO expander holds P0_5 low: high (or left
+   an input, which the board pulls high) the board's own 5 V goes out to the
+   USB socket instead, and none comes in. */
+static atomic_bool s_usb_cut;
+
 /* Without a battery the board only runs while 5 V is there. */
-static int usb_power(void) { return s_usb || s_battery < 0; }
+static int usb_power(void) { return (s_usb || s_battery < 0) && !atomic_load(&s_usb_cut); }
 
 static void toggle_battery(void)
 {
@@ -98,10 +103,24 @@ static void apply_inputs(void)
     }
 }
 
+/* The switch between USB power in and out, as the IO expander has it now. */
+static void usb_path(aw9523_t *m)
+{
+    bool cut = ((m->r.reg[0x04] | m->r.reg[0x02]) >> BOARD_IOEXP_USB_OUT_EN) & 1;
+    if (cut == atomic_load(&s_usb_cut)) return;
+    atomic_store(&s_usb_cut, cut);
+    apply_inputs();
+    if (cut && s_battery < 0) {
+        fprintf(stderr, "[sim] USB power is cut off (IO expander P0_5 not held low) and there's no battery: "
+                "the board loses power\n");
+        sim_power_off();
+    }
+}
+
 /* The AW9523B drives the reset lines of the LCD and the touch controller. */
 static void ioexp_pin(aw9523_t *m, int port, int bit, int level)
 {
-    (void)m;
+    if (port == 0 && bit == BOARD_IOEXP_USB_OUT_EN) usb_path(m);
     if (port == 1 && bit == BOARD_IOEXP_LCD_RST && level == 0) ili9342_reset(&s_lcd);
     if (port == 0 && bit == BOARD_IOEXP_BUS_EN) {
         s_port_power = level;
@@ -233,6 +252,7 @@ void sim_board_init(void)
     s_pmic.on_power_off = pmic_power_off;
     aw9523_init(&s_ioexp);
     s_ioexp.on_pin = ioexp_pin;
+    s_ioexp.on_config = usb_path;
     ft6336u_init(&s_touch);
     bm8563_init(&s_rtc);
     sht40_init(&s_sht40);

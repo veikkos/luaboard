@@ -76,6 +76,7 @@
 /* 5V out to the Grove ports, as M5Unified's setExtOutput() switches it.
    VERIFY on hardware: taken from M5Unified, not measured. */
 #define BOARD_IOEXP_BUS_EN    1            /* P0_1: 5V bus out to the ports */
+#define BOARD_IOEXP_USB_OUT_EN 5           /* P0_5: the board's 5V out to the USB socket. Held low: USB power comes in */
 #define BOARD_IOEXP_BOOST_EN  7            /* P1_7: 5V boost converter (on battery) */
 
 /* ---- Speaker --------------------------------------------------------------
