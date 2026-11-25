@@ -55,13 +55,7 @@ extern "C" {
 #endif
 
 /* ---- compiler -------------------------------------------------------- */
-#ifdef _MSC_VER
-#ifndef __attribute__
-#define __attribute__(x)
-#endif
-#include <intrin.h>
-#define __builtin_frame_address(level) ((void *)_AddressOfReturnAddress())
-#endif
+#include "gcc_compat.h"
 
 /* ---- types and limits ------------------------------------------------ */
 #ifndef _SSIZE_T_DEFINED

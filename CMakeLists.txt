@@ -289,7 +289,9 @@ add_executable(fw-unit ${UNIT_SRCS} ${ROOT}/app/src/update_manifest.c ${ROOT}/ap
 target_include_directories(fw-unit PRIVATE ${ROOT}/app/src ${ROOT}/third_party/qrcodegen)
 target_compile_options(fw-unit PRIVATE ${LANG_FLAGS} ${WARN})
 if(MSVC)
+    # The firmware's sources are written for GCC: its attributes mean nothing here.
     target_compile_definitions(fw-unit PRIVATE _CRT_SECURE_NO_WARNINGS)
+    target_compile_options(fw-unit PRIVATE ${FORCE_INCLUDE}${ROOT}/platform/host/win32/posix/gcc_compat.h)
 endif()
 set_target_properties(fw-unit PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
