@@ -162,9 +162,12 @@ things to check on a real board, by part of the board.
   and that the default measurement rates are what the code assumes.
 - The speaker, set up as M5Unified does it: the AW88298 at 0x36 out of
   reset on the IO expander's P0_2, I2S on G34 (BCLK), G33 (WS) and G13
-  (data) at 44.1 kHz, its register values (0x04, 0x05, 0x06 rate code 7,
-  0x61, 0x0C), how loud 50 % is, and no pop when it turns on or off. Also
-  that all three models have it.
+  (data) at 48 kHz, its register values (0x04, 0x05, 0x06 rate code 8,
+  0x61, 0x0C). It plays on a Lite. At 44.1 kHz it stayed silent there: the
+  amplifier's status (register 0x01) showed its PLL never locking onto the
+  bit clock, where at 48 kHz it reads 0x0211. Still to check: how loud the
+  settings are (30 dB from 1 % to 100 %), no pop when it turns on or off,
+  and that the SE has it.
 - The pins reserved for the speaker, microphone and camera (G0, G13-16,
   G33-34, G38-42, G45-48), taken from M5Stack's pin map.
 - The free pins (Ports A, B and C, G5..G7, G10) are in ESP-IDF's reset

@@ -1,5 +1,6 @@
 #include "sound.h"
 
+#include <math.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdint.h>
@@ -40,8 +41,16 @@ static uint32_t s_idle_at;
 static _Atomic uint32_t s_gen;
 static bool s_thread;
 
-/* Volume % -> gain: squared, as loudness goes (50 % sounds about half as loud). */
-static float gain(int volume) { return (float)volume * (float)volume / 10000.0f; }
+/* Volume % -> gain. Loudness is heard in ratios, so the steps are equal in
+   decibels: VOLUME_DB from 1 % to 100 %, each 10 % about 3 dB (33 %: half as
+   loud as 100 %, by the rule of thumb of 10 dB). 0 is silence. The range is
+   a small speaker's: more of it, and the low settings can't be heard. */
+#define VOLUME_DB 30.0f
+static float gain(int volume)
+{
+    if (volume <= 0) return 0.0f;
+    return powf(10.0f, (float)(volume - 100) * VOLUME_DB / (100.0f * 20.0f));
+}
 
 static int16_t clamp16(float v) { return v > 32767.f ? 32767 : v < -32768.f ? -32768 : (int16_t)v; }
 

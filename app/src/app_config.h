@@ -67,7 +67,9 @@
 #define DISPLAY_DEFAULT_BRIGHTNESS 80     /* % - until the Brightness setting is changed */
 
 /* Sound (sound.c): the speaker's output and what scripts may queue. */
-#define SOUND_RATE           44100        /* Hz, the speaker's I2S output */
+/* 48000, as M5Unified has it: at 44100 the amplifier (AW88298) never locked
+   onto the bit clock on a CoreS3 Lite, and stayed silent. */
+#define SOUND_RATE           48000        /* Hz, the speaker's I2S output */
 #define SOUND_QUEUE_MAX      64           /* tones and clips waiting */
 #define SOUND_QUEUE_BYTES    (1024 * 1024) /* their audio data together (PSRAM) */
 #define SOUND_TONE_MAX_MS    10000
