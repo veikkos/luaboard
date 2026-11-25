@@ -49,7 +49,8 @@ power key wakes it and does nothing else.
 Off, the power is cut: on battery the board's power chip turns it off, and
 nothing runs. Turn off after does it once the device hasn't been touched for
 that long, asleep or not, unless the app that runs keeps it on
-(`sys.keep_on(true)`) or keeps the screen awake. On USB power it stays on. An app can turn the device off too
+(`sys.keep_on(true)`). An app keeping the screen awake doesn't hold it off.
+On USB power it stays on. An app can turn the device off too
 (`sys.off()`), and holding the power key 6 s does it in the power chip
 itself. The power key turns it on again. An app can also ask to be woken:
 the device then turns itself on in time.

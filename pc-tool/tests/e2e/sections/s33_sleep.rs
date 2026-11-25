@@ -110,13 +110,15 @@ pub fn run(t: &mut T) {
     t.check(ok && app, "the power key: the app the setting turned off under starts again", |t| {
         format!("boot {}, info: {}", t.eval("sys.info().boot"), t.e(&["info"]))
     });
-    // The setting counts from the last touch, as Sleep after does, asleep or not.
+    // The setting counts from the last touch, asleep or not, and whether or
+    // not the app keeps the screen awake (only sys.keep_on holds it off).
+    t.eval("disp.keep_awake(true)");
     t.tap_at(160, 120);
     t.advance(290_000);
     let on = t.is("on");
     t.advance(12_000);
     let off = t.wait_off();
-    t.check(on && off, "awake and left alone for the time, it turns off too", |_| {
+    t.check(on && off, "kept awake by its app and left alone for the time, it turns off too", |_| {
         format!("on before the time {on}, off after it {off}")
     });
     t.ctl(&["power=short"]);

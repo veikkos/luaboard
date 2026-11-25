@@ -12,7 +12,8 @@
 #include "settings.h"
 #include "sound.h"
 
-static uint32_t s_active_at;    /* last touch or key */
+static uint32_t s_active_at;    /* what Sleep after counts from: the last touch or key, or an app letting the screen go */
+static uint32_t s_touched_at;   /* the last touch or key (the start, before any): what Turn off after counts from */
 static bool s_usb;              /* USB power, as last read */
 static uint32_t s_usb_at;
 static bool s_usb_read;
@@ -27,7 +28,7 @@ void sleep_now(void)
     proto_eventf("screen off");
 }
 
-uint32_t sleep_idle_since(void) { return s_active_at; }
+uint32_t sleep_idle_since(void) { return s_touched_at; }
 
 bool sleep_light_allowed(void)
 {
@@ -46,7 +47,7 @@ bool sleep_active(void) { return hw_screen_is_off(); }
 
 bool sleep_activity(uint32_t now)
 {
-    s_active_at = now;
+    s_active_at = s_touched_at = now;
     s_started = true;
     if (!hw_screen_is_off()) return false;
     gfx_sleep(false);                   /* the panel first: the light comes on over its picture */
@@ -61,6 +62,7 @@ bool sleep_kept_awake(void) { return s_keep; }
 
 void sleep_tick(uint32_t now)
 {
+    if (!s_started) s_touched_at = now;
     if (!s_started || s_keep) { s_active_at = now; s_started = true; }   /* kept: idle from when it's let go */
     int min = settings_screen_off();
     if (min > 0 && !hw_screen_is_off() && now - s_active_at >= (uint32_t)min * 60000u) sleep_now();
