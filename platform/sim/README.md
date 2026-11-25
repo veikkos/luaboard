@@ -37,7 +37,7 @@ environment it runs the dark CoreS3 with a battery instead of the default SE.
 | Input | Action |
 |---|---|
 | Mouse on screen | Touch |
-| A / B / C keys, or click below the screen | Touch buttons (hold B 0.8 s to go back) |
+| A / B / C keys, or click below the screen | Touch buttons (hold B 0.8 s to go back). On the SE: CoreS3 and Lite have none |
 | Left or Up / Enter / Right or Down | Touch buttons A / B / C (the menus' up / open / down) |
 | P, or click the side key | Power key (short press: home, hold 1.5 s: sleep) |
 | `,` / `.` (Shift: big steps) | Port B analog input |
@@ -163,7 +163,7 @@ window.
 | `--set panel=c\|e` | The LCD the board was built with: an ILI9342C (the default) or the ILI9342E of boards made from August 2026, which the firmware tells apart when it starts. Each needs its own set-up, and without it the picture here is washed out |
 | `--set time=EPOCH` | The world's clock (NTP, RTC chip) starts at these UTC seconds |
 | `--set boot_touch=0\|1` | Finger on screen at boot (safe mode), until the next touch |
-| `--set button=A\|B\|C\|-`, `touch=X,Y\|-` | Hold a button / touch the screen |
+| `--set button=A\|B\|C\|-`, `touch=X,Y\|-` | Hold a button / touch the screen. Only the SE has the buttons: on CoreS3 and Lite `button` is refused, and a touch under the screen (Y from 240) isn't felt |
 | `--set power=short\|long` | Press the power key |
 | `--ble-device FILE` | A simulated Bluetooth device described in JSON (repeatable, see [Bluetooth](#bluetooth)) |
 | `--set ble=ID:on\|off`, `ble_value=ID:UUID:HEX`, `ble_notify=ID:UUID:HEX`, `ble_rssi=ID:DBM` | Its range, values and signal |

@@ -81,6 +81,11 @@ static atomic_bool s_usb_cut;
 /* Without a battery the board only runs while 5 V is there. */
 static int usb_power(void) { return (s_usb || s_battery < 0) && !atomic_load(&s_usb_cut); }
 
+/* The SE's touch panel reaches 40 px below the LCD, the strip that is its
+   three buttons. On CoreS3 and Lite it ends where the LCD does: a finger
+   under it isn't felt, and there are no buttons. */
+static int has_strip(void) { return s_model == M_SE; }
+
 static void toggle_battery(void)
 {
     if (s_battery >= 0) { s_last_battery = s_battery; s_battery = -1; }
@@ -93,13 +98,13 @@ static void apply_inputs(void)
     sim_wifi_set_ap(s_wifi_ap);
     sim_wifi_set_rssi(s_wifi_rssi);
     axp2101_set_battery(&s_pmic, s_battery, usb_power());
-    if (s_key_btn >= 0) {
+    if (s_key_btn >= 0 && has_strip()) {
         static const int cx[3] = { 107, 161, 215 };    /* the SE's icons */
         ft6336u_set_touch(&s_touch, true, cx[s_key_btn], 270);
     } else if (s_boot_touch) {
         ft6336u_set_touch(&s_touch, true, BOARD_LCD_W / 2, BOARD_LCD_H / 2);
     } else {
-        ft6336u_set_touch(&s_touch, s_touch_down, s_tx, s_ty);
+        ft6336u_set_touch(&s_touch, s_touch_down && (has_strip() || s_ty < BOARD_LCD_H), s_tx, s_ty);
     }
 }
 
@@ -333,8 +338,8 @@ bool sim_board_set(const char *key, const char *val)
     }
     else if (!strcmp(key, "button")) {                 /* hold a touch button: A|B|C, "-" = release */
         if (!strcmp(val, "-")) s_key_btn = -1;
-        else if (val[0] >= 'A' && val[0] <= 'C' && !val[1]) s_key_btn = val[0] - 'A';
-        else return false;
+        else if (val[0] >= 'A' && val[0] <= 'C' && !val[1] && has_strip()) s_key_btn = val[0] - 'A';
+        else return false;                             /* (not a button, or a board with none) */
     } else if (!strcmp(key, "touch")) {                /* finger on the screen at X,Y; "-" = lift */
         int x, y;
         s_boot_touch = 0;                              /* (the finger held from power-on goes) */
@@ -587,7 +592,7 @@ void sim_board_ui_draw(sim_ui_t *ui)
         ui_circle(ui, L.lx + 158 * s, y + 3 * s, 5 * s, 0x2a3440);    /* lens */
         ui_fill(ui, L.lx + 210 * s, y + 3 * s, 4 * s, 4 * s, 0x2a2c30);  /* light/proximity sensor */
         ui_circle(ui, L.lx + 230 * s, y + 5 * s, 2 * s + s / 2, 0x2a2c30);
-        if (s_touch_down && s_ty >= BOARD_LCD_H) {                    /* finger on the strip */
+        if (s_touch_down && s_ty >= BOARD_LCD_H) {                    /* a finger under the LCD (not felt) */
             SDL_SetRenderDrawBlendMode(ui->r, SDL_BLENDMODE_BLEND);
             ui_color(ui, 0xffffff, 50);
             for (int r = 9 * s; r > 0; r -= 2) {
@@ -642,8 +647,9 @@ void sim_board_ui_draw(sim_ui_t *ui)
              batt, usb_power() ? ", USB 5V" : "", ui->tty_path, sim_net_host_port(3333),
              !s_wifi_ap ? " (no access point)" : wifi_up ? "" : " (not joined)");
     ui_text(ui, L.m, ty + 6 * s, line, ui_text_fit(line, s, L.settings.x - L.m - 4 * s), 0xc8d2dc);
-    const char *help = "A/B/C, arrows, Enter: touch buttons  P: power  - + X: battery  U: USB  "
-                       "W: Wi-Fi  S: settings  Esc: quit";
+    const char *help = has_strip() ? "A/B/C, arrows, Enter: touch buttons  P: power  - + X: battery  U: USB  "
+                                     "W: Wi-Fi  S: settings  Esc: quit"
+                                   : "P: power  - + X: battery  U: USB  W: Wi-Fi  S: settings  Esc: quit";
     small = ui_text_fit(help, small, L.bw);
     if (ui_text_w(help, small) <= L.bw) ui_text(ui, L.m, ty + 21 * s, help, small, 0x66737f);   /* not at the smallest */
 }

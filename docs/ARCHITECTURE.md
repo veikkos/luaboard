@@ -325,7 +325,7 @@ ends. With no card mounted its select line is held high, as at boot.
 | NVS | Host file (`--nvs`) | Flash partition (`app/idf/partitions.csv`) |
 | Apps partition | Host folder (`--flash`), size reported as the device's | LittleFS on flash (`joltwallet/littlefs`) |
 | Firmware update | App image = a simulator executable, in slots that are files in `<nvs>.ota/`. At each boot the simulator runs the bootloader and replaces itself with the chosen one (Windows: starts it) | ESP image in `ota_0`/`ota_1`, ESP-IDF bootloader with rollback |
-| Touch buttons | Click the `‹‹ ○ ››` marks, A/B/C keys, or `luaboard sim-ctl button=B` (`--control`) | FT6336U strip under the LCD |
+| Touch buttons | Click the `‹‹ ○ ››` marks, A/B/C keys, or `luaboard sim-ctl button=B` (`--control`). On the SE only, as on the boards | FT6336U strip under the SE's LCD |
 | Logs | stderr of the simulator | UART0 (not on USB) |
 | Wi-Fi | Simulated AP (panel toggle), joins in ~0.3 s, IP 127.0.0.1, TCP and mDNS on the computer | 2.4 GHz station, DHCP, espressif/mdns |
 

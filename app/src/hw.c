@@ -157,6 +157,7 @@ esp_err_t hw_init(void)
 
 const char *hw_model(void) { return s_imu ? "cores3" : "cores3se"; }
 const char *hw_model_name(void) { return s_imu ? "CoreS3" : "CoreS3 SE"; }
+bool hw_has_buttons(void) { return !s_imu; }
 
 void hw_port_power(bool on)
 {

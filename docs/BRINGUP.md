@@ -32,7 +32,9 @@ things to check on a real board, by part of the board.
   finished (`lcd_flush` and the gfx calls use the missing buffers), so a
   board whose display fails to start boot-loops instead of staying usable
   over USB.
-- The touch strip on CoreS3 and Lite (measured on the SE: y 258..279).
+- The touch strip. The SE's gives touches at y 258..279. A Lite's gives
+  none, so its menu shows no button hints (`hw_has_buttons`). Still to
+  check on a CoreS3, which is taken to be like the Lite.
 - `disp.jpeg` speed for a 300 px cover, and that Spotify's covers are
   baseline JPEGs (TJpgDec can't decode progressive ones).
 - Our TJpgDec overriding the copy in the ESP32-S3 ROM (it links, but hasn't

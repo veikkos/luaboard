@@ -291,7 +291,8 @@ static void back_label(int y)
     gfx_text(x + 16, ty, "Back", C_TEXT, 2, NULL);
 }
 
-/* Hints above the three buttons: A (left), B (middle), C (right). */
+/* Hints above the three buttons: A (left), B (middle), C (right). A board
+   without the buttons gets none, but the row stays, for the toasts. */
 static void draw_footer(const char *a, const char *b, const char *c)
 {
     int w = gfx_width(), ty = FOOT_Y + (FOOT_H - FONT_H) / 2;
@@ -301,6 +302,7 @@ static void draw_footer(const char *a, const char *b, const char *c)
         text_center(w / 2, ty, s_toast, C_WARN, 1);
         return;
     }
+    if (!hw_has_buttons()) return;
     text_center(w / 6, ty, a ? a : "", C_KEY, 1);
     text_center(w / 2, ty, b ? b : "", C_KEY, 1);
     text_center(w * 5 / 6, ty, c ? c : "", C_KEY, 1);

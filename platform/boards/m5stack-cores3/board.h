@@ -13,7 +13,8 @@
  *     below the LCD is used as three touch buttons A / B / C. The SE has
  *     icons printed there: "< <" at x 93/122, "o" at 161, "> >" at 201/229,
  *     y ~270 (from a product photo; touches measured on an SE at y 258..279).
- *     CoreS3 and Lite have no icons, and their strip is unverified.
+ *     CoreS3 and Lite have no icons, and a Lite's strip gives no touches
+ *     (hw_has_buttons).
  *   Power key (side): AXP2101 PWRON, read from its IRQ status as Home/Back
  *   Internal I2C (G12 SDA, G11 SCL):
  *     AXP2101 PMIC 0x34   - LCD backlight on DLDO1, battery gauge

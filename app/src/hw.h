@@ -15,6 +15,9 @@ esp_err_t hw_init(void);
 /* Which CoreS3 this is, detected at boot. Lite reads as "cores3" (same chips). */
 const char *hw_model(void);                    /* "cores3" or "cores3se" */
 const char *hw_model_name(void);               /* "CoreS3" or "CoreS3 SE" */
+/** The strip under the screen works as the touch buttons A, B and C: on the
+ *  SE, which has them printed on its glass. A Lite's gives no touches. */
+bool hw_has_buttons(void);
 
 /* Serial link to the PC (USB-Serial/JTAG on the CoreS3). */
 int  hw_serial_read(uint8_t *buf, size_t cap);          /* non-blocking */

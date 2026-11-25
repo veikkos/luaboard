@@ -7,6 +7,7 @@
 #include "app_config.h"
 #include "board.h"
 #include "gfx.h"
+#include "hw.h"
 #include "net.h"
 #include "ota.h"
 
@@ -168,7 +169,8 @@ void screen_error(const char *script, const char *message)
     else
         snprintf(hint, sizeof hint, "The script stopped. Upload a fix over USB,");
     gfx_text(10, h - 38, hint, dim, 1, NULL);
-    gfx_text(10, h - 24, "Tap or press o: retry.  Hold (screen or o): menu.", dim, 1, NULL);
+    gfx_text(10, h - 24, hw_has_buttons() ? "Tap or press o: retry.  Hold (screen or o): menu." : "Tap: retry.  Hold: menu.",
+             dim, 1, NULL);
     gfx_flush();
     s_error_active = true;
     s_notice_active = false;

@@ -194,7 +194,9 @@ to white (black for `disp.clear`). Values outside `0..0xFFFFFF` are an error.
 
 The touch panel is 320×280: it extends 40 px below the LCD, and that strip
 works as three touch buttons A, B and C, left to right (printed `‹‹`, `○`,
-`››` on the SE's glass, unmarked on CoreS3 and Lite).
+`››` on the SE's glass). A Lite's strip gives no touches, and the CoreS3 is
+taken to be the same: an app that should work there (`sys.info().model` is
+`"cores3"`) can't count on the buttons.
 
 The firmware tells presses from long presses, with the same timing as the
 home menu (a long press is 0.8 s), and gives the script one event per

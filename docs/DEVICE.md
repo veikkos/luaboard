@@ -16,8 +16,9 @@ bar (with the buttons: B, then A and C, then B). The buttons do the same:
 | B (middle) | open or choose (hold for app options or back) |
 | power key | home (hold 1.5 s to sleep, 6 s to turn off) |
 
-The touch buttons are the strip below the screen, with printed icons on the
-SE. In a running app, presses of A, B and C go to the app as events
+The touch buttons are the strip below the SE's screen, with printed icons.
+CoreS3 and Lite have no buttons: their menu works by touch alone and shows
+no hints for them. In a running app, presses of A, B and C go to the app as events
 (`touch.on`) with the menu's timing. Holding B or a short press of the power
 key goes home, and that hold never reaches the app.
 
