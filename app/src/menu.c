@@ -1800,7 +1800,11 @@ static void settings_event(act_t ev, const btn_event_t *e)
             draw_settings();
             break;
         }
-        if (s_ssel == S_SLEEP) { sleep_now(); break; }
+        if (s_ssel == S_SLEEP) {                      /* drawn first: a tap may have moved the selection here */
+            draw_settings();
+            sleep_now();
+            break;
+        }
         if (s_ssel == S_AUTOSTART) { open_pick(); break; }
         if (s_ssel == S_CHECK) {                      /* both checks now; the answer comes as a toast */
             if (!net_online()) { menu_toast("no Wi-Fi"); break; }
