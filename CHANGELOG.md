@@ -2,4 +2,4 @@
 
 ## 0.9.0
 
-Initial release.
+Initial beta release.
