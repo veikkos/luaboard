@@ -18,6 +18,12 @@ things to check on a real board, by part of the board.
 
 - The LCD reset bit on the AW9523B (P1_1 per the docs, one report mentions
   P1_5).
+- The LCD controller: an ILI9342C, or an ILI9342E on boards made from August
+  2026. The firmware tells them by the touch firmware's id (0x10 or 0x12 in
+  register 0xA6), as M5GFX 0.2.27 and the factory firmware do, and sends
+  each M5GFX's set-up for it (`lcd_ili9342.c`). The picture is right on a
+  Lite with the E (its factory firmware read the id as 0x12). Still to
+  check on a board with the C: contrast, colors, no flicker.
 - The AXP2101 DLDO1 backlight register values.
 - The backlight: changing it (menu drag, `disp.brightness`, leaving an app)
   leaves the other AXP2101 LDO rails on. Register 0x90 is read, modified and

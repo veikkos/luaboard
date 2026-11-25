@@ -247,6 +247,24 @@ void hw_lcd_reset(void)
     vTaskDelay(pdMS_TO_TICKS(120));
 }
 
+/* The LCD can't be asked over its write-only bus, so this goes by the touch
+   controller glued to it, as M5GFX 0.2.27 and the board's factory firmware
+   do: M5Stack's touch firmware (vendor 0x11 in 0xA8) has the id 0x10 (in
+   0xA6) on a C panel and 0x12 on an E. The touch chip takes a moment after
+   power-on, so a few tries. No answer, or another id: the C, with a warning. */
+char hw_lcd_panel(void)
+{
+    uint8_t id = 0, vendor = 0;
+    for (int i = 0; i < 5; i++) {
+        if (reg_read(s_touch, 0xA6, &id, 1) == ESP_OK && reg_read(s_touch, 0xA8, &vendor, 1) == ESP_OK &&
+            vendor == 0x11 && (id == 0x10 || id == 0x12))
+            return id == 0x12 ? 'E' : 'C';
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    ESP_LOGW(TAG, "touch firmware %02x of vendor %02x says no LCD type: taken as ILI9342C", id, vendor);
+    return 'C';
+}
+
 /* ---------------------------------------------------------------- serial */
 
 int hw_serial_read(uint8_t *buf, size_t cap)

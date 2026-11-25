@@ -72,9 +72,11 @@ bool aw88298_playing(aw88298_t *m, uint32_t rate);
  *   0x02 TD_STATUS: number of points (0/1)
  *   0x03 P1_XH (bits3:0 X high, bits7:6 event), 0x04 P1_XL
  *   0x05 P1_YH (bits3:0 Y high),                0x06 P1_YL
- *   0xA8 vendor ID 0x11                                                  */
+ *   0xA8 vendor ID 0x11, 0xA6 firmware ID: 0x10 on a board with an
+ *   ILI9342C LCD, 0x12 with an ILI9342E (how the firmware tells them apart) */
 typedef struct { i2c_regs_t r; bool in_reset; } ft6336u_t;
 void ft6336u_init(ft6336u_t *m);
+void ft6336u_set_firmware(ft6336u_t *m, uint8_t id);
 /** Report a finger at (x, y), or no finger with down = false. */
 void ft6336u_set_touch(ft6336u_t *m, bool down, int x, int y);
 

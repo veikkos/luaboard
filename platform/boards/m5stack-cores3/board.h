@@ -8,7 +8,7 @@
  *
  *   ESP32-S3, 16 MB flash, 8 MB quad PSRAM, 54 x 54 x 15.5 mm
  *   USB-C -> ESP32-S3 built-in USB-Serial/JTAG (no external USB-UART chip)
- *   2.0" IPS 320x240, ILI9342C on SPI2 (write-only)
+ *   2.0" IPS 320x240, ILI9342C or ILI9342E on SPI2 (write-only)
  *   FT6336U capacitive touch, 320x280 sensing area: the strip of 40 px
  *     below the LCD is used as three touch buttons A / B / C. The SE has
  *     icons printed there: "< <" at x 93/122, "o" at 161, "> >" at 201/229,

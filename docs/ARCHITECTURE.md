@@ -99,7 +99,7 @@
  │ jpeg.c         disp.jpeg via TJpgDec                 │
  │ png.c          disp.png via miniz's inflate (tinfl;  │
  │                on the device the ROM's)              │
- │ lcd_ili9342c.c panel driver over SPI                 │
+ │ lcd_ili9342.c  panel driver over SPI                 │
  │ hw.c           USB link, PMIC, IO expander, touch,   │
  │                RTC, ADC, backlight, speaker (I2S)    │
  │ screens.c      boot splash, error, notice and        │
@@ -127,7 +127,7 @@
                      sim_ui.c     SDL2 drawing helpers (LCD with pixel grid, sliders)
                      sim_window.c the window: the board scaled to fit it
                      sim_audio.c  the speaker through the computer's, --wav
-                     models/      ILI9342C (SPI), FT6336U touch, AXP2101 PMIC,
+                     models/      ILI9342 (SPI), FT6336U touch, AXP2101 PMIC,
                                   AW9523B IO expander, BM8563 RTC, AW88298
                                   speaker amplifier (fed by the I2S mock),
                                   BMI270 motion sensor, LTR-553 light
@@ -155,12 +155,14 @@ ESP-IDF does. So `app/` has no `#ifdef SIM`, and the code that runs in the simul
 is the code that ships.
 
 The hardware is simulated at the bus level. The firmware has real drivers:
-it sends the ILI9342C's init sequence and pixel data over SPI, toggles the D/C
+it sends the ILI9342's init sequence and pixel data over SPI, toggles the D/C
 pin, reads touch registers over I2C, sets the backlight voltage on the PMIC and
 pulses the LCD reset through the IO expander. The simulator's models interpret
 those bytes the way the chips do. The LCD model even reproduces this panel's
 quirks: it shows inverted colors unless the driver sends INVON, and its
-sub-pixels are BGR. Driver bugs show up in the simulator too.
+sub-pixels are BGR. It is an ILI9342C or the ILI9342E of newer boards
+(`--set panel=e`), and its picture is washed out unless the driver sent
+that controller's own set-up. Driver bugs show up in the simulator too.
 
 There are two sides to the platform. The firmware sees `esp32-mock/include/*.h`.
 The test bench sees `sim_hw.h`: attach a file descriptor to the serial link, device
@@ -315,7 +317,7 @@ ends. With no card mounted its select line is held high, as at boot.
 | Serial link | PTY with a symlink (`/tmp/esp32-sim`), on Windows a named pipe (`\\.\pipe\esp32-sim`); [more than one](../platform/sim/README.md#serial-link) | USB-Serial/JTAG, `/dev/cu.usbmodem*` |
 | Timing | Host clock, `vTaskDelay` = `nanosleep` | FreeRTOS 100 Hz tick |
 | Cores | Host threads | The main task (Lua, UI, screen) on core 1; Wi-Fi, Bluetooth and esp_timer on core 0 |
-| LCD | ILI9342C model, instant SPI | 40 MHz SPI, ~30 ms per full frame |
+| LCD | ILI9342 model (C or E), instant SPI | 40 MHz SPI, ~30 ms per full frame |
 | Touch | Mouse on the screen / A-B-C keys | FT6336U |
 | ADC | Port B analog slider in the settings, ±3 LSB noise | Real SAR ADC (nonlinear, calibrate with `adc_cali`) |
 | Battery | Level and USB power in the settings | AXP2101 fuel gauge |

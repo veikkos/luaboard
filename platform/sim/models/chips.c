@@ -161,7 +161,15 @@ void ft6336u_init(ft6336u_t *m)
     i2c_regs_init(&m->r);
     m->r.reg[0xA8] = 0x11;   /* FocalTech vendor ID */
     m->r.reg[0xA3] = 0x64;   /* chip ID */
+    m->r.reg[0xA6] = 0x10;   /* firmware ID */
     m->in_reset = false;
+}
+
+void ft6336u_set_firmware(ft6336u_t *m, uint8_t id)
+{
+    pthread_mutex_lock(&m->r.lock);
+    m->r.reg[0xA6] = id;
+    pthread_mutex_unlock(&m->r.lock);
 }
 
 void ft6336u_set_touch(ft6336u_t *m, bool down, int x, int y)

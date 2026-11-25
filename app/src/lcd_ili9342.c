@@ -1,4 +1,4 @@
-/* ILI9342C 320x240 TFT over SPI (write-only, 4-wire with D/C). */
+/* ILI9342C or ILI9342E 320x240 TFT over SPI (write-only, 4-wire with D/C). */
 #include "lcd.h"
 
 #include <stdbool.h>
@@ -32,6 +32,41 @@ static void cmd(uint8_t c, const uint8_t *params, size_t n)
 {
     tx(&c, 1, 0);
     tx(params, n, 1);
+}
+
+/* What sets the panel up, sent first after a reset: the controller's key
+   to its extended commands, then this board's panel voltages and gamma
+   curves (M5GFX's numbers, Panel_ILI9342.hpp). Without them the picture is
+   off. The two controllers have different commands for these, and the C's
+   key 0xC8 is a voltage on the E, so each gets only its own. Each entry is
+   a command, the number of its parameters, the parameters. */
+static const uint8_t SETUP_C[] = {
+    0xC8, 3, 0xFF, 0x93, 0x42,
+    0xC0, 2, 0x12, 0x12,
+    0xC1, 1, 0x03,
+    0xC5, 1, 0xF2,
+    0xB0, 1, 0xE0,
+    0xF6, 3, 0x01, 0x00, 0x00,
+    0xE0, 15, 0x00, 0x0C, 0x11, 0x04, 0x11, 0x08, 0x37, 0x89, 0x4C, 0x06, 0x0C, 0x0A, 0x2E, 0x34, 0x0F,
+    0xE1, 15, 0x00, 0x0B, 0x11, 0x05, 0x13, 0x09, 0x33, 0x67, 0x48, 0x07, 0x0E, 0x0B, 0x2E, 0x33, 0x0F,
+    0xB6, 4, 0x08, 0x82, 0x1D, 0x04,
+};
+static const uint8_t SETUP_E[] = {
+    0xDD, 1, 0x01,
+    0xD5, 1, 0x00,
+    0xB1, 1, 0x22,
+    0xC8, 1, 0x38,
+    0xCB, 1, 0x1C,
+    0xC9, 1, 0x1A,
+    0xCA, 1, 0x1A,
+    0xB7, 4, 0x5A, 0x41, 0x11, 0x19,
+    0xE4, 15, 0x04, 0x08, 0x11, 0x06, 0x12, 0x07, 0x3A, 0x76, 0x47, 0x07, 0x0F, 0x0A, 0x11, 0x19, 0x05,
+    0xE5, 15, 0x02, 0x03, 0x07, 0x06, 0x12, 0x07, 0x36, 0x5F, 0x48, 0x06, 0x10, 0x0C, 0x16, 0x14, 0x09,
+};
+
+static void cmd_list(const uint8_t *p, size_t len)
+{
+    for (const uint8_t *end = p + len; p < end; p += 2 + p[1]) cmd(p[0], p + 2, p[1]);
 }
 
 esp_err_t lcd_init(void)
@@ -70,7 +105,10 @@ esp_err_t lcd_init(void)
     s_dma = heap_caps_malloc(BOARD_LCD_W * CHUNK_ROWS * 2, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     if (!s_dma) return ESP_ERR_NO_MEM;
 
+    char panel = hw_lcd_panel();
     hw_lcd_reset();
+    if (panel == 'E') cmd_list(SETUP_E, sizeof SETUP_E);
+    else cmd_list(SETUP_C, sizeof SETUP_C);
     cmd(0x11, NULL, 0);                  /* SLPOUT */
     vTaskDelay(pdMS_TO_TICKS(120));
     cmd(0x3A, (const uint8_t[]){ 0x55 }, 1);   /* COLMOD: 16 bit/pixel */
@@ -78,7 +116,7 @@ esp_err_t lcd_init(void)
     if (BOARD_LCD_INVERT) cmd(0x21, NULL, 0);  /* INVON */
     cmd(0x29, NULL, 0);                  /* DISPON */
     s_up = true;
-    ESP_LOGI(TAG, "ILI9342C %dx%d up", BOARD_LCD_W, BOARD_LCD_H);
+    ESP_LOGI(TAG, "ILI9342%c %dx%d up", panel, BOARD_LCD_W, BOARD_LCD_H);
     return ESP_OK;
 }
 

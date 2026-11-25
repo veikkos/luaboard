@@ -13,12 +13,12 @@
 #include "board.h"
 #include "ble_device.h"
 #include "chips.h"
-#include "ili9342c.h"
+#include "ili9342.h"
 #include "sim_audio.h"
 #include "sim_board.h"
 #include "sim_hw.h"
 
-static ili9342c_t s_lcd;
+static ili9342_t s_lcd;
 static axp2101_t s_pmic;
 static aw9523_t s_ioexp;
 static ft6336u_t s_touch;
@@ -31,6 +31,7 @@ static aw88298_t s_amp;            /* the speaker's amplifier, fed over I2S */
 static sht40_t s_sht40;
 static bool s_porta_env;       /* plugged in */
 static bool s_rtc_gone;        /* --set rtc=none: not on the bus */
+static bool s_panel_e;         /* --set panel=e: the LCD is an ILI9342E, and the touch firmware the one that goes with it */
 static float s_accel[3] = { 0, 0, 1 }, s_gyro[3], s_lux = 300;   /* the sensors' inputs (--set accel, gyro, light, proximity) */
 static int s_prox;
 static bool s_portc_loop;      /* Port C: a jumper from TX to RX (the script's uart, UART1) */
@@ -101,7 +102,7 @@ static void apply_inputs(void)
 static void ioexp_pin(aw9523_t *m, int port, int bit, int level)
 {
     (void)m;
-    if (port == 1 && bit == BOARD_IOEXP_LCD_RST && level == 0) ili9342c_reset(&s_lcd);
+    if (port == 1 && bit == BOARD_IOEXP_LCD_RST && level == 0) ili9342_reset(&s_lcd);
     if (port == 0 && bit == BOARD_IOEXP_BUS_EN) {
         s_port_power = level;
         update_porta();
@@ -225,7 +226,7 @@ static void speaker(void *ctx, const int16_t *frames, size_t n, int channels, ui
 
 void sim_board_init(void)
 {
-    ili9342c_init(&s_lcd, BOARD_LCD_W, BOARD_LCD_H, BOARD_LCD_DC);
+    ili9342_init(&s_lcd, BOARD_LCD_W, BOARD_LCD_H, BOARD_LCD_DC);
     axp2101_init(&s_pmic);
     bmi270_init(&s_imu);                               /* (before the --set inputs; on the bus only on CoreS3 and Lite) */
     ltr553_init(&s_light);
@@ -239,7 +240,7 @@ void sim_board_init(void)
     s_rtc.on_wake_set = rtc_saved;
     rtc_restore();
 
-    sim_spi_attach(BOARD_LCD_CS, ili9342c_spi_write, &s_lcd);
+    sim_spi_attach(BOARD_LCD_CS, ili9342_spi_write, &s_lcd);
     sim_i2c_attach(BOARD_PMIC_ADDR, i2c_regs_write, i2c_regs_read, &s_pmic.r);
     sim_i2c_attach(BOARD_IOEXP_ADDR, i2c_regs_write, i2c_regs_read, &s_ioexp.r);
     sim_i2c_attach(BOARD_TOUCH_ADDR, i2c_regs_write, i2c_regs_read, &s_touch.r);
@@ -281,6 +282,12 @@ bool sim_board_set(const char *key, const char *val)
     else if (!strcmp(key, "light")) { s_lux = (float)atof(val); ltr553_set(&s_light, s_lux, -1); }   /* lux */
     else if (!strcmp(key, "proximity")) { s_prox = clamp(v, 0, 2047); ltr553_set(&s_light, -1, s_prox); }
     else if (!strcmp(key, "boot_touch")) s_boot_touch = v != 0;
+    else if (!strcmp(key, "panel")) {                  /* which LCD the board was built with: c|e */
+        if (strcmp(val, "c") && strcmp(val, "e")) return false;
+        s_panel_e = val[0] == 'e';
+        ili9342_set_variant(&s_lcd, s_panel_e ? 'E' : 'C');
+        ft6336u_set_firmware(&s_touch, s_panel_e ? 0x12 : 0x10);
+    }
     else if (!strcmp(key, "porta")) {                  /* what's plugged into Port A: env|none */
         bool env = !strcmp(val, "env");
         if (!env && strcmp(val, "none") && strcmp(val, "-")) return false;
@@ -355,7 +362,7 @@ int sim_board_get(const char *key)
 
 const char *sim_board_set_help(void)
 {
-    return "portb=0..4095 porta=env|none portc=loopback|none sd=DIR|unformatted|none accel=X,Y,Z gyro=X,Y,Z light=LUX proximity=0..2047 env_temp=C env_hum=% battery=none|0..100 battery_on=0|1 usb=0|1 rtc=lost|none boot_touch=0|1 wifi=0|1 wifi_rssi=dBm wifi_port=N|0 button=A|B|C|- touch=X,Y|- power=short|long";
+    return "portb=0..4095 porta=env|none portc=loopback|none sd=DIR|unformatted|none accel=X,Y,Z gyro=X,Y,Z light=LUX proximity=0..2047 env_temp=C env_hum=% battery=none|0..100 battery_on=0|1 usb=0|1 rtc=lost|none panel=c|e boot_touch=0|1 wifi=0|1 wifi_rssi=dBm wifi_port=N|0 button=A|B|C|- touch=X,Y|- power=short|long";
 }
 
 void sim_board_state(char *out, size_t cap)
@@ -381,11 +388,13 @@ void sim_board_state(char *out, size_t cap)
        mode after a power-off: touch=X,Y, then power=short). */
     n = strlen(out);
     if (s_touch_down && n < cap) snprintf(out + n, cap - n, " touch=%d,%d", s_tx, s_ty);
+    n = strlen(out);
+    if (s_panel_e && n < cap) snprintf(out + n, cap - n, " panel=e");
 }
 
 bool sim_board_screen_rgb(uint8_t *rgb, int *w, int *h)
 {
-    ili9342c_view_rgb(&s_lcd, rgb);
+    ili9342_view_rgb(&s_lcd, rgb);
     *w = BOARD_LCD_W;
     *h = BOARD_LCD_H;
     return true;
@@ -542,7 +551,7 @@ void sim_board_ui_draw(sim_ui_t *ui)
     /* Black glass over almost the whole front: LCD, touch strip and its marks. */
     ui_round_rect(ui, L.gx, L.gy, L.gw, L.gh, 18 * s, 0x0b0c0e);
     static uint8_t rgb[BOARD_LCD_W * BOARD_LCD_H * 3];
-    ili9342c_view_rgb(&s_lcd, rgb);
+    ili9342_view_rgb(&s_lcd, rgb);
     ui_lcd(ui, rgb, BOARD_LCD_W, BOARD_LCD_H, L.lx, L.ly, sim_powered_off() ? 0.0f : axp2101_backlight(&s_pmic));
 
     if (!se) {

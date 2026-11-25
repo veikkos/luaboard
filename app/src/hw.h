@@ -105,6 +105,9 @@ bool hw_port_power_on(void);
 
 /* LCD reset line (on the IO expander). */
 void hw_lcd_reset(void);
+/** Which controller the board's LCD has: 'C' (ILI9342C) or 'E' (ILI9342E,
+ *  boards made from August 2026). The two are set up differently. */
+char hw_lcd_panel(void);
 
 uint32_t hw_millis(void);   /* wraps after 49.7 days: compare differences only */
 uint64_t hw_millis64(void); /* never wraps: what Lua sees */

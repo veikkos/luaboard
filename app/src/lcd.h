@@ -1,6 +1,6 @@
 /*
- * LCD panel driver interface. The panel is selected by the board; the
- * The CoreS3 uses an ILI9342C 320x240 on SPI (lcd_ili9342c.c).
+ * LCD panel driver interface. The panel is selected by the board: the
+ * CoreS3 has an ILI9342C or ILI9342E 320x240 on SPI (lcd_ili9342.c).
  */
 #pragma once
 

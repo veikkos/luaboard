@@ -2,7 +2,7 @@
 
 Runs the unmodified firmware on macOS, Windows and Linux. `app_main()` runs
 in a thread on top of `platform/esp32-mock` (the ESP-IDF APIs the firmware
-uses). The chips are modelled at the bus level in `models/`: ILI9342C LCD,
+uses). The chips are modelled at the bus level in `models/`: ILI9342 LCD (C or E),
 FT6336U touch, AXP2101 power, AW9523B IO expander, BM8563 RTC, AW88298
 speaker amplifier, and on CoreS3/Lite the BMI270 motion sensor and LTR-553
 light sensor.
@@ -160,6 +160,7 @@ window.
 | `--set wifi_net=NAME` | The network the simulated board joins while it has none set up, as if it had been set up for it (`none` or not given: none, it waits for `luaboard wifi set` as a new board does). Nothing is stored: a network set up for real wins, and Wi-Fi turned off stays off until the next start. The `run` target passes `Simulator` unless `WIFI_NET` says otherwise (`WIFI_NET=none` to try the first-time setup) |
 | `--set apps_url=URL` | The [app marketplace](https://github.com/veikkos/luaboard-marketplace): its base address, with the index at `URL/main/index.json` and an app version's files at `URL/<commit>/<app>/<file>` (`https://raw.githubusercontent.com/veikkos/luaboard-marketplace` on the device, default none here: no app checks, and Marketplace finds nothing). The `run` target takes it as `APPS_URL`. Checked on the update check's schedule (`update_every`) |
 | `--set rtc=lost\|none` | `lost`: the RTC lost power (otherwise kept in `<nvs>.rtc`). `none`: it doesn't answer at all, as a broken one |
+| `--set panel=c\|e` | The LCD the board was built with: an ILI9342C (the default) or the ILI9342E of boards made from August 2026, which the firmware tells apart when it starts. Each needs its own set-up, and without it the picture here is washed out |
 | `--set time=EPOCH` | The world's clock (NTP, RTC chip) starts at these UTC seconds |
 | `--set boot_touch=0\|1` | Finger on screen at boot (safe mode), until the next touch |
 | `--set button=A\|B\|C\|-`, `touch=X,Y\|-` | Hold a button / touch the screen |

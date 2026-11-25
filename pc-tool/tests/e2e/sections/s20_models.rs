@@ -37,10 +37,15 @@ pub fn run(t: &mut T) {
     t.stop();
 
     t.wipe();
-    t.boot_with(&["--model", "cores3-lite"]);
+    t.boot_with(&["--model", "cores3-lite", "--set", "panel=e"]);
     let info = t.e(&["info"]);
     t.check(grep("model: cores3$", &info), "Lite reads as CoreS3", |_| {
         format!("lite model: {}", line_with(&info, "model"))
+    });
+    // The menu's blue as the panel shows it: washed out unless it got the E's own set-up.
+    let ok = t.until(2.0, |t| t.shot("panel-e.ppm").count(100..101, 28..29, |r, _, b| r < 120 && b > 200) == 1);
+    t.check(ok, "a board with the ILI9342E panel gets that panel's set-up", |t| {
+        format!("ILI9342E picture: {}", line_with(&t.read("sim.err"), "ILI9342"))
     });
     t.say("   luaboard sim-ctl: the control channel from the command line");
     let out = t.sim_ctl(&["battery=37", "advance=100"]);
