@@ -40,9 +40,9 @@ typedef enum { M_NONE, M_UP, M_DOWN, M_OK, M_BACK, M_HOME, M_TAP, M_HOLD,
    with the buttons), then Back. */
 enum { S_BRIGHTNESS, S_VOLUME, S_SCREEN_OFF, S_TURN_OFF, S_SLEEP, S_AUTOSTART, S_UPDATES, S_CHECK, S_TIME, S_VERSION, S_STORAGE, S_WIFI, S_BACK, S_COUNT };
 #define S_INFO(i) ((i) >= S_VERSION && (i) <= S_WIFI)
-static const int s_off_choices[] = { 0, 1, 5, 15, 30, 60 };   /* Sleep after: minutes, 0 never */
+static const int s_off_choices[] = { 0, 1, 2, 5, 15, 30, 60 };    /* Sleep after: minutes, 0 never */
 #define OFF_N ((int)(sizeof s_off_choices / sizeof s_off_choices[0]))
-static const int s_turn_choices[] = { 0, 1, 5, 15, 30, 60 };  /* Turn off after: minutes, 0 never */
+static const int s_turn_choices[] = { 0, 1, 2, 5, 15, 30, 60 };   /* Turn off after: minutes, 0 never */
 #define TURN_N ((int)(sizeof s_turn_choices / sizeof s_turn_choices[0]))
 enum { O_OPEN, O_AUTOSTART, O_CLEAR, O_UNINSTALL, O_BACK, O_COUNT };   /* app options (hold B on an app) */
 enum { U_INSTALL, U_BACK, U_COUNT };                              /* the firmware update's confirm screen */

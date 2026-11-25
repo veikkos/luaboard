@@ -347,8 +347,8 @@ pub fn run(t: &mut T) {
     t.tap_at(160, 120); // wake (on the home menu: only that)
     t.e(&["uninstall", "keep"]);
     t.tap_at(60, SETTINGS); // Settings again
-    for _ in 0..5 {
-        t.tap_at(60, row(2)); // 5, 15, 30, 60 min, never
+    for _ in 0..6 {
+        t.tap_at(60, row(2)); // 2, 5, 15, 30, 60 min, never
     }
     t.advance(61_000);
     let ok = screen(t) == "on";
