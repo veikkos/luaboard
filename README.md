@@ -16,9 +16,8 @@
   <img src="docs/img/cores3.png" width="400" alt="CoreS3 in the simulator, showing Spotify now playing">
 </p>
 
-luaboard is a work in progress. For now it runs only in the simulator, and
-the release for the real board is near. Things change and break without
-notice.
+The current version is 0.9, a beta: testing on the real boards is under
+way, and things may still change and break. 1.0 comes when that is done.
 
 - Hot reload: save and the app restarts, on the board or in the simulator.
 - Cross-platform [simulator](platform/sim/README.md),
