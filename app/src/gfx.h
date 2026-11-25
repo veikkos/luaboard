@@ -50,3 +50,6 @@ void gfx_blit_be565(int x, int y, int w, int h, const uint8_t *px);
 
 bool gfx_dirty(void);
 void gfx_flush(void);
+/** The panel asleep or awake (lcd_sleep). Asleep nothing is sent to it:
+ *  what is drawn meanwhile goes out when it wakes. */
+void gfx_sleep(bool on);

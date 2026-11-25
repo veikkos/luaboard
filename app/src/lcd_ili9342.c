@@ -19,6 +19,10 @@ static const char *TAG = "lcd";
 static spi_device_handle_t s_dev;
 static uint16_t *s_dma;  /* internal, DMA-capable bounce buffer (framebuffer lives in PSRAM) */
 static bool s_up;        /* lcd_init got all the way: without it, flushes are dropped (headless) */
+static bool s_asleep;    /* lcd_sleep(true): display off and sleep in */
+static uint32_t s_slept_at;
+
+#define SLEEP_MS 120     /* the controller's time to go to sleep and to wake up, before the next step */
 
 static void tx(const void *data, size_t len, int dc)
 {
@@ -120,9 +124,26 @@ esp_err_t lcd_init(void)
     return ESP_OK;
 }
 
+void lcd_sleep(bool on)
+{
+    if (!s_up || on == s_asleep) return;
+    s_asleep = on;
+    if (on) {
+        cmd(0x28, NULL, 0);              /* DISPOFF */
+        cmd(0x10, NULL, 0);              /* SLPIN */
+        s_slept_at = hw_millis();
+        return;
+    }
+    uint32_t slept = hw_millis() - s_slept_at;
+    if (slept < SLEEP_MS) vTaskDelay(pdMS_TO_TICKS(SLEEP_MS - slept));   /* (woken at once: it was still going to sleep) */
+    cmd(0x11, NULL, 0);                  /* SLPOUT */
+    vTaskDelay(pdMS_TO_TICKS(SLEEP_MS));
+    cmd(0x29, NULL, 0);                  /* DISPON */
+}
+
 void lcd_flush(const uint16_t *fb, int stride, int x0, int y0, int x1, int y1)
 {
-    if (!s_up) return;                   /* the panel didn't start: the firmware runs on without it */
+    if (!s_up || s_asleep) return;       /* the panel didn't start: the firmware runs on without it */
     uint8_t ca[4] = { x0 >> 8, x0 & 0xFF, x1 >> 8, x1 & 0xFF };
     uint8_t ra[4] = { y0 >> 8, y0 & 0xFF, y1 >> 8, y1 & 0xFF };
     cmd(0x2A, ca, 4);                    /* CASET */

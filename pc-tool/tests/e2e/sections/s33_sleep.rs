@@ -38,6 +38,13 @@ pub fn run(t: &mut T) {
     t.check(ok, "disp.sleep(true): asleep, light sleep allowed", |t| {
         format!("screen {}, light {}", screen(t), t.is("light"))
     });
+    // The panel itself is asleep, not only its light off: it shows nothing
+    // (a picture left standing on it for hours leaves a mark). What the app
+    // draws meanwhile is there when it wakes.
+    t.eval("disp.clear(disp.RED)");
+    t.advance(100);
+    let lit = t.shot("asleep.ppm").count(0..320, 0..240, |r, g, b| r.max(g).max(b) > 0);
+    t.check(lit == 0, "the panel shows nothing while asleep", |_| format!("{lit} pixels lit while asleep"));
     // No rates or upper bounds here: the simulator's clock runs in real time
     // too, so a stalled host moves it on and the firmware drops the ticks it
     // fell behind by.
@@ -61,6 +68,10 @@ pub fn run(t: &mut T) {
     t.tap_at(160, 120);
     let ok = screen(t) == "on" && !t.is("light") && t.eval("TAPS") == "0";
     t.check(ok, "a touch wakes it and isn't a tap", |t| format!("screen {}, taps {}", screen(t), t.eval("TAPS")));
+    let red = t.shot("woke.ppm").red_pixels();
+    t.check(red == 320 * 240, "awake, the panel shows what was drawn while it slept", |_| {
+        format!("{red} red pixels after waking")
+    });
 
     t.eval("disp.sleep(true)");
     t.advance(100);

@@ -263,8 +263,12 @@ and turned into events by the same code.
 The same readings drive screen sleep (`sleep.c`): it turns the backlight off
 after the Sleep after setting's time without a touch, or on a long press of
 the power key, and the touch or key that wakes it is ignored until it's let
-go. `hw_backlight()` only remembers the level while the screen is off, so an
-app or the menu setting the brightness doesn't light it. Asleep on battery,
+go. The panel itself goes to sleep too (`lcd_sleep`): left showing the same
+picture under a dark backlight for hours, it kept a mark of it. Nothing is
+sent to it meanwhile. What is drawn then goes out when it wakes, which
+takes about 120 ms. `hw_backlight()` only remembers the level while the
+screen is off, so an app or the menu setting the brightness doesn't light
+it. Asleep on battery,
 the chip is allowed its automatic light sleep
 (`sleep_light_allowed()`: not on USB power, no sound playing, no update
 running, Bluetooth idle). `hw_light_sleep_allow()` releases the lock that

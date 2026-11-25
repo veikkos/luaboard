@@ -25,6 +25,14 @@ things to check on a real board, by part of the board.
   Lite with the E (its factory firmware read the id as 0x12). Still to
   check on a board with the C: contrast, colors, no flicker.
 - The AXP2101 DLDO1 backlight register values.
+- Screen sleep puts the panel to sleep as well (display off, sleep in), and
+  waking brings it back with its picture. Before that a Lite's panel, left
+  on the Settings page while asleep, showed it faintly in other apps
+  afterwards. Check on the board: after a sleep of a few seconds and of an
+  hour the picture is back at once without a flash, what an app drew
+  meanwhile is there, and no page leaves a mark any more. If marks still
+  come from pages shown for long, look at the panel's voltages in the
+  set-up (`lcd_ili9342.c`, from M5GFX).
 - The backlight: changing it (menu drag, `disp.brightness`, leaving an app)
   leaves the other AXP2101 LDO rails on. Register 0x90 is read, modified and
   written back, and a failed read writes nothing.

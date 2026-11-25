@@ -3,6 +3,7 @@
 
 #include "app_config.h"
 #include "ble.h"
+#include "gfx.h"
 #include "hw.h"
 #include "lua_api.h"
 #include "lua_uart.h"
@@ -22,7 +23,8 @@ static bool s_keep;              /* an app keeps the screen on */
 void sleep_now(void)
 {
     if (hw_screen_is_off()) return;
-    hw_screen_off(true);
+    hw_screen_off(true);                /* the light first: the panel going to sleep isn't seen */
+    gfx_sleep(true);
     s_since = hw_millis();
     proto_eventf("screen off");
 }
@@ -49,6 +51,7 @@ bool sleep_activity(uint32_t now)
     s_active_at = now;
     s_started = true;
     if (!hw_screen_is_off()) return false;
+    gfx_sleep(false);                   /* the panel first: the light comes on over its picture */
     hw_screen_off(false);
     proto_eventf("screen on");
     return true;

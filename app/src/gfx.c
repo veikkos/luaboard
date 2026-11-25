@@ -208,9 +208,18 @@ void gfx_blit_be565(int x, int y, int w, int h, const uint8_t *px)
 
 bool gfx_dirty(void) { return s_dx1 >= 0; }
 
+static bool s_asleep;
+
+void gfx_sleep(bool on)
+{
+    s_asleep = on;
+    lcd_sleep(on);
+    if (!on) gfx_flush();
+}
+
 void gfx_flush(void)
 {
-    if (!s_fb || !gfx_dirty()) return;
+    if (!s_fb || !gfx_dirty() || s_asleep) return;   /* (asleep: it stays to be sent) */
     lcd_flush(s_fb, W, s_dx0, s_dy0, s_dx1, s_dy1);
     s_dx0 = W; s_dy0 = H; s_dx1 = -1; s_dy1 = -1;
 }
