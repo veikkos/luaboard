@@ -96,6 +96,17 @@ end)
 function loop() end
 "#;
 
+/// An app started at boot, before Wi-Fi has joined, that goes online at once.
+const BOOT_LUA: &str = r#"local http = require("http")
+R = { early = net.wifi() }
+task(function()
+  R.got = select(2, http.get("http://127.0.0.1:$KP/ok"))
+  R.wifi = net.wifi()
+  R.done = true
+end)
+function loop() end
+"#;
+
 /// A keep-alive server: "/ok" answers "ok"; "/drop" on a connection that
 /// already had a request reads it and closes without an answer (on a new
 /// one it answers "ok"); "/closeothers" closes every other connection
@@ -343,5 +354,19 @@ pub fn run(t: &mut T) {
         "a kept connection closed under a GET sends it again, a POST isn't sent twice, a closed one isn't used",
         |_| format!("results: {v}; server got: {log:?}"),
     );
+
+    // An app that starts at boot runs before Wi-Fi has joined. What it opens
+    // then waits for the link instead of failing (or going out some other way).
+    t.write("boot/main.lua", BOOT_LUA.replace("$KP", &kport.to_string()));
+    t.write("boot/app.json", r#"{ "title": "Boot", "version": "1.0", "lua_api": 1 }"#);
+    t.e(&["install", &t.path("boot")]);
+    t.e(&["autorun", "boot"]);
+    t.stop();
+    t.boot_with(&["--set", "wifi_net=Simulator"]);
+    t.wait_lua(10.0, "R.done");
+    let v = t.eval("R.early, R.got, R.wifi");
+    t.check(v == "connecting\tok\tconnected", "a connection opened while Wi-Fi is joining waits for it", |_| {
+        format!("at start, answer, Wi-Fi when it came: {v}")
+    });
     t.crash();
 }

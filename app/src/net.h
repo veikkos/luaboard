@@ -25,6 +25,9 @@ int net_rssi(void);
 /** Not joined, and at least one try to join has failed: the network isn't
  *  there (out of range, switched off) or doesn't let it in. It keeps trying. */
 bool net_wifi_failing(void);
+/** Joining, and no try has failed: it should be up in a moment (after a
+ *  start, where an app runs before the network is there). */
+bool net_wifi_joining(void);
 /** Drop every Wi-Fi client, telling a logged-in one why (pairing changed). */
 void net_drop_clients(const char *why);
 /** "1.2.3.4" when connected, "-" otherwise. */

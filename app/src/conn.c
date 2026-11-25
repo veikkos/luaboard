@@ -130,6 +130,29 @@ static void start_connect(conn_t *c, struct in_addr addr)
     c->state = rc == 0 ? (c->tls ? CONN_HANDSHAKE : CONN_OPEN) : CONN_CONNECTING;
 }
 
+/* Wi-Fi is on its way up and there's no other way out: a connection waits. */
+static bool waiting_for_wifi(void) { return net_wifi_joining() && !tun_up(); }
+
+/* The way out: the tether's connection, or the name's lookup (the connect
+   follows it in conn_step), or the connect itself for an address. NULL, or
+   why it can't start. */
+static const char *begin(conn_t *c)
+{
+    struct in_addr addr;
+    bool tether = !net_wifi_up() && tun_up();       /* (the computer looks the name up) */
+    bool numeric = !tether && inet_pton(AF_INET, c->host, &addr) == 1;
+    if (tether) {
+        const char *why;
+        if ((c->tun = tun_open(c->host, c->port, &why)) < 0) return why;
+        c->state = CONN_CONNECTING;
+    } else {
+        if (!numeric && (c->dns = dns_start(c->host)) < 0) return "too many name lookups at once";
+        c->state = CONN_RESOLVING;
+    }
+    if (numeric) start_connect(c, addr);
+    return NULL;
+}
+
 const char *conn_open(conn_t *c, const char *host, uint16_t port, bool tls, const char *ca_pem, size_t ca_len,
                       bool app)
 {
@@ -140,24 +163,18 @@ const char *conn_open(conn_t *c, const char *host, uint16_t port, bool tls, cons
     snprintf(c->host, sizeof c->host, "%s", host);
     c->port = port;
     c->app = app;
-    struct in_addr addr;
-    bool tether = !net_wifi_up() && tun_up();       /* (the computer looks the name up) */
-    bool numeric = !tether && inet_pton(AF_INET, host, &addr) == 1;
-    if (tether) {
-        const char *why;
-        if ((c->tun = tun_open(host, port, &why)) < 0) return why;
-        c->state = CONN_CONNECTING;
-    } else {
-        if (!numeric && (c->dns = dns_start(host)) < 0) return "too many name lookups at once";
-        c->state = CONN_RESOLVING;
-    }
     if (tls) {
         c->tls = calloc(1, sizeof *c->tls);
         const char *e = c->tls ? tls_setup(c->tls, bio_send, bio_recv, c, host, ca_pem, ca_len) : "out of memory";
         if (e) { conn_close(c); return e; }
     }
-    if (numeric) start_connect(c, addr);       /* else once the lookup is done (conn_step) */
-    return NULL;
+    if (waiting_for_wifi()) {
+        c->state = CONN_WAITING;               /* (conn_step goes on from here) */
+        return NULL;
+    }
+    const char *e = begin(c);
+    if (e) conn_close(c);
+    return e;
 }
 
 void conn_adopt(conn_t *c, int fd)
@@ -195,6 +212,15 @@ static bool connected(conn_t *c)
 
 void conn_step(conn_t *c)
 {
+    if (c->state == CONN_WAITING) {
+        if (waiting_for_wifi()) return;
+        const char *why = begin(c);
+        if (why) {
+            snprintf(c->errmsg, sizeof c->errmsg, "%s", why);
+            conn_close(c);
+            return;
+        }
+    }
     if (c->state == CONN_RESOLVING) {
         struct in_addr addr;
         int rc = dns_poll(c->dns, &addr);

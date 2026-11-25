@@ -13,7 +13,10 @@
 #include "dns.h"
 #include "tls.h"
 
-typedef enum { CONN_RESOLVING, CONN_CONNECTING, CONN_HANDSHAKE, CONN_OPEN, CONN_CLOSED } conn_state_t;
+/* CONN_WAITING: opened while Wi-Fi was still joining (an app started at
+   boot is there first): it goes on once the network is up, or the join has
+   failed (and then fails as without a network). */
+typedef enum { CONN_WAITING, CONN_RESOLVING, CONN_CONNECTING, CONN_HANDSHAKE, CONN_OPEN, CONN_CLOSED } conn_state_t;
 
 typedef struct {
     conn_state_t state;
@@ -40,7 +43,8 @@ const char *conn_open(conn_t *c, const char *host, uint16_t port, bool tls, cons
                       bool app);
 /** A connection that came in (accept): open, plain TCP. */
 void conn_adopt(conn_t *c, int fd);
-/** Move the lookup, the connect or the handshake on, while state < CONN_OPEN. */
+/** Move the wait for the network, the lookup, the connect or the handshake
+ *  on, while state < CONN_OPEN. */
 void conn_step(conn_t *c);
 /** Bytes sent (0: none now) or CONN_FAIL. */
 int conn_send(conn_t *c, const void *data, size_t len);

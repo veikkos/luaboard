@@ -429,6 +429,8 @@ bool net_online(void) { return net_wifi_up() || tun_up(); }
 
 bool net_wifi_failing(void) { return s_state == NET_CONNECTING && s_retries > 0; }
 
+bool net_wifi_joining(void) { return s_state == NET_CONNECTING && s_retries == 0; }
+
 int net_rssi(void)
 {
     wifi_ap_record_t ap;
