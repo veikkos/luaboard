@@ -196,8 +196,13 @@ static void check_start(void)
 
 /* ------------------------------------------------------------ installing */
 
-static void install_over(const char *why)
+/* The install is over: done (why NULL), or failed with why, short (the menu
+   shows it in a toast line). `full` is the whole story, for the log and the
+   event, NULL if why says it all. */
+static void install_over_full(const char *why, const char *full)
 {
+    char story[112];                    /* (full may be the download's own text: kept past its end) */
+    snprintf(story, sizeof story, "%s", why ? (full ? full : why) : "");
     httpc_free(s_in.dl);
     s_in.dl = NULL;
     free(s_in.buf);
@@ -208,14 +213,16 @@ static void install_over(const char *why)
         vfs_stage_abort(app);
         snprintf(s_in.why, sizeof s_in.why, "%s", why);
         s_in.result = s_in.why;
-        ESP_LOGW(TAG, "install %s: failed: %s", app, why);
-        proto_eventf("app install %s failed %s", app, why);
+        ESP_LOGW(TAG, "install %s: failed: %s", app, story);
+        proto_eventf("app install %s failed %s", app, story);
     } else {
         s_in.result = NULL;
         ESP_LOGI(TAG, "install %s: ok", app);
         proto_eventf("app install %s ok", app);
     }
 }
+
+static void install_over(const char *why) { install_over_full(why, NULL); }
 
 static bool on_file(void *ctx, const uint8_t *data, size_t len)
 {
@@ -269,7 +276,7 @@ static void next_file(void)
     s_in.dl = httpc_get(url, on_file, NULL, err, sizeof err);
     if (!s_in.dl) {
         char buf[HTTPC_SHORT_MAX + 1];
-        install_over(httpc_short_error(err, buf, sizeof buf));
+        install_over_full(httpc_short_error(err, buf, sizeof buf), err);
     }
 }
 
@@ -280,7 +287,7 @@ static void install_poll(void)
     const apps_file_t *f = &s_in.files[s_in.i];
     if (st == HTTPC_FAILED && !s_in.too_big) {
         char buf[HTTPC_SHORT_MAX + 1];
-        install_over(httpc_short_error(httpc_error(s_in.dl), buf, sizeof buf));
+        install_over_full(httpc_short_error(httpc_error(s_in.dl), buf, sizeof buf), httpc_error(s_in.dl));
         return;
     }
     uint8_t sha[32];

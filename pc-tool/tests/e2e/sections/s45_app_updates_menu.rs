@@ -62,7 +62,8 @@ pub fn run(t: &mut T) {
         let f = |p: &str| String::from_utf8_lossy(&market::flash(t, p)).into_owned();
         format!("hello {:?}, paint {:?}, dev2 {:?}", f("hello/main.lua"), f("paint/main.lua"), f("dev2/main.lua"))
     });
-    let cut = t.read("sim.err").contains("apps: install hello: failed: download cut short");
+    // The log has the whole story (the menu's line is the short "download cut short").
+    let cut = t.read("sim.err").contains("apps: install hello: failed: connection closed early");
     t.check(cut, "a download cut half way says so", |t| said(t));
     let ok = t.until(2.0, |t| t.info("app_updates") == "2");
     t.check(ok, "hello and paint are still offered", |t| t.info("app_updates"));
