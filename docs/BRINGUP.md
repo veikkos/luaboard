@@ -61,10 +61,13 @@ things to check on a real board, by part of the board.
   it has power. M5Unified writes them at every start. Check a board whose
   PMIC lost all power (a flat battery, an SE unplugged): the display, the
   microSD card and the speaker work.
-- 5V out to the ports is switched on in one step. M5Unified first charges
-  the bus with short pulses, as on a weak USB supply the inrush can pull
-  the PMIC's converters under their limit and power the board off. Check
-  on a weak supply and a long cable.
+- 5V out to the ports is off until an app takes a pin, and switched as
+  M5Unified does it: the converter, the bus charged with short pulses, then
+  the switch (on a weak USB supply the inrush can pull the PMIC's
+  converters under their limit and power the board off), and off with a
+  200 ms wait in between. Check that a unit on Port A answers an app's
+  first read, on battery and on USB, also on a weak supply and a long
+  cable, and what the board draws with it off and on.
 - The IO expander's port 0 as push-pull (0x11 bit 4, set at boot). After
   reset it's open-drain, and the touch reset, the 5V out to the ports and
   the amplifier's reset are on that port.

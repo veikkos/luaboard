@@ -24,6 +24,8 @@ pub fn run(t: &mut T) {
     t.boot_with(&["--set", "porta=env", "--set", "env_temp=23.4", "--set", "env_hum=56.7"]);
     t.write("main.lua", "function loop() end\n");
     t.e(&["put", &t.path("main.lua"), "--app", "env", "--run", "main.lua"]);
+    let v = t.eval("sys.port_power()");
+    t.check(v == "false", "the ports' 5V is off while no app uses a port", |_| format!("port power at start: {v}"));
     let v = t.eval(r#"table.concat(i2c.scan(), ",")"#);
     t.check(v == "68", "scan finds the unit (0x44), not the internal chips", |_| format!("scan: {v}"));
     t.write("sht.lua", SHT_LUA);
@@ -42,15 +44,19 @@ pub fn run(t: &mut T) {
     let v = t.eval("i2c.read(0x03, 1)");
     t.check(v.contains("0x08..0x77"), "reserved addresses are refused", |_| format!("addr: {v}"));
     let v = t.eval("sys.port_power()");
-    t.check(v == "true", "the ports have 5V from boot", |_| format!("port power at boot: {v}"));
+    t.check(v == "true", "taking the port's pins turned its 5V on", |_| format!("port power with i2c in use: {v}"));
     let off = t.eval("sys.port_power(false) return #i2c.scan()");
     let ok = off == "0" && t.eval("sys.port_power(true) return #i2c.scan()") == "1";
     t.check(ok, "sys.port_power(false) cuts the unit's power, true brings it back", |_| format!("port power: {off}"));
     t.eval("sys.port_power(false)");
     t.e(&["run", "env"]); // a new run: the bus is free again
     let v = t.eval("sys.port_power()");
-    t.check(v == "true", "the power is back on for the next app", |_| format!("after run: {v}"));
+    t.check(v == "false", "the next app starts with it off", |_| format!("after run: {v}"));
     t.eval("gpio.mode(gpio.PORTA_SDA, gpio.IN)");
+    let v = t.eval("sys.port_power()");
+    t.check(v == "true", "and on again once it takes a pin (what the app before set by hand is gone)", |_| {
+        format!("after taking a pin: {v}")
+    });
     let v = t.eval("i2c.scan()");
     t.check(v.contains("in use by gpio"), "and i2c can't take pins gpio has", |_| format!("i2c after gpio: {v}"));
     t.stop();

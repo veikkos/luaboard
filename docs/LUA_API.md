@@ -337,8 +337,10 @@ task(function()                                  -- SHT40 (ENV IV unit) at 0x44
 end)
 ```
 
-The units get their power (5V) from the port. `sys.port_power(false)` turns
-it off. `marketplace/ha_env` reads one and reports it to Home Assistant. In the
+The units get their power (5V) from the port. It comes on when the script
+first uses a port (here: the first `i2c` call), so a unit needs a moment
+before it answers, and goes off when the script ends. `sys.port_power(false)`
+turns it off. `marketplace/ha_env` reads one and reports it to Home Assistant. In the
 simulator, `--set porta=env` plugs in a simulated one.
 
 ## uart - a serial port
@@ -535,7 +537,7 @@ loop period (33 ms at the default 30 Hz).
 | `sys.rate([hz])` -> `hz` | Get or set the `loop()` rate. Clamped to 1..100 Hz. Returns the effective rate (1000 / whole ms period, so 60 gives 62). |
 | `sys.heap()` -> `used, peak, limit` | Lua heap usage in bytes. |
 | `sys.battery()` -> `percent, charging, usb` | Battery level (0..100), whether it's charging, and whether USB power is present. CoreS3 and Lite have one. The SE has none (it runs on USB-C power) unless a battery module is added. Without one, `percent` is `nil` and `charging` is `false`. |
-| `sys.port_power([on])` -> `on` | 5V out to the Grove ports (A, B, C). On by default. `false` cuts it, e.g. to save battery between readings or to restart a stuck unit. Back on when the app ends. |
+| `sys.port_power([on])` -> `on` | 5V out to the Grove ports (A, B, C). Off until the script takes a pin (`i2c`, `uart`, `gpio`, `adc`), which turns it on, and off again when the script ends: making it draws from the battery. Set by hand it stays as set: `false` cuts it, e.g. to save battery between readings or to restart a stuck unit, and `true` has it on before any pin is taken. |
 | `sys.info()` -> `table` | `{fw, version, board, model, lua, lua_api, script, app, boot, id}`: `lua_api` is the [API version](#api-version) the firmware has. `model` is `"cores3"` (CoreS3 or Lite) or `"cores3se"`. `script` is `"<app>/<file>"` (`""` when no script is running, e.g. `EVAL` after `STOP`). `boot` says why the device started: `"power"` (the power key, USB plugged in), `"timer"` (the wake-up time of `sys.off`) or `"reset"` (a restart, an update, a crash). `id` is the board's own: 12 hex digits, the same after restarts and updates, different on every board (made from its factory MAC address, but not the address itself). For telling boards apart, such as an MQTT client id. |
 | `sys.exit()` | Leave the app, back to the home menu. It ends the script at once: nothing after it runs, and a `pcall` around it doesn't keep the app going. |
 | `sys.keep_on([on])` -> `on` | While on, the device's Turn off after setting doesn't turn the device off, for an app that works in the dark (a running countdown, a logger). Off again when the script ends. Without an argument, returns the current state. |

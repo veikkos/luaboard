@@ -17,6 +17,7 @@
 #include "esp_task_wdt.h"
 #include "esp_pm.h"
 #include "esp_sleep.h"
+#include "esp_rom_sys.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -96,14 +97,14 @@ esp_err_t hw_init(void)
 
     /* AW9523B: P0_0 (touch reset) and P1_1 (LCD reset) as outputs, held high.
        Config registers: 1 = input. */
-    /* Also P0_1 and P1_7: 5V out to the Grove ports, on from the start
-       (hw_port_power). */
+    /* Also P0_1 and P1_7: 5V out to the Grove ports, off until an app uses
+       a port (hw_port_power): its converter draws from the battery. */
     /* And P0_5 an output held low: USB power comes in. As an input the board
        pulls it high, which sends the board's 5V out to the USB socket and
        lets none in: it ran from the battery without charging it, and a board
        with no battery would lose power here. */
-    s_ioexp_out[0] = (uint8_t)(1u << BOARD_IOEXP_TOUCH_RST | 1u << BOARD_IOEXP_BUS_EN);
-    s_ioexp_out[1] = (uint8_t)(1u << BOARD_IOEXP_LCD_RST | 1u << BOARD_IOEXP_BOOST_EN);
+    s_ioexp_out[0] = (uint8_t)(1u << BOARD_IOEXP_TOUCH_RST);
+    s_ioexp_out[1] = (uint8_t)(1u << BOARD_IOEXP_LCD_RST);
     reg_write(s_ioexp, 0x02, s_ioexp_out[0]);
     reg_write(s_ioexp, 0x03, s_ioexp_out[1]);
     /* P0_2 too: the speaker amplifier's reset, low (off) until a sound plays. */
@@ -159,10 +160,29 @@ const char *hw_model(void) { return s_imu ? "cores3" : "cores3se"; }
 const char *hw_model_name(void) { return s_imu ? "CoreS3" : "CoreS3 SE"; }
 bool hw_has_buttons(void) { return !s_imu; }
 
+/* As M5Unified switches it. On: the converter, then the bus charged with
+   short pulses, each a little longer, then the switch: connected at once,
+   the empty bus's inrush can pull the PMIC's converters under their limit
+   on a weak supply, and the board goes off. Off: the converter, and the
+   switch only once the bus has run down (200 ms): opened sooner, USB's 5V
+   keeps coming through it. */
 void hw_port_power(bool on)
 {
-    ioexp_set(1, BOARD_IOEXP_BOOST_EN, on);
-    ioexp_set(0, BOARD_IOEXP_BUS_EN, on);
+    if (on == hw_port_power_on()) return;
+    if (on) {
+        ioexp_set(1, BOARD_IOEXP_BOOST_EN, 1);
+        for (int i = 0; i < 8; i++) {
+            ioexp_set(0, BOARD_IOEXP_BUS_EN, 1);
+            esp_rom_delay_us(200 + (uint32_t)i * 16);
+            ioexp_set(0, BOARD_IOEXP_BUS_EN, 0);
+            esp_rom_delay_us(1000);
+        }
+        ioexp_set(0, BOARD_IOEXP_BUS_EN, 1);
+    } else {
+        ioexp_set(1, BOARD_IOEXP_BOOST_EN, 0);
+        vTaskDelay(pdMS_TO_TICKS(200));
+        ioexp_set(0, BOARD_IOEXP_BUS_EN, 0);
+    }
 }
 
 bool hw_port_power_on(void) { return s_ioexp_out[0] & (1u << BOARD_IOEXP_BUS_EN); }

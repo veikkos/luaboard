@@ -1,10 +1,12 @@
 #include "lua_pins.h"
 
+#include "hw.h"
 #include "lauxlib.h"
 
 #define PINS 64
 
 static unsigned char s_user[PINS];   /* pin_user_t */
+static bool s_power_set;             /* the script switched the ports' 5V itself */
 
 static const char *user_name(pin_user_t u)
 {
@@ -22,6 +24,19 @@ void pin_check(lua_State *L, int pin, pin_user_t who)
 void pin_take(int pin, pin_user_t who)
 {
     if (pin >= 0 && pin < PINS) s_user[pin] = (unsigned char)who;
+    if (!s_power_set) hw_port_power(true);
+}
+
+void pin_power_set(bool on)
+{
+    s_power_set = true;
+    hw_port_power(on);
+}
+
+void pin_power_reset(void)
+{
+    s_power_set = false;
+    hw_port_power(false);
 }
 
 void pin_give_back(pin_user_t who)

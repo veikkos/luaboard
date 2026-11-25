@@ -654,7 +654,7 @@ static int sys_port_power(lua_State *L)
 {
     if (!lua_isnoneornil(L, 1)) {
         luaL_checktype(L, 1, LUA_TBOOLEAN);
-        hw_port_power(lua_toboolean(L, 1));
+        pin_power_set(lua_toboolean(L, 1));
     }
     lua_pushboolean(L, hw_port_power_on());
     return 1;
@@ -918,7 +918,7 @@ void lua_api_release_hw(void)
     s_level = -1;
     sleep_keep_awake(false);
     power_keep_on(false);
-    if (!hw_port_power_on()) hw_port_power(true);   /* back to the default for the next app */
+    pin_power_reset();
 }
 
 void lua_api_register(lua_State *L)
