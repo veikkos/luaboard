@@ -4,7 +4,7 @@
 # tag's CHANGELOG section without its heading, its relative links made
 # absolute). Fails, writing nothing, when the tag is malformed, CHANGELOG.md
 # has no finished section for it, the image is missing, or the manifest
-# would break a limit the first release (0.9.0) enforces (docs/PROTOCOL.md).
+# would break a limit the first release (1.0.0) enforces (docs/PROTOCOL.md).
 #
 # DRY_RUN=ON (the workflow run by hand) lets a section still headed "not
 # released yet" through with a warning; a tag run never does.

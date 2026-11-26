@@ -14,7 +14,7 @@ are the firmware's own, not part of the API: they can change in any release.
 
 ## API version
 
-This is version 2 of the Lua API. An app says which version it was written
+This is version 1 of the Lua API. An app says which version it was written
 for with `lua_api` in its `app.json` (no `lua_api` means 1):
 
 ```json
@@ -28,11 +28,8 @@ older firmware says "needs newer firmware" instead of failing halfway. A
 change that breaks existing apps also raises the oldest version supported.
 Those changes will be listed here. An installed app outside the range stays
 on the device, greyed in the menu, until a firmware or a new version of the
-app that fits comes. Version 1 is what the first release, 0.9.0, had.
-
-| Version | Added |
-|---|---|
-| 2 | `imu.mag`, `camera` |
+app that fits comes. Everything below is version 1, frozen with the first
+release, 1.0.0: from here on any addition makes it version 2.
 
 ## Errors
 
@@ -442,7 +439,7 @@ cores3`).
 
 The camera above the screen (a GC0308), looking the way the screen faces.
 CoreS3 and CoreS3 Lite have one. On the SE every call returns `nil, "no
-camera on this board"`. API version 2.
+camera on this board"`.
 
 | Function | Description |
 |---|---|

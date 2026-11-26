@@ -241,7 +241,7 @@ firmware's. A development build (such as `v1.0.0-5-gabc123`) counts as newer
 than v1.0.0, so it is offered only v1.0.1 and later. A build that isn't from
 a tagged release is offered nothing.
 
-The first release (0.9.0) takes a manifest only within these limits, so every manifest
+The first release (1.0.0) takes a manifest only within these limits, so every manifest
 of format 1 must stay within them (`tools/release.cmake` checks the ones it
 can):
 
