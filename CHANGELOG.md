@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.0
+
+The camera, the compass and the light sensor from Lua (API version 2), and fixes from the first real board.
+
 ## 0.9.3
 
 An app started at boot gets online, Turn off after works under every app, and a 2 min choice.
