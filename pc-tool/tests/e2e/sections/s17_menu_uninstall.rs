@@ -26,7 +26,7 @@ pub fn run(t: &mut T) {
     });
     t.press_for("B", 1000); // back to the menu: hello, live, paint, Marketplace, Settings
     t.tap_at(60, ui::SETTINGS); // Settings...
-    t.press_for("B", 1000); // ...back home, up three: live
+    t.press_for("B", 1000); // ...back home (B: the focus is on Settings), up three: live
     t.press("A");
     t.press("A");
     t.press("A");

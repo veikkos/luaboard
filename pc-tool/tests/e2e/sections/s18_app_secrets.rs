@@ -153,6 +153,7 @@ pub fn run(t: &mut T) {
     t.e(&["run", "alpha"]);
     t.eval("sys.exit()"); // the menu, alpha selected
     t.wait_lua(2.0, MENU_PX);
+    t.press("A"); // the focus
     t.press_for("B", 1000); // alpha's options: Open, Autostart, Clear data, Uninstall, Back
     t.press("C");
     t.press("C");

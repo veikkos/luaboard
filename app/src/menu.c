@@ -106,6 +106,11 @@ static uint32_t s_sync_until;          /* Settings > Time: waiting for the time 
 static unsigned s_sync_from;           /* ...and the sync count when we asked */
 static uint32_t s_gen;                 /* vfs generation the list was built from */
 static uint32_t s_header_at;           /* last header refresh */
+/* The focus: the selected row shown as such. It belongs to the buttons, so
+   the input that came last decides: A, B or C and it shows, a finger on the
+   screen or the power key and it doesn't (focus_set). A view's selection is
+   kept either way: it's where the focus comes back to. */
+static bool s_focus;
 static int s_press = -1;               /* the row under a finger (as the view counts rows), -1 none */
 static view_t s_press_view;            /* ... in this view */
 static char s_toast[64];
@@ -333,17 +338,33 @@ typedef struct {
     int n, rows, top;
     int sel;                    /* the selected row, -1 none */
     gfx_color_t selc;           /* ... its background */
+    bool always;                /* ... which shows without the focus too: it tells of more (a row waiting for its confirm) */
     void (*text)(int i, int y, bool sel);
 } list_t;
 
-/* Scroll so that sel (if in the list) is shown, and no further than the end. */
+/* Scroll so that row sel (if in the list) is shown. */
+static void list_show(int *top, int sel, int n, int rows)
+{
+    if (sel < 0 || sel >= n) return;
+    if (sel < *top) *top = sel;
+    if (sel >= *top + rows) *top = sel - rows + 1;
+}
+
+/* Before a list is drawn: the focus stays on the screen, and the list ends
+   no further than its last row. Without the focus the list is where a
+   finger left it (list_drag). */
 static void list_scroll(int *top, int sel, int n, int rows)
 {
-    if (sel >= 0 && sel < n) {
-        if (sel < *top) *top = sel;
-        if (sel >= *top + rows) *top = sel - rows + 1;
-    }
+    if (s_focus) list_show(top, sel, n, rows);
     if (*top > n - rows) *top = n > rows ? n - rows : 0;
+}
+
+/* The row the focus comes back on, in a list showing `rows` rows from top:
+   the selected one if it's on the screen, else the first one shown (a
+   finger scrolled the list from under it). */
+static int list_focus(int sel, int top, int rows)
+{
+    return sel >= top && sel < top + rows ? sel : top;
 }
 
 static void list_marks(const list_t *l)
@@ -358,8 +379,9 @@ static void list_row(const list_t *l, int i)
     int r = i - l->top;
     if (r < 0 || r >= l->rows || i >= l->n) return;
     int y = LIST_Y + r * ROW_H;
-    row_bg(i, y, i == l->sel, l->selc);
-    l->text(i, y, i == l->sel);
+    bool sel = i == l->sel && (s_focus || l->always);
+    row_bg(i, y, sel, l->selc);
+    l->text(i, y, sel);
 }
 
 static void list_draw(const list_t *l)
@@ -387,12 +409,12 @@ static int list_row_at(list_t l, int y)
 }
 
 /* Lists: scroll n rows (`rows` of them shown) with a finger dragging, a
-   row for every ROW_H it has moved since it went down; the selection (if
-   sel) stays in view. False if nothing moved. */
+   row for every ROW_H it has moved since it went down. False if nothing
+   moved. */
 static unsigned s_scroll_touch;        /* the drag being followed */
 static int s_scroll_top0;              /* ... and the first row shown when it started */
 
-static bool list_drag(int *top, int *sel, int n, int rows, const btn_event_t *e)
+static bool list_drag(int *top, int n, int rows, const btn_event_t *e)
 {
     if (e->touch != s_scroll_touch) { s_scroll_touch = e->touch; s_scroll_top0 = *top; }
     int d = e->y0 - e->y;                                     /* up: further down the list */
@@ -402,8 +424,6 @@ static bool list_drag(int *top, int *sel, int n, int rows, const btn_event_t *e)
     if (t < 0) t = 0;
     if (t == *top) return false;
     *top = t;
-    if (sel && *sel < t) *sel = t;
-    if (sel && *sel >= t + rows) *sel = t + rows - 1;
     return true;
 }
 
@@ -496,13 +516,13 @@ static void home_fixed_row(int i, const char *label, gfx_color_t c)
 {
     int y = fixed_y(i);
     gfx_fill_rect(0, y, gfx_width(), ROW_BG, C_BG);
-    row_bg(i, y, s_sel == i, C_SEL);
+    row_bg(i, y, s_focus && s_sel == i, C_SEL);
     row_label(y, label, c);
 }
 
 static void home_settings_row(void)
 {
-    home_fixed_row(set_index(), "Settings", s_sel == set_index() ? C_TEXT : C_DIM);
+    home_fixed_row(set_index(), "Settings", s_focus && s_sel == set_index() ? C_TEXT : C_DIM);
 }
 
 static void home_update_row(void)
@@ -590,10 +610,11 @@ static void bar_cancel(const bar_t *b)
     if (b && b->cancel) b->cancel();
 }
 
-/* A bar row's bar and value at y: the value being chosen if it's this row's. */
-static void bar_draw(const bar_t *b, int y, bool sel, char *v, size_t cap)
+/* A bar row's bar and value at y: the value being chosen if it's this bar's. */
+static void bar_draw(const bar_t *b, int y, char *v, size_t cap)
 {
-    int value = sel && (s_editing || s_dragging) ? s_edit_val : b->get(), by = y + (ROW_BG - BAR_H) / 2;
+    bool choosing = b->row == s_ssel && (s_editing || s_dragging);
+    int value = choosing ? s_edit_val : b->get(), by = y + (ROW_BG - BAR_H) / 2;
     gfx_rect(BAR_X, by, BAR_W, BAR_H, C_DIM, false);
     gfx_fill_rect(BAR_X + 2, by + 2, (BAR_W - 4) * value / 100, BAR_H - 4, C_ACCENT);
     if (value) snprintf(v, cap, "%d%%", value);
@@ -613,7 +634,7 @@ static void settings_text(int i, int y, bool sel)
     else row_label(y, labels[i], S_INFO(i) ? C_DIM : C_TEXT);
     char v[48] = "";
     gfx_color_t c = C_TEXT;
-    if (bar_of(i)) bar_draw(bar_of(i), y, sel, v, sizeof v);
+    if (bar_of(i)) bar_draw(bar_of(i), y, v, sizeof v);
     else switch (i) {
     case S_SCREEN_OFF:
     case S_TURN_OFF: {
@@ -723,6 +744,7 @@ static void open_pick(void)
     s_psel = 0;
     int cur = autostart_index();
     for (int k = 0; k < s_npick; k++) if (s_pick[k] == cur) s_psel = k;
+    list_show(&s_ptop, s_psel, s_npick, ROWS);                /* the choice in sight, with the focus or not */
     draw_pick();
 }
 
@@ -739,7 +761,7 @@ static void pick_event(act_t ev, const btn_event_t *e)
 {
     build_pick();
     if (ev == M_DRAG || ev == M_DRAG_END) {                   /* the list follows the finger */
-        if (list_drag(&s_ptop, &s_psel, s_npick, ROWS, e)) draw_pick();
+        if (list_drag(&s_ptop, s_npick, ROWS, e)) draw_pick();
         return;
     }
     if (ev == M_TAP) {
@@ -841,7 +863,8 @@ static void options_text(int r, int y, bool sel)
 static list_t options_list(void)
 {
     return (list_t){ .n = s_norows, .rows = s_norows, .sel = s_osel,
-                     .selc = options_armed(s_osel) ? C_DANGER : C_SEL, .text = options_text };
+                     .selc = options_armed(s_osel) ? C_DANGER : C_SEL, .always = options_armed(s_osel),
+                     .text = options_text };
 }
 
 static void draw_options(void)
@@ -1131,7 +1154,7 @@ static void appupd_event(act_t ev, const btn_event_t *e)
 {
     int n = appupd_rows();
     if (ev == M_DRAG || ev == M_DRAG_END) {
-        if (list_drag(&s_atop, &s_asel, n, ROWS, e)) draw_appupd();
+        if (list_drag(&s_atop, n, ROWS, e)) draw_appupd();
         return;
     }
     if (ev == M_TAP) {
@@ -1368,7 +1391,7 @@ static void store_event(act_t ev, const btn_event_t *e)
 {
     int n = store_rows();
     if (ev == M_DRAG || ev == M_DRAG_END) {
-        if (list_drag(&s_ttop, &s_tsel, n, ROWS, e)) draw_store();
+        if (list_drag(&s_ttop, n, ROWS, e)) draw_store();
         return;
     }
     if (ev == M_TAP) {
@@ -1560,7 +1583,7 @@ static void home_event(act_t ev, const btn_event_t *e)
 {
     int n = home_count();
     if (ev == M_DRAG || ev == M_DRAG_END) {                   /* the apps follow the finger (Settings stays) */
-        if (e->y0 < divider_y() && list_drag(&s_top, s_sel < list_n() ? &s_sel : NULL, list_n(), app_rows(), e))
+        if (e->y0 < divider_y() && list_drag(&s_top, list_n(), app_rows(), e))
             draw_home();
         return;
     }
@@ -1726,8 +1749,11 @@ static void settings_event(act_t ev, const btn_event_t *e)
 {
     if (ev == M_DRAG || ev == M_DRAG_END) {                   /* a finger slid along a bar, or the list */
         const bar_t *b = bar_under(e->x0, e->y0);
-        if (!b) {
-            if (list_drag(&s_stop, &s_ssel, S_COUNT, ROWS, e)) draw_settings();
+        if (!b) {                                             /* the list: an edit with the buttons is given up */
+            bool edited = s_editing;
+            if (edited) bar_cancel(bar_of(s_ssel));
+            s_editing = false;
+            if (list_drag(&s_stop, S_COUNT, ROWS, e) || edited) draw_settings();
             return;
         }
         if (s_editing && s_ssel != b->row) bar_cancel(bar_of(s_ssel));
@@ -1909,6 +1935,46 @@ static void menu_act(act_t ev, const btn_event_t *e)
     }
 }
 
+/* The focus comes back to the view on the screen: on its selected row, or,
+   where a finger scrolled that one away, on the first row shown that can
+   have it. The list stays as it is. */
+static void focus_restore(void)
+{
+    switch (s_view) {
+    case V_HOME:                                              /* (the fixed rows don't scroll) */
+        if (s_sel < list_n()) s_sel = list_focus(s_sel, s_top, app_rows());
+        break;
+    case V_SETTINGS:
+        s_ssel = list_focus(s_ssel, s_stop, ROWS);
+        while (S_INFO(s_ssel)) s_ssel++;                      /* Back comes after them */
+        break;
+    case V_PICK: s_psel = list_focus(s_psel, s_ptop, ROWS); break;
+    case V_APPUPD: s_asel = list_focus(s_asel, s_atop, ROWS); break;
+    case V_STORE: s_tsel = list_focus(s_tsel, s_ttop, ROWS); break;
+    case V_OPTIONS: case V_UPDATE: case V_STORE_APP: case V_APP: break;   /* nothing scrolls */
+    }
+}
+
+/* The focus shows, or not, from now on. */
+static void focus_set(bool on)
+{
+    if (on == s_focus) return;
+    s_focus = on;
+    if (on) focus_restore();
+    redraw();
+}
+
+/* An input for the selected row came, from a button or from a finger on
+   the screen. False if all it does is bring the focus back: a button never
+   acts on a row that didn't show as selected. (The error screen of a failed
+   script has no rows: its buttons act at once.) */
+static bool focus_input(bool button)
+{
+    if (button == s_focus || s_view == V_APP) return true;
+    focus_set(button);
+    return !button;
+}
+
 /* Row i of the view on the screen again, e.g. now that it's (not) pressed. */
 static void redraw_row(int i)
 {
@@ -1942,6 +2008,7 @@ void menu_tick(void)
         if (sys != BTN_SYS_NONE) {
             proto_eventf("stopped %s (%s)", script_current(), sys == BTN_SYS_HOME ? "power key" : "back button");
             menu_show();
+            focus_set(sys == BTN_SYS_BACK);                   /* left with B held: a button */
         }
         return;
     }
@@ -1977,12 +2044,24 @@ void menu_tick(void)
         }
     }
 
-    if (sys != BTN_SYS_NONE) menu_act(sys == BTN_SYS_HOME ? M_HOME : M_BACK, NULL);
+    /* The power key (home) and B held (back) act whether the focus shows or
+       not, and then decide it. But B held at home opens the selected app's
+       options: an input for the selected row, like A, C and a short B. */
+    if (sys == BTN_SYS_HOME) {
+        menu_act(M_HOME, NULL);
+        focus_set(false);
+    } else if (sys == BTN_SYS_BACK && s_view != V_HOME) {
+        menu_act(M_BACK, NULL);
+        focus_set(true);
+    } else if (sys == BTN_SYS_BACK && focus_input(true)) {
+        menu_act(M_BACK, NULL);
+    }
     btn_event_t e;
     /* An app opened, or an update started (Install): the rest isn't the menu's. */
     while (!script_running() && !ota_active() && buttons_next(&e)) {
         act_t ev = action(&e);
-        if (ev != M_NONE) menu_act(ev, &e);
+        bool button = e.kind == BTN_PRESS || e.kind == BTN_LONG || e.kind == BTN_REPEAT;
+        if (ev != M_NONE && focus_input(button)) menu_act(ev, &e);
     }
 
     /* The row under a finger shows pressed: repaint the rows that changed

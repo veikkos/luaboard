@@ -34,6 +34,14 @@ fn hold_at(t: &mut T, x: i32, y: i32) {
     t.ctl(&[&format!("touch={x},{y}"), "advance=1000", "touch=-", "advance=250"]);
 }
 
+/// The list rows (of the first n on the screen) drawn selected, in a screenshot taken now.
+fn selected_rows(t: &mut T, name: &str, n: i32) -> Vec<i32> {
+    let shot = t.shot(name);
+    (0..n)
+        .filter(|&i| shot.count(6..7, row(i) as usize..row(i) as usize + 1, |r, _, b| r < 60 && b > 120) == 1)
+        .collect()
+}
+
 /// Settings: drag the list to its end and tap Back (the last row).
 fn settings_back(t: &mut T) {
     // Two drags up: past the end however many rows Settings has, Back last.
@@ -80,6 +88,15 @@ pub fn run(t: &mut T) {
     let apps = t.e(&["apps"]);
     let ok = grep("^paint .*installed", &apps) && grep("^hello .*RAM only", &apps);
     t.check(ok, "apps: installed vs. RAM only", |_| format!("apps: {apps}"));
+    // The focus (the selected row shown as such) is the buttons': none until one is used,
+    // and the press that brings it does nothing else.
+    let none = selected_rows(t, "boot.ppm", ui::HOME_ROWS);
+    t.press("B");
+    let first = selected_rows(t, "focus.ppm", ui::HOME_ROWS);
+    let ok = none.is_empty() && first == [0] && t.e(&["info"]).contains("running: -");
+    t.check(ok, "no row shows selected until a button is pressed; that press only shows the focus", |t| {
+        format!("selected rows at boot {none:?}, after B {first:?}, {}", running(t))
+    });
     t.press("B"); // first row: hello
     let ok = t.until(3.0, |t| t.e(&["info"]).contains("running: hello/main.lua"));
     t.check(ok, "B opens the selected app", |t| format!("B didn't open: {}", running(t)));
@@ -266,13 +283,38 @@ pub fn run(t: &mut T) {
     t.tap_at(239, row(0)); // brightness back to 80, Back
     settings_back(t);
     hold_at(t, 60, row(0)); // first row: hello -> its options
-    t.tap_at(60, row(3)); // options of a RAM app: Open, Clear data, Uninstall, Back
-    t.press("C"); // home again: C moves to paint, B opens it
+    t.tap_at(60, row(2)); // options of a RAM app: Open, Clear data, Uninstall, Back
+    let v = t.eval(&format!("local c = disp.get(6, {}) return (c >> 16) > 120 and ((c >> 8) & 255) < 60", row(2)));
+    t.check(v == "true", "a row waiting for its confirm shows red without the focus too", |t| {
+        format!("Uninstall tapped once: {}", t.eval(&format!("disp.get(6, {})", row(2))))
+    });
+    t.tap_at(60, row(3));
+    let touched = selected_rows(t, "touched.ppm", ui::HOME_ROWS);
+    t.press("C"); // home again. A button after the finger: the focus is back, on hello
+    let back = selected_rows(t, "focus_back.ppm", ui::HOME_ROWS);
+    t.check(
+        touched.is_empty() && back == [0],
+        "a finger on the screen hides the focus, a button brings it back",
+        |_| format!("selected rows after the taps {touched:?}, after C {back:?}"),
+    );
+    t.press("C"); // C moves to paint, B opens it
     t.press("B");
     let ok = t.e(&["info"]).contains("running: paint/main.lua");
     t.check(ok, "holding an app opens its options; Back by touch", |t| format!("hold app: {}", running(t)));
-    t.eval("sys.exit()");
+    // How an app is left decides the focus too: none after the power key, though B opened the app ...
+    t.ctl(&["power=short", "advance=300"]);
     t.until(2.0, |t| t.e(&["info"]).contains("running: -"));
+    let power = selected_rows(t, "left_power.ppm", ui::HOME_ROWS);
+    t.tap_at(60, row(1)); // ... and on the app after B held, though a tap opened it
+    t.until(2.0, |t| t.e(&["info"]).contains("running: paint/main.lua"));
+    t.press_for("B", 1000);
+    t.until(2.0, |t| t.e(&["info"]).contains("running: -"));
+    let held = selected_rows(t, "left_b.ppm", ui::HOME_ROWS);
+    t.check(
+        power.is_empty() && held == [1],
+        "leaving an app: no focus after the power key, the focus after B held",
+        |_| format!("selected rows after the power key {power:?}, after B held {held:?}"),
+    );
     t.write("boom.lua", "error(\"boom\")\n");
     t.e(&["put", &t.path("boom.lua"), "--app", "boom", "--run", "boom.lua"]);
     hold_at(t, 160, 120);
@@ -280,7 +322,8 @@ pub fn run(t: &mut T) {
     t.check(ok, "holding the error screen goes back to the menu", |_| "error screen hold".into());
     t.e(&["uninstall", "boom"]);
     t.tap_at(60, SETTINGS); // tap Settings (bottom row)
-    t.press("B"); // brightness: edit, 80 -> 60, save
+    t.press("B"); // the focus, on Brightness
+    t.press("B"); // edit, 80 -> 60, save
     t.press("A");
     t.press("A");
     t.press("B");
@@ -300,16 +343,21 @@ pub fn run(t: &mut T) {
         "advance=50",
         &format!("touch=240,{}", row(0)),
         "advance=50",
-        "touch=-",
-        "advance=250",
     ]);
+    // (the bar is filled to 238 at 80 %, and was to 210)
+    let v = t.eval(&format!("local c = disp.get(228, {}) return (c >> 16) < 120 and (c & 255) > 200", row(0)));
+    t.check(v == "true", "the bar follows the finger along it", |t| {
+        format!("the bar at 228 mid-drag: {}", t.eval(&format!("disp.get(228, {})", row(0))))
+    });
+    t.ctl(&["touch=-", "advance=250"]);
     let b = t.eval("disp.brightness()");
     let ok = percent(&b).is_some_and(|n| (75..=85).contains(&n));
     t.check(ok, &format!("dragging along the brightness bar sets it ({b}%)"), |_| format!("bar drag: {b}"));
     t.tap_at(290, row(0)); // the % label (like the name): selects the row only
     let v = t.eval("disp.brightness()");
     t.check(v == b, "the % label isn't part of the bar", |_| format!("label: {v}"));
-    t.press("C"); // not in the edit mode: C moves down instead of brightening
+    t.press("C"); // the focus, then down: not in the edit mode, where C would brighten
+    t.press("C");
     let v = t.eval("disp.brightness()");
     t.check(v == b, "tapping Brightness doesn't start the button edit mode", |_| format!("edit mode: {v}"));
     t.tap_at(60, row(5)); // Autostart: the picker (Off, paint, Back)
@@ -358,7 +406,8 @@ pub fn run(t: &mut T) {
     let full = t.eval("sound.volume()");
     t.tap_at(162, row(1)); // its left end: off (brightness stops at 10 %)
     let off = t.eval("sound.volume()");
-    t.press("B"); // with the buttons: edit, 0 -> 20, save
+    t.press("B"); // with the buttons: the focus (on Volume, tapped last), edit, 0 -> 20, save
+    t.press("B");
     t.press("C");
     t.press("C");
     t.press("B");
@@ -370,15 +419,15 @@ pub fn run(t: &mut T) {
     t.ctl(&["power=short", "advance=300"]); // wakes it, doesn't go home
     let ok = off && screen(t) == "on" && t.eval(MENU_PX) == "true";
     t.check(ok, "Sleep now; the power key wakes it", |t| format!("sleep now: {}", screen(t)));
-    // A tap on Sleep now selects nothing: awake again, the row selected before (Volume) still is.
+    // A tap on Sleep now selects nothing: awake again its row isn't lit (selected or pressed),
+    // and the focus comes back on the row selected before (Volume).
     let shot = t.shot("woke.ppm");
-    let selected: Vec<i32> = (0..7)
-        .filter(|&i| shot.count(6..7, row(i) as usize..row(i) as usize + 1, |r, _, b| r < 60 && b > 120) == 1)
-        .collect();
-    let lit = |i: i32| shot.count(6..7, row(i) as usize..row(i) as usize + 1, |r, g, b| r.max(g).max(b) > 60) == 1;
-    let ok = selected == [1] && !lit(4);
-    t.check(ok, "... and Sleep now isn't left selected, or shown pressed", |_| {
-        format!("selected rows: {selected:?}, Sleep now's row lit: {}", lit(4))
+    let lit =
+        (0..7).any(|i| shot.count(6..7, row(i) as usize..row(i) as usize + 1, |r, g, b| r.max(g).max(b) > 60) == 1);
+    t.press("A");
+    let selected = selected_rows(t, "woke_focus.ppm", 7);
+    t.check(!lit && selected == [1], "... and Sleep now isn't left selected, or shown pressed", |_| {
+        format!("a row lit after waking: {lit}, selected rows after a button: {selected:?}")
     });
     t.ctl(&["power=long", "advance=300"]);
     let off = screen(t) == "off";
@@ -388,9 +437,28 @@ pub fn run(t: &mut T) {
     settings_back(t);
     let ok = t.eval(MENU_PX) == "true";
     t.check(ok, "Settings' Back row by touch", |_| "settings back".into());
+    // An edit with the buttons, and then a finger scrolls the list: the edit is given up.
+    t.tap_at(60, SETTINGS);
+    let was = t.eval("disp.brightness()");
+    t.press("B"); // the focus, edit, one step down
+    t.press("B");
+    t.press("A");
+    for k in 0..4 {
+        t.ctl(&[&format!("touch=60,{}", row(5) - k * ROW_H), "advance=50"]);
+    }
+    t.ctl(&["touch=-", "advance=250"]);
+    t.press("C"); // the buttons again: the focus (in its own colour, not the edit's), then down
+    let focus = selected_rows(t, "edit_dragged.ppm", ui::ROWS);
+    t.press("C");
+    let now = t.eval("disp.brightness()");
+    let ok = focus == [0] && now == was && !t.read("sim.err").contains("crash");
+    t.check(ok, "scrolling the list gives up an edit made with the buttons", |_| {
+        format!("brightness {was}, after the drag and C {now}, focus on rows {focus:?}")
+    });
+    settings_back(t);
     // With the buttons: down through every row to Back (the information rows are skipped)
-    t.tap_at(60, SETTINGS); // Settings: nine rows to change before Back
-    for _ in 0..9 {
+    t.tap_at(60, SETTINGS); // Settings: the focus, then nine rows to change before Back
+    for _ in 0..10 {
         t.press("C");
     }
     let ok = !t.read("sim.err").contains("crash") && t.e(&["info"]).contains("running: -");
@@ -432,12 +500,39 @@ pub fn run(t: &mut T) {
     t.until_sim(2.0, |t| t.eval(MENU_PX) == "true");
     t.advance(300); // the menu sees the new apps
     let y0 = row(ui::HOME_ROWS - 3); // an app row, above the divider
-    for k in 0..4 {
-        t.ctl(&[&format!("touch=60,{}", y0 - k * ROW_H), "advance=50"]);
-    }
-    t.ctl(&["touch=-", "advance=250"]);
+    let drag = |t: &mut T, from: i32, dir: i32| {
+        for k in 0..4 {
+            t.ctl(&[&format!("touch=60,{}", from + dir * k * ROW_H), "advance=50"]);
+        }
+        t.ctl(&["touch=-", "advance=250"]);
+    };
+    drag(t, y0, -1);
     t.tap_at(60, row(0)); // the first row shown: 3 rows down the list
     let ok = t.e(&["info"]).contains("running: list3/");
     t.check(ok, "dragging a list scrolls it a row per row height", |t| format!("list drag: {}", running(t)));
+    t.e(&["stop"]);
+    t.until_sim(2.0, |t| t.eval(MENU_PX) == "true");
+    // The focus after a finger scrolled the list. Its row (list3, tapped) is the first one shown.
+    t.press("A");
+    let own = selected_rows(t, "own.ppm", ui::HOME_ROWS);
+    drag(t, row(0), 1); // back to the top: list3 is the fourth row now
+    let hidden = selected_rows(t, "hidden.ppm", ui::HOME_ROWS);
+    t.press("A");
+    let moved = selected_rows(t, "moved.ppm", ui::HOME_ROWS);
+    t.check(
+        own == [0] && hidden.is_empty() && moved == [3],
+        "the focus comes back on its row, where a drag took it",
+        |_| format!("selected rows: {own:?}, dragged {hidden:?}, after a button {moved:?}"),
+    );
+    t.press("A"); // up to list1, then the list dragged from under it
+    t.press("A");
+    drag(t, y0, -1);
+    t.press("C"); // the focus: on the first row shown, the list stays
+    let top = selected_rows(t, "top.ppm", ui::HOME_ROWS);
+    t.press("B");
+    let ok = top == [0] && t.e(&["info"]).contains("running: list3/");
+    t.check(ok, "... or on the first row shown when its own was dragged away, without moving the list", |t| {
+        format!("selected rows: {top:?}, {}", running(t))
+    });
     t.stop();
 }

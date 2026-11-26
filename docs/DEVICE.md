@@ -16,6 +16,12 @@ bar (with the buttons: B, then A and C, then B). The buttons do the same:
 | B (middle) | open or choose (hold for app options or back) |
 | power key | home (hold 1.5 s to sleep, 6 s to turn off) |
 
+A and C move a highlight and B acts on the highlighted row. The highlight
+shows only while the buttons are in use: a touch on the screen or the power
+key hides it, and the next press of a button brings it back and does nothing
+else (holding B goes back as always, and brings it too). It comes back on
+its row, or on the first row shown if the list was scrolled away from it.
+
 The touch buttons are the strip below the SE's screen, with printed icons.
 CoreS3 and Lite have no buttons: their menu works by touch alone and shows
 no hints for them. In a running app, presses of A, B and C go to the app as events
