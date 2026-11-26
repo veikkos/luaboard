@@ -13,7 +13,7 @@
 
 static sim_camera_fn s_picture;
 static void *s_ctx;
-static uint8_t s_addr;
+static uint8_t s_chip;
 static int s_port;
 static bool s_on;
 static uint8_t s_px[W * H * 2];
@@ -33,18 +33,18 @@ sensor_t *esp_camera_sensor_get(void) { return s_on ? &s_sensor : NULL; }
 
 void sim_camera_attach(uint8_t addr7, sim_camera_fn picture, void *ctx)
 {
-    s_addr = addr7;
+    s_chip = addr7;
     s_picture = picture;
     s_ctx = ctx;
 }
 
-bool sim_camera_running(void) { return s_on && sim_i2c_present(s_port, s_addr); }
+bool sim_camera_running(void) { return s_on && sim_i2c_present(s_port, s_chip); }
 
 esp_err_t esp_camera_init(const camera_config_t *c)
 {
     if (!c || s_on) return ESP_ERR_INVALID_STATE;
     if (c->pixel_format != PIXFORMAT_RGB565 || c->frame_size != FRAMESIZE_QVGA) return ESP_ERR_NOT_SUPPORTED;
-    if (!s_picture || !sim_i2c_present(c->sccb_i2c_port, s_addr)) return ESP_ERR_NOT_SUPPORTED;   /* the probe finds no chip (the real one's answer to that) */
+    if (!s_picture || !sim_i2c_present(c->sccb_i2c_port, s_chip)) return ESP_ERR_NOT_SUPPORTED;   /* the probe finds no chip (the real one's answer to that) */
     s_port = c->sccb_i2c_port;
     s_on = true;
     s_mirror = false;                                /* the chip was reset */
