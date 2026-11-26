@@ -91,10 +91,9 @@ pub fn run(t: &mut T) {
     t.write("snd/wav.lua", WAV_LUA);
     t.e(&["install", &t.path("snd"), "--run"]);
 
-    let v = t.eval("sound.tone(1000, 200)");
-    t.check(v == "true", "a tone is queued", |_| format!("tone: {v}"));
-    let v = t.eval("sound.playing()");
-    t.check(v == "true", "... and playing", |_| format!("playing: {v}"));
+    // (asked in the same call: by the next one a slow computer has let the 200 ms pass)
+    let v = t.eval("tostring(sound.tone(1000, 200)) .. ' ' .. tostring(sound.playing())");
+    t.check(v == "true true", "a tone is queued, and playing", |_| format!("tone, playing: {v}"));
     let ok = t.until_sim(3.0, |t| t.eval("sound.playing()") == "false");
     t.check(ok, "... and done after it", |_| "a 200 ms tone still playing".into());
 
