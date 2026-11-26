@@ -22,6 +22,7 @@
 #include "lua_store.h"
 #include "lua_i2c.h"
 #include "lua_sd.h"
+#include "lua_camera.h"
 #include "lua_sensors.h"
 #include "lua_uart.h"
 #include "lua_ble.h"
@@ -342,6 +343,7 @@ static const struct {
     { lua_i2c_register, lua_i2c_release },
     { lua_uart_register, lua_uart_release },
     { lua_sensors_register, lua_sensors_release },
+    { lua_camera_register, lua_camera_release },
     { lua_sd_register, lua_sd_release },
     { lua_ble_register, ble_reset },
     { lua_sound_register, sound_stop },

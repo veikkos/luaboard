@@ -183,13 +183,15 @@ static void cmd_info(char *args)
     char now[40];
     clock_iso_local(clock_now(), now, sizeof now);
     const update_manifest_t *upd = update_available();
-    reply_ok("fw=%s ver=%s board=%s model=%s lua=%s api=%d apps=%d flash=%zu/%zu ram=%zu/%d heap=%zu/%zu running=%s autorun=%s ip=%s auth=%s time=%s target=%s slot=%s ota=%s screen=%s reset=%s update=%s app_updates=%d",
+    size_t mem_free, mem_low;
+    hw_mem_stats(&mem_free, &mem_low);
+    reply_ok("fw=%s ver=%s board=%s model=%s lua=%s api=%d apps=%d flash=%zu/%zu ram=%zu/%d heap=%zu/%zu running=%s autorun=%s ip=%s auth=%s time=%s target=%s slot=%s ota=%s screen=%s reset=%s update=%s app_updates=%d mem=%zu/%zu",
              FW_NAME, fw_version(), BOARD_NAME, hw_model(), LUA_VERSION_MAJOR "." LUA_VERSION_MINOR "." LUA_VERSION_RELEASE,
              APP_LUA_API, napps, fused, ftotal, ram, VFS_RAM_CAPACITY, used, limit,
              script_running() ? script_current() : "-", autostart[0] ? autostart : "-", net_ip(),
              auth_paired() ? "key" : "none", now, CONFIG_IDF_TARGET, ota_slot(), ota_state(),
              hw_screen_is_off() ? "off" : "on", hw_reset_reason(),
-             upd ? upd->version : update_manual() ? "manual" : "-", app_update_count());
+             upd ? upd->version : update_manual() ? "manual" : "-", app_update_count(), mem_free, mem_low);
 }
 
 static void ls_line(const char *path, size_t size, uint32_t crc, void *ctx)
@@ -920,12 +922,13 @@ static void poll_session(session_t *s)
 {
     uint8_t buf[256];
     int n;
-    /* A firmware image is written to flash as it comes, which takes time:
-       hand the main loop back now and then (watchdog, screen). */
+    /* A stream (an upload, or a firmware image, written to flash as it comes)
+       can keep a link busy for seconds: hand the main loop back now and then
+       (watchdog, screen, the running app). */
     size_t budget = 16 * 1024;
     s_cur = s;
     while (budget > 0 && (n = s->link.read(s->link.ctx, buf, sizeof buf)) > 0) {
-        if (s->state == ST_OTA || s->state == ST_DRAIN) budget = (size_t)n < budget ? budget - (size_t)n : 0;
+        budget = (size_t)n < budget ? budget - (size_t)n : 0;
         if (s->state == ST_DRAIN) { s->up.last_ms = hw_millis(); continue; }
         for (int i = 0; i < n; i++) {
             uint8_t c = buf[i];

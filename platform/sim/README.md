@@ -151,6 +151,8 @@ window.
 | `--control PORT` | A TCP port on 127.0.0.1 (`0`: any free one, printed as `Control: 127.0.0.1:N`) taking control lines while running, see [Control channel](#control-channel). The `run` target's port is 3334 |
 | `--set portb=0..4095`, `battery=none\|0..100`, `battery_on=0\|1`, `usb=0\|1` | Initial inputs (`battery_on=1` attaches it at its last level) |
 | `--set accel=X,Y,Z`, `gyro=X,Y,Z` | What the motion sensor measures, in g and degrees a second (default 0,0,1 and 0,0,0: at rest, the screen up). CoreS3 and Lite only |
+| `--set mag=X,Y,Z` | What the compass measures, in microtesla (default 20,0,-45). Beyond 1300 on X or Y, or 2500 on Z, it is out of the chip's range. CoreS3 and Lite only |
+| `--set camera=N` | Which test picture the camera sees: color bars, a gradient, and a white square that N moves (default 0). CoreS3 and Lite only |
 | `--set light=LUX`, `proximity=0..2047` | What the light and proximity sensor measures (default 300 lux, nothing near). CoreS3 and Lite only |
 | `--set sd=FOLDER\|unformatted\|none` | The microSD slot: a FAT card whose files are that folder's (made if it isn't there), a card that isn't FAT, or nothing (the default). Changing it while a script uses the card is pulling the card out |
 | `--set portc=loopback\|none` | Port C with its TX wired to its RX: what a script writes to `uart`, it reads back |
@@ -268,6 +270,22 @@ side, and the studio and the CLI find them all (`luaboard ports`). Without
 `-p` or `LUABOARD_PORT` they take the lowest one; `-p /tmp/esp32-sim-2`
 picks another.
 
+The port loses bytes as the chip's does. A packet from the PC waits in a
+64-byte FIFO, and ESP-IDF's driver, if its receive interrupt is left on,
+moves it to its ring buffer at once and drops it when the ring is full. So
+firmware that reads through the driver slower than the PC sends gets a
+stream with holes, here as on the board. The firmware reads the FIFO itself.
+
+`--set usb_host=gone` is a computer that has given up on the port, as one
+can over a restart of the chip: nothing comes or goes until the firmware
+drops the pull-up on D+ and raises it again, which it does when USB power
+is there and no computer is heard three seconds after the start.
+
+The ROM's printf writes onto the port too, as on the chip, until the
+firmware clears the ROM's `g_usb_print`. The simulated camera driver prints
+a warning with it, as the real one does from its interrupt, and the
+simulator's log says when such a line went out on the link.
+
 On macOS and Linux a simulator holds a lock on `<link>.lock` next to the
 link (an empty file, left behind) while it runs, through its resets. A link
 whose lock nobody holds, such as one a killed simulator left, is free, and
@@ -286,7 +304,7 @@ The control channel (`--control PORT`, one client at a time) takes the
 |---|---|
 | `is=on\|off\|light` | Is the board on, powered down, or asleep with light sleep allowed |
 | `pwm=PIN:HZ:PERMILLE`, `pwm=PIN:off` | Is that pin pulsing so, by `gpio.pwm` |
-| `sensor=imu\|light:on\|off` | Is that sensor switched on |
+| `sensor=imu\|compass\|light\|lightpower\|camera\|camerapower:on\|off` | Is that sensor switched on (`lightpower`, `camerapower`: its supply) |
 | `sdcard=mounted\|free` | Does the firmware hold the card |
 
 Each control line is answered on the same connection, in order, with `ok

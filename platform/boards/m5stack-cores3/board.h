@@ -3,8 +3,7 @@
  *
  *   One firmware for all three; hw.c tells them apart at boot by the BMI270
  *   IMU, which only CoreS3 and Lite have. CoreS3 and Lite also add a battery
- *   and a light/proximity sensor (both used), a camera and a compass (not
- *   used yet).
+ *   and a light/proximity sensor, a compass and a camera.
  *
  *   ESP32-S3, 16 MB flash, 8 MB quad PSRAM, 54 x 54 x 15.5 mm
  *   USB-C -> ESP32-S3 built-in USB-Serial/JTAG (no external USB-UART chip)
@@ -55,6 +54,18 @@
 #define BOARD_SD_CS           GPIO_NUM_4   /* the microSD card's select: high unless the card is in use (sdcard.c) */
 #define BOARD_SD_MISO         GPIO_NUM_35  /* its data out: the same pin as the LCD's D/C */
 
+/* ---- Camera (CoreS3/Lite) ------------------------------------------------- */
+/* GC0308, 640x480 at most, used at 320x240. Eight data lines and three
+   clocks into the chip's camera port. It has its own oscillator (no clock
+   from us), and no power-down pin: its supplies are the PMIC's ALDO3, BLDO1
+   and BLDO2, its reset the IO expander's P1_0. */
+#define BOARD_CAM_W           320
+#define BOARD_CAM_H           240
+#define BOARD_CAM_PCLK        GPIO_NUM_45
+#define BOARD_CAM_VSYNC       GPIO_NUM_46
+#define BOARD_CAM_HREF        GPIO_NUM_38
+#define BOARD_CAM_DATA        { GPIO_NUM_39, GPIO_NUM_40, GPIO_NUM_41, GPIO_NUM_42, GPIO_NUM_15, GPIO_NUM_16, GPIO_NUM_48, GPIO_NUM_47 }   /* D0..D7 */
+
 /* ---- Touch -------------------------------------------------------------- */
 #define BOARD_TOUCH_ADDR      0x38
 #define BOARD_TOUCH_W         320
@@ -71,13 +82,16 @@
 #define BOARD_IOEXP_ADDR      0x58         /* AW9523B */
 #define BOARD_RTC_ADDR        0x51         /* BM8563 real-time clock */
 #define BOARD_IMU_ADDR        0x69         /* BMI270, chip ID 0x24 at register 0: CoreS3/Lite only */
-#define BOARD_LIGHT_ADDR      0x23         /* LTR-553ALS light and proximity sensor: CoreS3/Lite only */
+#define BOARD_CAM_ADDR        0x21         /* GC0308 camera's control side: CoreS3/Lite only, with its supplies on and out of reset */
+#define BOARD_MAG_ADDR        0x10         /* BMM150 compass: on the BMI270's auxiliary bus, not on this one */
+#define BOARD_LIGHT_ADDR      0x23         /* LTR-553ALS light and proximity sensor: CoreS3/Lite only, fed from the PMIC's BLDO1 */
 #define BOARD_IOEXP_TOUCH_RST 0            /* P0_0 (bit in port 0) */
 #define BOARD_IOEXP_LCD_RST   1            /* P1_1 (bit in port 1). VERIFY: one M5GFX report mentions P1_5 */
 /* 5V out to the Grove ports, as M5Unified's setExtOutput() switches it.
    VERIFY on hardware: taken from M5Unified, not measured. */
 #define BOARD_IOEXP_BUS_EN    1            /* P0_1: 5V bus out to the ports */
 #define BOARD_IOEXP_USB_OUT_EN 5           /* P0_5: the board's 5V out to the USB socket. Held low: USB power comes in */
+#define BOARD_IOEXP_CAM_RST   0            /* P1_0: the camera's reset line, low = held in reset */
 #define BOARD_IOEXP_BOOST_EN  7            /* P1_7: 5V boost converter (on battery) */
 
 /* ---- Speaker --------------------------------------------------------------

@@ -21,6 +21,9 @@ void *heap_caps_malloc(size_t size, uint32_t caps);
 void *heap_caps_calloc(size_t n, size_t size, uint32_t caps);
 void *heap_caps_realloc(void *ptr, size_t size, uint32_t caps);
 void heap_caps_free(void *ptr);
+/* The host has no heaps to tell apart: 0. */
+size_t heap_caps_get_free_size(uint32_t caps);
+size_t heap_caps_get_minimum_free_size(uint32_t caps);
 
 #ifdef __cplusplus
 }

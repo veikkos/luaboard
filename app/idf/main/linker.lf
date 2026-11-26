@@ -1,0 +1,8 @@
+# The firmware's own zeroed statics (session buffers, tables and the like, about
+# 60 KB) go to PSRAM: internal RAM is for what can be nowhere else, see
+# sdkconfig.defaults. Not the panic hook's: it runs when little can be trusted.
+[mapping:luaboard_main]
+archive: libmain.a
+entries:
+    * (extram_bss)
+    panic_hook (default)

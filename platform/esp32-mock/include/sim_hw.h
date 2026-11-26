@@ -80,6 +80,10 @@ void sim_uart_attach_link(uart_port_t port, host_link_t *link);
 void sim_uart_loopback(uart_port_t port, bool on);
 /** Route the ESP32-S3 USB-Serial/JTAG CDC port to the host's serial link. */
 void sim_usb_serial_attach_link(host_link_t *link);
+/** The computer stops talking to the port (mock_usb_serial_jtag.c), until
+ *  the firmware makes it start anew. */
+void sim_usb_serial_host_gone(bool gone);
+bool sim_usb_serial_host_talking(void);
 
 /* ---- I2C --------------------------------------------------------------- */
 /** Device model: one write transaction (START addr+W data... STOP). */
@@ -93,6 +97,17 @@ void sim_i2c_attach(uint8_t addr7, sim_i2c_write_fn on_write, sim_i2c_read_fn on
 void sim_i2c_attach_port(int port, uint8_t addr7, sim_i2c_write_fn on_write, sim_i2c_read_fn on_read, void *ctx);
 /** Unplug the model at addr7 on that port. */
 void sim_i2c_detach_port(int port, uint8_t addr7);
+/** Something answers at that address. */
+bool sim_i2c_present(int port, uint8_t addr7);
+
+/* ---- Camera (esp_camera.h) ------------------------------------------------
+ * The board's camera: its chip's I2C address, and what it sees: w x h pixels
+ * of RGB565, the high byte first. Pictures come while a model is attached
+ * at that address. */
+typedef void (*sim_camera_fn)(void *ctx, uint8_t *be565, int w, int h);
+void sim_camera_attach(uint8_t addr7, sim_camera_fn picture, void *ctx);
+/** The firmware has the camera taking pictures. */
+bool sim_camera_running(void);
 
 /* ---- SPI --------------------------------------------------------------- */
 /** Device model: bytes clocked out while the device's CS is asserted. */

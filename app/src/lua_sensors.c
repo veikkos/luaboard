@@ -4,12 +4,13 @@
  *
  *   imu.accel() -> x, y, z            acceleration in g (flat on a table: z about 1)
  *   imu.gyro()  -> x, y, z            rotation in degrees a second
+ *   imu.mag()   -> x, y, z            the magnetic field in microtesla
  *   light.lux() -> lux                ambient light, roughly
  *   light.proximity() -> 0..2047      how near something is to the screen's top edge: more is nearer
  *
  * A sensor is switched on by the first call that needs it, which takes a
- * moment (a third of a second for imu, a tenth for light), and off again
- * when the script ends.
+ * moment (half a second for imu, a quarter for light), and off again when
+ * the script ends.
  */
 #include "lua_sensors.h"
 
@@ -56,6 +57,21 @@ static int imu_read(lua_State *L, bool gyro)
 static int l_accel(lua_State *L) { return imu_read(L, false); }
 static int l_gyro(lua_State *L) { return imu_read(L, true); }
 
+static int l_mag(lua_State *L)
+{
+    float ut[3];
+    esp_err_t err = start(L, hw_imu_start);
+    if (err != ESP_OK) return fail(L, err, "motion");
+    err = hw_mag_read(ut);
+    if (err != ESP_OK) {
+        lua_pushnil(L);
+        lua_pushstring(L, err == ESP_ERR_INVALID_RESPONSE ? "the field is too strong for the compass" : "the compass doesn't answer");
+        return 2;
+    }
+    for (int i = 0; i < 3; i++) lua_pushnumber(L, (lua_Number)ut[i]);
+    return 3;
+}
+
 /* The LTR-553's lux formula (its data sheet's appendix), at gain 1 and
    100 ms: by how much of the light is infrared. */
 static double lux_of(uint16_t ch0, uint16_t ch1)
@@ -82,7 +98,7 @@ static int light_read(lua_State *L, bool proximity)
 static int l_lux(lua_State *L) { return light_read(L, false); }
 static int l_proximity(lua_State *L) { return light_read(L, true); }
 
-static const luaL_Reg imu_funcs[] = { { "accel", l_accel }, { "gyro", l_gyro }, { NULL, NULL } };
+static const luaL_Reg imu_funcs[] = { { "accel", l_accel }, { "gyro", l_gyro }, { "mag", l_mag }, { NULL, NULL } };
 static const luaL_Reg light_funcs[] = { { "lux", l_lux }, { "proximity", l_proximity }, { NULL, NULL } };
 
 void lua_sensors_register(lua_State *L)

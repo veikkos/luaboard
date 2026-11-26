@@ -72,6 +72,9 @@ static void drawing(void)
     if (screen_notice_active()) { gfx_fill(0); screen_notice_clear(); }
 }
 
+int lua_api_coord(lua_State *L, int idx) { return coord(L, idx); }
+void lua_api_drawing(void) { drawing(); }
+
 static int disp_clear(lua_State *L) { drawing(); gfx_fill(opt_color(L, 1, RGB_BLACK)); return 0; }
 static int disp_show(lua_State *L)  { (void)L; gfx_flush(); return 0; }
 

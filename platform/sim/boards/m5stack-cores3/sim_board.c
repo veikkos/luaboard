@@ -32,7 +32,7 @@ static sht40_t s_sht40;
 static bool s_porta_env;       /* plugged in */
 static bool s_rtc_gone;        /* --set rtc=none: not on the bus */
 static bool s_panel_e;         /* --set panel=e: the LCD is an ILI9342E, and the touch firmware the one that goes with it */
-static float s_accel[3] = { 0, 0, 1 }, s_gyro[3], s_lux = 300;   /* the sensors' inputs (--set accel, gyro, light, proximity) */
+static float s_accel[3] = { 0, 0, 1 }, s_gyro[3], s_mag[3] = { 20, 0, -45 }, s_lux = 300;   /* the sensors' inputs (--set accel, gyro, light, proximity) */
 static int s_prox;
 static bool s_portc_loop;      /* Port C: a jumper from TX to RX (the script's uart, UART1) */
 static bool s_port_power;      /* 5V out to the ports (IO expander P0_1) */
@@ -122,11 +122,50 @@ static void usb_path(aw9523_t *m)
     }
 }
 
+/* The camera: on the bus with all three of its supplies on (the PMIC's
+   ALDO3, BLDO1 and BLDO2) and its reset line (the IO expander's P1_0) high.
+   What it sees is a test picture: eight color bars above red growing to
+   the right and green growing downwards, with a white square whose place
+   (and the blue under it) --set camera=N picks. */
+static i2c_regs_t s_cam;
+static bool s_cam_powered, s_cam_reset = true, s_cam_there;
+static int s_cam_scene;
+
+static void camera_picture(void *ctx, uint8_t *px, int w, int h)
+{
+    (void)ctx;
+    static const uint8_t bars[8][3] = { { 255, 255, 255 }, { 255, 255, 0 }, { 0, 255, 255 }, { 0, 255, 0 },
+                                        { 255, 0, 255 },   { 255, 0, 0 },   { 0, 0, 255 },   { 0, 0, 0 } };
+    int bx = 20 + s_cam_scene * 40 % (w - 60), by = h / 2;
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++) {
+            int r = x * 255 / (w - 1), g = y * 255 / (h - 1), b = s_cam_scene * 40 % 256;
+            if (y < h / 4) { r = bars[x * 8 / w][0]; g = bars[x * 8 / w][1]; b = bars[x * 8 / w][2]; }
+            else if (x >= bx && x < bx + 40 && y >= by && y < by + 40) r = g = b = 255;
+            unsigned v = (unsigned)(r >> 3) << 11 | (unsigned)(g >> 2) << 5 | (unsigned)(b >> 3);
+            *px++ = (uint8_t)(v >> 8);
+            *px++ = (uint8_t)v;
+        }
+}
+
+static void camera_update(void)
+{
+    bool want = s_model != M_SE && s_cam_powered && !s_cam_reset;
+    if (want == s_cam_there) return;
+    s_cam_there = want;
+    if (want) sim_i2c_attach(BOARD_CAM_ADDR, i2c_regs_write, i2c_regs_read, &s_cam);
+    else sim_i2c_detach_port(0, BOARD_CAM_ADDR);
+}
+
 /* The AW9523B drives the reset lines of the LCD and the touch controller. */
 static void ioexp_pin(aw9523_t *m, int port, int bit, int level)
 {
     if (port == 0 && bit == BOARD_IOEXP_USB_OUT_EN) usb_path(m);
     if (port == 1 && bit == BOARD_IOEXP_LCD_RST && level == 0) ili9342_reset(&s_lcd);
+    if (port == 1 && bit == BOARD_IOEXP_CAM_RST) {
+        s_cam_reset = level == 0;
+        camera_update();
+    }
     if (port == 0 && bit == BOARD_IOEXP_BUS_EN) {
         s_port_power = level;
         update_porta();
@@ -165,10 +204,34 @@ static void pmic_power_off(axp2101_t *m)
     sim_power_off();
 }
 
+/* The light sensor's supply is the PMIC's BLDO1, which is off at power-on:
+   without it the chip isn't on the bus at all. */
+static bool s_light_powered;
+
+static void pmic_rails(axp2101_t *m, uint8_t en)
+{
+    (void)m;
+    s_cam_powered = (en & 0x34) == 0x34;
+    camera_update();
+    bool want = s_model != M_SE && (en & 0x10);
+    if (want == s_light_powered) return;
+    s_light_powered = want;
+    if (want) sim_i2c_attach(BOARD_LIGHT_ADDR, i2c_regs_write, i2c_regs_read, &s_light.r);
+    else {
+        sim_i2c_detach_port(0, BOARD_LIGHT_ADDR);
+        ltr553_power_cut(&s_light);
+    }
+}
+
 bool sim_board_sensor_on(const char *name)
 {
     if (!strcmp(name, "imu")) return bmi270_active(&s_imu);
-    if (!strcmp(name, "light")) return ltr553_active(&s_light);
+    if (!strcmp(name, "compass")) return bmi270_mag_active(&s_imu);
+    if (!strcmp(name, "light")) return s_light_powered && ltr553_active(&s_light);
+    if (!strcmp(name, "lightpower")) return s_light_powered;
+    if (!strcmp(name, "camera")) return sim_camera_running();
+    if (!strcmp(name, "camerapower")) return s_cam_powered;
+    if (!strcmp(name, "usbhost")) return sim_usb_serial_host_talking();
     return false;
 }
 
@@ -255,6 +318,10 @@ void sim_board_init(void)
     bmi270_init(&s_imu);                               /* (before the --set inputs; on the bus only on CoreS3 and Lite) */
     ltr553_init(&s_light);
     s_pmic.on_power_off = pmic_power_off;
+    s_pmic.on_rails = pmic_rails;
+    i2c_regs_init(&s_cam);
+    s_cam.reg[0x00] = 0x9B;                            /* the GC0308's chip ID */
+    sim_camera_attach(BOARD_CAM_ADDR, camera_picture, NULL);
     aw9523_init(&s_ioexp);
     s_ioexp.on_pin = ioexp_pin;
     s_ioexp.on_config = usb_path;
@@ -273,10 +340,7 @@ void sim_board_init(void)
     aw88298_init(&s_amp);
     sim_i2c_attach(BOARD_AMP_ADDR, aw88298_write, aw88298_read, &s_amp);
     sim_i2s_set_sink(BOARD_SPK_I2S_PORT, speaker, NULL);
-    if (s_model != M_SE) {
-        sim_i2c_attach(BOARD_IMU_ADDR, bmi270_write, bmi270_read, &s_imu);
-        sim_i2c_attach(BOARD_LIGHT_ADDR, i2c_regs_write, i2c_regs_read, &s_light.r);
-    }
+    if (s_model != M_SE) sim_i2c_attach(BOARD_IMU_ADDR, bmi270_write, bmi270_read, &s_imu);   /* the light sensor: pmic_rails() */
     apply_inputs();
 }
 
@@ -289,6 +353,10 @@ bool sim_board_set(const char *key, const char *val)
     else if (!strcmp(key, "battery")) s_battery = !strcmp(val, "none") || !strcmp(val, "-") ? -1 : clamp(v, 0, 100);
     else if (!strcmp(key, "battery_on")) { if ((v != 0) != (s_battery >= 0)) toggle_battery(); }   /* at its last level */
     else if (!strcmp(key, "usb")) set_usb(v != 0);
+    else if (!strcmp(key, "usb_host")) {                /* the computer on the USB port: talking to it, or gone quiet */
+        if (strcmp(val, "gone") && strcmp(val, "ok")) return false;
+        sim_usb_serial_host_gone(val[0] == 'g');
+    }
     else if (!strcmp(key, "rtc") && !strcmp(val, "lost")) {   /* the RTC chip lost power */
         bm8563_lose_power(&s_rtc);
         if (*s_rtc_file) remove(s_rtc_file);
@@ -302,6 +370,13 @@ bool sim_board_set(const char *key, const char *val)
         if (sscanf(val, "%f,%f,%f", &xyz[0], &xyz[1], &xyz[2]) != 3) return false;
         if (key[0] == 'a') { memcpy(s_accel, xyz, sizeof xyz); bmi270_set(&s_imu, xyz, NULL); }
         else { memcpy(s_gyro, xyz, sizeof xyz); bmi270_set(&s_imu, NULL, xyz); }
+    }
+    else if (!strcmp(key, "camera")) s_cam_scene = v < 0 ? 0 : v;   /* which test picture the camera sees */
+    else if (!strcmp(key, "mag")) {                     /* what the compass measures: X,Y,Z in microtesla */
+        float xyz[3];
+        if (sscanf(val, "%f,%f,%f", &xyz[0], &xyz[1], &xyz[2]) != 3) return false;
+        memcpy(s_mag, xyz, sizeof xyz);
+        bmi270_set_mag(&s_imu, s_mag);
     }
     else if (!strcmp(key, "sd")) sim_sd_set(val);       /* the card slot: a folder, unformatted or none */
     else if (!strcmp(key, "light")) { s_lux = (float)atof(val); ltr553_set(&s_light, s_lux, -1); }   /* lux */
@@ -387,7 +462,7 @@ int sim_board_get(const char *key)
 
 const char *sim_board_set_help(void)
 {
-    return "portb=0..4095 porta=env|none portc=loopback|none sd=DIR|unformatted|none accel=X,Y,Z gyro=X,Y,Z light=LUX proximity=0..2047 env_temp=C env_hum=% battery=none|0..100 battery_on=0|1 usb=0|1 rtc=lost|none panel=c|e boot_touch=0|1 wifi=0|1 wifi_rssi=dBm wifi_port=N|0 button=A|B|C|- touch=X,Y|- power=short|long";
+    return "portb=0..4095 porta=env|none portc=loopback|none sd=DIR|unformatted|none accel=X,Y,Z gyro=X,Y,Z mag=X,Y,Z light=LUX proximity=0..2047 camera=N env_temp=C env_hum=% battery=none|0..100 battery_on=0|1 usb=0|1 usb_host=gone|ok rtc=lost|none panel=c|e boot_touch=0|1 wifi=0|1 wifi_rssi=dBm wifi_port=N|0 button=A|B|C|- touch=X,Y|- power=short|long";
 }
 
 void sim_board_state(char *out, size_t cap)
@@ -397,12 +472,13 @@ void sim_board_state(char *out, size_t cap)
        reconnecting expects. */
     snprintf(out, cap,
              "battery=%d battery_on=%d usb=%d wifi=%d wifi_rssi=%d wifi_port=%d porta=%s portc=%s env_temp=%.2f env_hum=%.2f portb=%d"
-             " accel=%.3f,%.3f,%.3f gyro=%.2f,%.2f,%.2f light=%.1f proximity=%d%s",
+             " accel=%.3f,%.3f,%.3f gyro=%.2f,%.2f,%.2f mag=%.2f,%.2f,%.2f light=%.1f proximity=%d camera=%d%s",
              s_battery >= 0 ? s_battery : s_last_battery, s_battery >= 0, s_usb, s_wifi_ap, s_wifi_rssi,
              sim_net_host_port(3333),
              s_porta_env ? "env" : "none", s_portc_loop ? "loopback" : "none", (double)s_sht40.temp_c,
              (double)s_sht40.humidity, s_portb, (double)s_accel[0], (double)s_accel[1], (double)s_accel[2],
-             (double)s_gyro[0], (double)s_gyro[1], (double)s_gyro[2], (double)s_lux, s_prox,
+             (double)s_gyro[0], (double)s_gyro[1], (double)s_gyro[2], (double)s_mag[0], (double)s_mag[1],
+             (double)s_mag[2], (double)s_lux, s_prox, s_cam_scene,
              s_rtc_gone ? " rtc=none" : "");
     /* The card stays in over a reset (a folder with a space in its name can't be kept this way). */
     char sd[512];

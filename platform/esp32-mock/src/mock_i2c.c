@@ -46,6 +46,8 @@ static model_t *find_at(int port, uint16_t addr)
     return NULL;
 }
 
+bool sim_i2c_present(int port, uint8_t addr7) { return find_at(port, addr7) != NULL; }
+
 static model_t *find_model(i2c_master_dev_handle_t dev)
 {
     return find_at((int)dev->bus->cfg.i2c_port, dev->cfg.device_address);

@@ -9,9 +9,9 @@
    APP_LUA_API only when a change breaks existing apps. An app declares the
    version it was written for as "lua_api" in app.json (none = 1) and runs
    if APP_LUA_API_MIN <= lua_api <= APP_LUA_API. Version 1 is frozen with
-   the first release, 0.9.0: the next change to the API makes it 2. (Lua itself owns
-   LUA_API.) */
-#define APP_LUA_API          1
+   the first release, 0.9.0. Version 2 added imu.mag and camera. (Lua
+   itself owns LUA_API.) */
+#define APP_LUA_API          2
 #define APP_LUA_API_MIN      1
 
 /* app.json's text (and the marketplace index's copy of it): the most the

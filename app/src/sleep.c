@@ -40,7 +40,7 @@ bool sleep_light_allowed(void)
         s_usb_read = true;
     }
     return !s_usb && !sound_playing() && !ota_active() && !app_install_busy() && !ble_busy() && !lua_uart_is_open() &&
-           !lua_api_pwm_running();
+           !lua_api_pwm_running() && !hw_camera_on();
 }
 
 bool sleep_active(void) { return hw_screen_is_off(); }

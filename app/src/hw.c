@@ -19,6 +19,7 @@
 #include "esp_sleep.h"
 #include "esp_rom_sys.h"
 #include "esp_timer.h"
+#include "hal/usb_serial_jtag_ll.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -37,6 +38,12 @@ static bool s_imu;                /* BMI270 found: CoreS3 or Lite, not SE */
 static i2c_master_dev_handle_t s_imu_dev, s_light_dev;   /* the sensors (hw_imu_*, hw_light_*) */
 static adc_oneshot_unit_handle_t s_adc;
 static uint16_t s_adc_configured; /* bitmask of configured channels */
+/* The sensors' supplies, in the PMIC's 0x90 (sensor_power): BLDO1 feeds the
+   light sensor and the camera, ALDO3 and BLDO2 the camera alone. */
+#define PMIC_ALDO3   0x04
+#define PMIC_BLDO1   0x10
+#define PMIC_BLDO2   0x20
+#define PMIC_SENSORS (PMIC_ALDO3 | PMIC_BLDO1 | PMIC_BLDO2)
 static uint8_t s_ioexp_out[2];    /* shadow of AW9523 output registers */
 
 /* ------------------------------------------------------------- I2C helpers */
@@ -76,9 +83,18 @@ esp_err_t hw_init(void)
     /* PC link: the ESP32-S3's built-in USB-Serial/JTAG. The IDF console is
        moved to UART0 in sdkconfig so this port carries only our protocol. */
     usb_serial_jtag_driver_config_t ucfg = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
-    ucfg.rx_buffer_size = 4096;
+    ucfg.rx_buffer_size = 128;          /* unused, see hw_serial_read (the driver wants more than a packet) */
     ucfg.tx_buffer_size = USB_TX_BUF;
     ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&ucfg));
+    usb_serial_jtag_ll_disable_intr_mask(USB_SERIAL_JTAG_INTR_SERIAL_OUT_RECV_PKT);
+    /* The ROM's printf, which code that can't use the log calls prints with
+       (the camera driver's interrupt, of a picture that came short), writes
+       to this port as well as to UART0: its lines would land in the middle
+       of what the link is sending. g_usb_print is the ROM's own switch for
+       that (ESP-IDF sets it at start-up; taking away the ROM's output
+       channel 2 doesn't stop it, as tried on a Lite). */
+    extern bool g_usb_print;
+    g_usb_print = false;
 
     /* Internal I2C bus: PMIC, IO expander, touch. */
     i2c_master_bus_config_t bcfg = {
@@ -114,7 +130,9 @@ esp_err_t hw_init(void)
     /* Port 0 push-pull (GCR 0x11 bit 4), as M5Unified sets it: after reset
        it's open-drain, so its "high" outputs would float. VERIFY on hardware. */
     reg_write(s_ioexp, 0x11, 0x10);
-    reg_write(s_ioexp, 0x05, (uint8_t)~(1u << BOARD_IOEXP_LCD_RST | 1u << BOARD_IOEXP_BOOST_EN));
+    /* P1_0 too: the camera's reset, low (held in reset) until a script uses it. */
+    reg_write(s_ioexp, 0x05,
+              (uint8_t)~(1u << BOARD_IOEXP_LCD_RST | 1u << BOARD_IOEXP_BOOST_EN | 1u << BOARD_IOEXP_CAM_RST));
 
     /* The charger, as M5Unified sets it, since chips differ in what they
        start with: 4.2 V (0x64 = 3: one has been seen with a reserved value),
@@ -124,6 +142,12 @@ esp_err_t hw_init(void)
     reg_write(s_pmic, 0x64, 0x03);
     uint8_t ts = 0;
     if (reg_read(s_pmic, 0x50, &ts, 1) == ESP_OK) reg_write(s_pmic, 0x50, ts | 0x10);
+
+    /* The sensors' supply is off until a script uses them. The PMIC keeps
+       its registers over a reset, so one in the middle of such a script
+       would leave it on. */
+    uint8_t ldo = 0;
+    if (reg_read(s_pmic, 0x90, &ldo, 1) == ESP_OK && (ldo & PMIC_SENSORS)) reg_write(s_pmic, 0x90, ldo & (uint8_t)~PMIC_SENSORS);
 
     /* BMI270 chip ID: CoreS3 and Lite have one, the SE doesn't. */
     uint8_t id = 0;
@@ -301,10 +325,86 @@ char hw_lcd_panel(void)
 
 /* ---------------------------------------------------------------- serial */
 
+/* Bytes from the PC are read straight from the endpoint's FIFO, which holds
+   one packet (64 bytes): until it is read the chip takes no other, and the PC
+   waits. The driver would do it otherwise: its interrupt (turned off in
+   hw_init) moves each packet to a ring buffer at once and drops the ones the
+   ring has no room for, so a firmware image, which comes faster than it is
+   written to flash, arrived with holes ("upload timeout").
+
+   A full packet is rarely the last: the next follows within a USB frame
+   (1 ms) of this one being read. So after a full one, wait that long before
+   saying there is no more, and a stream is read in one go. */
+#define USB_PACKET       64
+#define USB_NEXT_WAIT_US 1500
+
+/* Over a restart of the chip the computer can give up on the port: it
+   stays listed there, but nothing more comes or goes, not even the frames
+   a connected port sees every millisecond, and so not the reset a flasher
+   asks for either. Seen on a Lite after two of some forty updates over
+   USB, and a restart didn't end it: the chip's USB keeps its connection
+   over a restart, while the clock it runs from is set up anew. Dropping
+   D+'s pull-up for a moment did end it: the computer takes that for the
+   plug pulled and put back, and starts on the device anew. So if USB
+   power is there but no computer is heard a few seconds after the start,
+   that is done, twice at most (a charger never answers). */
+#define USB_HOST_WAIT_MS  3000           /* after the start, and between the tries */
+#define USB_REPLUG_MS     300
+#define USB_REPLUG_TRIES  2
+
+static void usb_host_poll(void)
+{
+    static const usb_serial_jtag_pull_override_vals_t off = { 0 }, on = { .dp_pu = true };
+    static uint32_t at;                  /* the start, then the last try */
+    static int tries;
+    static bool pulled, done;
+    if (done) return;
+    uint32_t now = hw_millis();
+    if (pulled) {
+        if (now - at < USB_REPLUG_MS) return;
+        usb_serial_jtag_ll_phy_enable_pull_override(&on);
+        usb_serial_jtag_ll_phy_disable_pull_override();
+        pulled = false;
+        at = now;
+        return;
+    }
+    if (now - at < USB_HOST_WAIT_MS) return;
+    if (usb_serial_jtag_is_connected() || tries == USB_REPLUG_TRIES || !hw_usb_powered()) {
+        done = true;
+        return;
+    }
+    ESP_LOGW(TAG, "USB power but no computer heard: asking it to start on the port again");
+    usb_serial_jtag_ll_phy_enable_pull_override(&off);
+    pulled = true;
+    tries++;
+    at = now;
+}
+
 int hw_serial_read(uint8_t *buf, size_t cap)
 {
-    int n = usb_serial_jtag_read_bytes(buf, (uint32_t)cap, 0);
-    return n < 0 ? 0 : n;
+    usb_host_poll();
+    static size_t s_pkt;        /* bytes read of the packet in the FIFO */
+    static bool s_more;         /* the last packet was a full one */
+    static int64_t s_at;        /* when it had been read */
+    size_t n = 0;
+    while (n < cap) {
+        size_t want = cap - n < USB_PACKET ? cap - n : USB_PACKET;
+        size_t got = usb_serial_jtag_ll_read_rxfifo(buf + n, (uint32_t)want);
+        n += got;
+        s_pkt += got;
+        if (got == want) continue;          /* (the packet may go on) */
+        /* The FIFO is empty: the packet is read. */
+        if (s_pkt) {
+            s_more = s_pkt % USB_PACKET == 0;
+            s_pkt = 0;
+            s_at = esp_timer_get_time();
+        }
+        if (!s_more || esp_timer_get_time() - s_at > USB_NEXT_WAIT_US) {
+            s_more = false;
+            break;
+        }
+    }
+    return (int)n;
 }
 
 bool hw_serial_write(const void *data, size_t len)
@@ -404,6 +504,7 @@ bool hw_touch_read(int *x, int *y)
 /* -------------------------------------------------------------- sensors */
 
 #include "bmi270_config.h"
+#include "esp_camera.h"
 
 #define IMU_CHUNK 256                    /* of the configuration file per I2C write */
 
@@ -416,6 +517,130 @@ static esp_err_t reg_write_n(i2c_master_dev_handle_t d, uint8_t reg, const uint8
     b[0] = reg;
     memcpy(b + 1, data, n);
     return i2c_master_transmit(d, b, n + 1, 100);
+}
+
+/* The compass (BMM150) isn't on our I2C bus but on the BMI270's auxiliary
+   one, as M5Unified reaches it: 0x6B bit 5 switches that bus on, 0x4B is
+   the compass's address shifted left once. By hand (0x4C bit 7), 0x4F and
+   then 0x4E write one of its registers, and 0x4D reads eight of them (0x4C
+   bits 3:2 = 3; bits 1:0 are the count when the chip reads by itself) into
+   0x04 on; 0x03 bit 2 says the bus is still busy.
+   Left to itself (0x4C = 0x4F, 0x7D bit 0), the BMI270 keeps 0x04..0x0B
+   filled with the compass's eight data registers from 0x42.
+   The compass: 0x4B bit 0 out of suspend (3 ms), 0x40 chip ID 0x32,
+   0x51/0x52 its repetitions (4 and 7: Bosch's "regular"), 0x4C = 0x38
+   measuring 30 times a second, 0x5D..0x71 the trim values hw_mag_read()
+   corrects the readings with. */
+static bool s_mag;                       /* it started, and has readings */
+static bool s_mag_awake;                 /* it was taken out of suspend */
+static struct {
+    int8_t x1, y1, x2, y2, xy2;
+    uint8_t xy1;
+    uint16_t z1, xyz1;
+    int16_t z2, z3, z4;
+} s_trim;
+
+static esp_err_t aux_wait(void)
+{
+    vTaskDelay(1);
+    for (int i = 0; i < 10; i++) {
+        uint8_t busy = 0;
+        esp_err_t err = reg_read(s_imu_dev, 0x03, &busy, 1);
+        if (err != ESP_OK) return err;
+        if (!(busy & 0x04)) return ESP_OK;
+        vTaskDelay(1);
+    }
+    return ESP_ERR_TIMEOUT;
+}
+
+static esp_err_t aux_write(uint8_t reg, uint8_t val)
+{
+    esp_err_t err = reg_write(s_imu_dev, 0x4F, val);
+    if (err == ESP_OK) err = reg_write(s_imu_dev, 0x4E, reg);
+    return err == ESP_OK ? aux_wait() : err;
+}
+
+static esp_err_t aux_read(uint8_t reg, uint8_t out[8])
+{
+    esp_err_t err = reg_write(s_imu_dev, 0x4D, reg);
+    if (err == ESP_OK) err = aux_wait();
+    return err == ESP_OK ? reg_read(s_imu_dev, 0x04, out, 8) : err;
+}
+
+static void mag_start(void)
+{
+    uint8_t t[24] = { 0 }, id[8] = { 0 };            /* t: the compass's 0x5D..0x74 */
+    esp_err_t err = reg_write(s_imu_dev, 0x6B, 0x20);
+    if (err == ESP_OK) err = reg_write(s_imu_dev, 0x4C, 0x8F);
+    if (err == ESP_OK) err = reg_write(s_imu_dev, 0x4B, BOARD_MAG_ADDR << 1);
+    if (err == ESP_OK) err = aux_write(0x4B, 0x01);
+    if (err == ESP_OK) s_mag_awake = true;
+    vTaskDelay(2);                                   /* 3 ms; one tick can be next to nothing */
+    if (err == ESP_OK) err = aux_read(0x40, id);
+    if (err == ESP_OK && id[0] != 0x32) err = ESP_ERR_NOT_FOUND;
+    for (int i = 0; err == ESP_OK && i < 3; i++) err = aux_read((uint8_t)(0x5D + 8 * i), t + 8 * i);
+    if (err == ESP_OK) err = aux_write(0x51, 4);
+    if (err == ESP_OK) err = aux_write(0x52, 7);
+    if (err == ESP_OK) err = aux_write(0x4C, 0x38);
+    if (err == ESP_OK) err = reg_write(s_imu_dev, 0x4C, 0x4F);
+    if (err == ESP_OK) err = reg_write(s_imu_dev, 0x4D, 0x42);
+    if (err == ESP_OK) err = reg_write(s_imu_dev, 0x7D, 0x0F);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "compass: %s", esp_err_to_name(err));
+        return;
+    }
+#define T16(at) ((uint16_t)(t[(at) - 0x5D] | t[(at) - 0x5C] << 8))
+    s_trim.x1 = (int8_t)t[0x5D - 0x5D];
+    s_trim.y1 = (int8_t)t[0x5E - 0x5D];
+    s_trim.z4 = (int16_t)T16(0x62);
+    s_trim.x2 = (int8_t)t[0x64 - 0x5D];
+    s_trim.y2 = (int8_t)t[0x65 - 0x5D];
+    s_trim.z2 = (int16_t)T16(0x68);
+    s_trim.z1 = T16(0x6A);
+    s_trim.xyz1 = T16(0x6C) & 0x7FFF;
+    s_trim.z3 = (int16_t)T16(0x6E);
+    s_trim.xy2 = (int8_t)t[0x70 - 0x5D];
+    s_trim.xy1 = t[0x71 - 0x5D];
+#undef T16
+    s_mag = true;
+}
+
+/* The compass back in suspend: a reset of the BMI270 alone would leave it
+   measuring. */
+static void mag_stop(void)
+{
+    if (!s_mag_awake) return;                        /* (also one that woke and then failed to start) */
+    s_mag = s_mag_awake = false;
+    reg_write(s_imu_dev, 0x7D, 0x0E);
+    reg_write(s_imu_dev, 0x4C, 0x8F);
+    aux_write(0x4B, 0x00);
+}
+
+/* The field from the raw readings, by the correction of Bosch's BMM150
+   driver (bmm150.c, its floating-point version): X and Y are 13 bits, Z
+   15, and the Hall resistance (14 bits) says how warm the chip is. A raw
+   -4096 (X, Y) or -16384 (Z) is a field beyond the range (1300 microtesla
+   on X and Y, 2500 on Z): a magnet next to the chip, which a Lite has in
+   its back cover. */
+esp_err_t hw_mag_read(float ut[3])
+{
+    if (!s_imu_on) return ESP_ERR_INVALID_STATE;
+    if (!s_mag) return ESP_ERR_NOT_FOUND;
+    uint8_t d[8];
+    esp_err_t err = reg_read(s_imu_dev, 0x04, d, sizeof d);
+    if (err != ESP_OK) return err;
+    int16_t x = (int16_t)((int8_t)d[1] * 32 | d[0] >> 3), y = (int16_t)((int8_t)d[3] * 32 | d[2] >> 3);
+    int16_t z = (int16_t)((int8_t)d[5] * 128 | d[4] >> 1);
+    uint16_t rhall = (uint16_t)(d[7] << 6 | d[6] >> 2);
+    if (!rhall || !s_trim.xyz1 || !s_trim.z1 || !s_trim.z2) return ESP_ERR_TIMEOUT;      /* no measurement (yet) */
+    if (x == -4096 || y == -4096 || z == -16384) return ESP_ERR_INVALID_RESPONSE;
+    float k = (float)s_trim.xyz1 * 16384.0f / (float)rhall - 16384.0f;
+    float xy = (float)s_trim.xy2 * (k * k / 268435456.0f) + k * (float)s_trim.xy1 / 16384.0f + 256.0f;
+    ut[0] = ((float)x * xy * ((float)s_trim.x2 + 160.0f) / 8192.0f + (float)s_trim.x1 * 8.0f) / 16.0f;
+    ut[1] = ((float)y * xy * ((float)s_trim.y2 + 160.0f) / 8192.0f + (float)s_trim.y1 * 8.0f) / 16.0f;
+    float zn = ((float)z - (float)s_trim.z4) * 131072.0f - (float)s_trim.z3 * ((float)rhall - (float)s_trim.xyz1);
+    ut[2] = zn / (((float)s_trim.z2 + (float)s_trim.z1 * (float)rhall / 32768.0f) * 4.0f) / 16.0f;
+    return ESP_OK;
 }
 
 /* BMI270, as its data sheet's quick start and M5Unified do it: soft reset
@@ -455,7 +680,8 @@ esp_err_t hw_imu_start(void)
         reg_write(s_imu_dev, 0x7E, 0xB6);                               /* back to its idle state */
         return err;
     }
-    vTaskDelay(pdMS_TO_TICKS(50));                                      /* its first readings */
+    mag_start();                                                        /* (without a compass it's still a motion sensor) */
+    vTaskDelay(pdMS_TO_TICKS(s_mag ? 100 : 50));                        /* its first readings, the compass's through it */
     s_imu_on = true;
     return ESP_OK;
 }
@@ -463,6 +689,7 @@ esp_err_t hw_imu_start(void)
 void hw_imu_stop(void)
 {
     if (!s_imu_on) return;
+    mag_stop();
     reg_write(s_imu_dev, 0x7E, 0xB6);        /* a reset leaves it suspended: a few microamps */
     s_imu_on = false;
 }
@@ -480,6 +707,35 @@ esp_err_t hw_imu_read(int16_t accel[3], int16_t gyro[3])
     return ESP_OK;
 }
 
+/* The sensors' supplies: the PMIC starts with them off, and without its own
+   a chip isn't on the bus at all (seen on a Lite). BLDO1 (2.8 V) feeds the
+   light sensor and the camera, ALDO3 (3.3 V) and BLDO2 (1.5 V) the camera
+   alone: the voltages a Lite's PMIC came with (0x94, 0x96, 0x97: 0.5 V +
+   0.1 V * n), and ALDO3's is M5Unified's. On only while a script uses the
+   sensor. */
+enum { POWER_LIGHT = 1, POWER_CAMERA = 2 };
+static uint8_t s_powered;                /* who has them on */
+
+static esp_err_t sensor_power(uint8_t who, bool on)
+{
+    uint8_t users = on ? s_powered | who : s_powered & (uint8_t)~who;
+    uint8_t want = (uint8_t)((users ? PMIC_BLDO1 : 0) | ((users & POWER_CAMERA) ? PMIC_ALDO3 | PMIC_BLDO2 : 0));
+    uint8_t en;
+    s_powered = users;                                      /* (also when the read fails: one that stopped doesn't keep them on) */
+    esp_err_t err = reg_read(s_pmic, 0x90, &en, 1);         /* (the other LDOs' bits: never from a failed read) */
+    if (err != ESP_OK) return err;
+    if ((en & PMIC_SENSORS) == want) return ESP_OK;
+    bool more = want & (uint8_t)~en;
+    if (more) {
+        reg_write(s_pmic, 0x94, 28);
+        reg_write(s_pmic, 0x96, 23);
+        reg_write(s_pmic, 0x97, 10);
+    }
+    err = reg_write(s_pmic, 0x90, (uint8_t)((en & (uint8_t)~PMIC_SENSORS) | want));
+    if (err == ESP_OK && more) vTaskDelay(pdMS_TO_TICKS(100));   /* a chip's start-up time from power */
+    return err;
+}
+
 /* LTR-553ALS: 0x80 ALS control (1 = active, gain 1), 0x81 PS control (3 =
    active), 0x86 part ID (0x9x), 0x88..0x8B the light channels 1 and 0
    (channel 1 first, as the data sheet asks), 0x8D/0x8E proximity (11
@@ -490,13 +746,15 @@ esp_err_t hw_light_start(void)
     if (!s_imu) return ESP_ERR_NOT_FOUND;                   /* the SE: no sensors */
     if (s_light_on) return ESP_OK;
     if (!s_light_dev && add_dev(BOARD_LIGHT_ADDR, &s_light_dev) != ESP_OK) { s_light_dev = NULL; return ESP_FAIL; }
+    esp_err_t err = sensor_power(POWER_LIGHT, true);
     uint8_t id = 0;
-    esp_err_t err = reg_read(s_light_dev, 0x86, &id, 1);
+    if (err == ESP_OK) err = reg_read(s_light_dev, 0x86, &id, 1);
     if (err == ESP_OK && (id >> 4) != 0x9) err = ESP_ERR_NOT_FOUND;
     if (err == ESP_OK) err = reg_write(s_light_dev, 0x80, 0x01);
     if (err == ESP_OK) err = reg_write(s_light_dev, 0x81, 0x03);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "light sensor: %s", esp_err_to_name(err));
+        sensor_power(POWER_LIGHT, false);
         return err;
     }
     vTaskDelay(pdMS_TO_TICKS(150));                         /* wake-up and the first measurement (100 ms) */
@@ -507,9 +765,111 @@ esp_err_t hw_light_start(void)
 void hw_light_stop(void)
 {
     if (!s_light_on) return;
-    reg_write(s_light_dev, 0x80, 0x00);                     /* both parts to standby */
+    reg_write(s_light_dev, 0x80, 0x00);                     /* both parts to standby: the camera may keep the supply on */
     reg_write(s_light_dev, 0x81, 0x00);
+    sensor_power(POWER_LIGHT, false);
     s_light_on = false;
+}
+
+/* The camera, through Espressif's esp32-camera: it sets the GC0308 up over
+   our I2C bus and takes the pictures into two buffers in PSRAM, handing
+   out the newer one. */
+static bool s_cam_on, s_cam_mirror;
+static camera_fb_t *s_cam_fb;
+
+/* The chip mirrors the picture itself. The pictures it had taken or begun
+   by then are still on their way, one in each of the driver's buffers:
+   they are let go, so the next one handed out is as asked. */
+static void camera_mirror_set(void)
+{
+    sensor_t *s = esp_camera_sensor_get();
+    if (!s || !s->set_hmirror) return;
+    s->set_hmirror(s, s_cam_mirror);
+    for (int i = 0; i < 2; i++) {
+        camera_fb_t *fb = esp_camera_fb_get();
+        if (fb) esp_camera_fb_return(fb);
+    }
+}
+
+void hw_camera_mirror(bool on)
+{
+    if (on == s_cam_mirror) return;
+    s_cam_mirror = on;
+    if (!s_cam_on) return;
+    hw_camera_done();
+    camera_mirror_set();
+}
+
+esp_err_t hw_camera_start(void)
+{
+    if (!s_imu) return ESP_ERR_NOT_FOUND;                   /* the SE: no camera */
+    if (s_cam_on) return ESP_OK;
+    static const int data[8] = BOARD_CAM_DATA;
+    camera_config_t cfg = {
+        .pin_pwdn = -1,
+        .pin_reset = -1,
+        .pin_xclk = -1,
+        .pin_sccb_sda = -1,                                 /* the bus that is there already */
+        .pin_sccb_scl = -1,
+        .sccb_i2c_port = I2C_NUM_0,
+        .pin_d0 = data[0],
+        .pin_d1 = data[1],
+        .pin_d2 = data[2],
+        .pin_d3 = data[3],
+        .pin_d4 = data[4],
+        .pin_d5 = data[5],
+        .pin_d6 = data[6],
+        .pin_d7 = data[7],
+        .pin_vsync = BOARD_CAM_VSYNC,
+        .pin_href = BOARD_CAM_HREF,
+        .pin_pclk = BOARD_CAM_PCLK,
+        .xclk_freq_hz = 20000000,
+        .pixel_format = PIXFORMAT_RGB565,
+        .frame_size = FRAMESIZE_QVGA,
+        .fb_count = 2,
+        .fb_location = CAMERA_FB_IN_PSRAM,
+        .grab_mode = CAMERA_GRAB_LATEST,
+    };
+    esp_err_t err = sensor_power(POWER_CAMERA, true);
+    ioexp_set(1, BOARD_IOEXP_CAM_RST, 1);
+    vTaskDelay(pdMS_TO_TICKS(50));
+    if (err == ESP_OK) err = esp_camera_init(&cfg);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "camera: %s", esp_err_to_name(err));
+        ioexp_set(1, BOARD_IOEXP_CAM_RST, 0);
+        sensor_power(POWER_CAMERA, false);
+        return err;
+    }
+    s_cam_on = true;
+    if (s_cam_mirror) camera_mirror_set();
+    return ESP_OK;
+}
+
+void hw_camera_stop(void)
+{
+    if (!s_cam_on) return;
+    hw_camera_done();
+    esp_camera_deinit();
+    ioexp_set(1, BOARD_IOEXP_CAM_RST, 0);
+    sensor_power(POWER_CAMERA, false);
+    s_cam_on = false;
+}
+
+bool hw_camera_on(void) { return s_cam_on; }
+
+const uint8_t *hw_camera_frame(void)
+{
+    if (!s_cam_on) return NULL;
+    hw_camera_done();
+    s_cam_fb = esp_camera_fb_get();
+    if (s_cam_fb && s_cam_fb->len < (size_t)BOARD_CAM_W * BOARD_CAM_H * 2) hw_camera_done();
+    return s_cam_fb ? s_cam_fb->buf : NULL;
+}
+
+void hw_camera_done(void)
+{
+    if (s_cam_fb) esp_camera_fb_return(s_cam_fb);
+    s_cam_fb = NULL;
 }
 
 esp_err_t hw_light_read(uint16_t *ch0, uint16_t *ch1, uint16_t *proximity)
@@ -787,6 +1147,12 @@ void *hw_big_alloc(size_t n)
 {
     void *p = heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     return p ? p : malloc(n);
+}
+
+void hw_mem_stats(size_t *free_now, size_t *low)
+{
+    *free_now = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    *low = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
 }
 
 /* ------------------------------------------------------------- watchdog */

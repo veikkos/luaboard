@@ -17,3 +17,7 @@ bool lua_api_pwm_running(void);
 bool lua_api_drew(void);
 /** A flag argument: none or nil is def; anything but a boolean is an error. */
 bool lua_api_optbool(lua_State *L, int idx, bool def);
+/** A coordinate argument, clamped as every drawing call's is. */
+int lua_api_coord(lua_State *L, int idx);
+/** A module is about to draw on the screen for the script: it has drawn. */
+void lua_api_drawing(void);

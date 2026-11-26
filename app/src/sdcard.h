@@ -20,8 +20,9 @@ void sdcard_end(void);
 /** Mount the card if it isn't. NULL when it's there, else why not ("no
  *  card", not FAT). An empty slot isn't tried again for SD_RETRY_MS. */
 const char *sdcard_mount(void);
-/** After a failed file operation: if the card has gone, let go of it, so
- *  the next call looks for a card again. */
+/** Before a file operation, and after a failed one: if the card has gone
+ *  (or another is in its place), let go of it, so the call looks for a
+ *  card again. */
 void sdcard_check(void);
 /** Let go of the card (the script ended). */
 void sdcard_unmount(void);

@@ -13,6 +13,7 @@ include(${ROOT}/cmake/firmware_sources.cmake)   # FW_*_SRCS, FW_SRC_INCLUDES, LU
 idf_component_register(
     SRCS ${FW_APP_SRCS} ${FW_LUA_SRCS} ${FW_LIB_SRCS} ${CMAKE_CURRENT_LIST_DIR}/panic_hook.c
     INCLUDE_DIRS ${FW_SRC_INCLUDES}
+    LDFRAGMENTS linker.lf
     REQUIRES esp_driver_gpio esp_driver_spi esp_driver_i2c esp_driver_usb_serial_jtag esp_driver_uart esp_driver_ledc esp_driver_sdspi sdmmc fatfs vfs
              esp_driver_i2s esp_adc esp_timer nvs_flash heap esp_wifi esp_netif esp_event lwip mbedtls pthread bt
              app_update esp_app_format esp_system xtensa esp_rom)

@@ -17,6 +17,7 @@ static void axp_write(i2c_regs_t *r, uint8_t addr, uint8_t v)
         r->reg[0x49] = m->irq1;
     }
     if (addr == 0x10 && (v & 0x01) && m->on_power_off) m->on_power_off(m);
+    if (addr == 0x90 && m->on_rails) m->on_rails(m, v);
 }
 
 void axp2101_power_key(axp2101_t *m, bool long_press)
@@ -33,7 +34,9 @@ void axp2101_init(axp2101_t *m)
     m->r.user = m;
     m->r.on_write = axp_write;
     m->on_power_off = NULL;
+    m->on_rails = NULL;
     m->irq1 = 0;
+    m->r.reg[0x90] = 0x0B;   /* ALDO1, 2 and 4 on: what the chip starts with on these boards */
     m->r.reg[0x03] = 0x4A;   /* chip ID */
     axp2101_set_battery(m, 80, true);
 }
@@ -365,12 +368,87 @@ static void bmi_reset(bmi270_t *m)
     m->ready = false;
 }
 
+/* The compass's trim values: with the Hall resistance at its reference
+   (BMM_RHALL), X and Y are (5 * raw + 8 * dig_1) / 16 microtesla and Z is
+   raw / 4, by the chip's correction formula. */
+#define BMM_RHALL  8192
+#define BMM_DIG_X1 2
+#define BMM_DIG_Y1 (-3)
+
+static bool bmm_on(const bmi270_t *m) { return m->mag_reg[0x4B] & 0x01; }
+static bool bmm_measuring(const bmi270_t *m) { return bmm_on(m) && !(m->mag_reg[0x4C] & 0x06); }
+
+static void bmm_write(bmi270_t *m, uint8_t a, uint8_t v)
+{
+    if (a >= sizeof m->mag_reg) return;
+    if (a == 0x4B) {
+        bool was = bmm_on(m);
+        if (v & 0x82) memset(m->mag_reg, 0, sizeof m->mag_reg);      /* a soft reset */
+        m->mag_reg[0x4B] = v & 0x01;
+        if ((v & 0x01) && (!was || (v & 0x82))) m->mag_reg[0x4C] = 0x06;   /* out of suspend: asleep */
+        return;
+    }
+    if (bmm_on(m)) m->mag_reg[a] = v;                                /* suspended, it takes nothing else */
+}
+
+/* A field beyond the range reads as the lowest value there is. */
+static long bmm_raw(float v, long limit)
+{
+    long r = lroundf(v);
+    return r > limit || r < -limit ? -limit - 1 : r;
+}
+
+static uint8_t bmm_read(bmi270_t *m, uint8_t a)
+{
+    if (a >= sizeof m->mag_reg) return 0;
+    if (!bmm_on(m)) return a == 0x4B ? m->mag_reg[a] : 0;
+    switch (a) {
+    case 0x40: return 0x32;
+    case 0x5D: return (uint8_t)BMM_DIG_X1;
+    case 0x5E: return (uint8_t)BMM_DIG_Y1;
+    case 0x69: return 4096 >> 8;                     /* dig_z2 = 4096 */
+    case 0x6B: return 16384 >> 8;                    /* dig_z1 = 16384 */
+    case 0x6D: return BMM_RHALL >> 8;                /* dig_xyz1 */
+    }
+    if (a >= 0x42 && a <= 0x49) {
+        if (!bmm_measuring(m)) return 0;
+        long x = bmm_raw((16 * m->mag[0] - 8 * BMM_DIG_X1) / 5, 4095);
+        long y = bmm_raw((16 * m->mag[1] - 8 * BMM_DIG_Y1) / 5, 4095);
+        long z = bmm_raw(4 * m->mag[2], 16383);
+        uint16_t ux = (uint16_t)(x * 8), uy = (uint16_t)(y * 8), uz = (uint16_t)(z * 2);
+        uint16_t r = (BMM_RHALL << 2) | 0x01;        /* with the data-ready bit */
+        const uint8_t d[8] = { ux & 0xFF, ux >> 8, uy & 0xFF, uy >> 8, uz & 0xFF, uz >> 8, r & 0xFF, r >> 8 };
+        return d[a - 0x42];
+    }
+    return m->mag_reg[a];
+}
+
+/* The auxiliary bus reaches the compass: switched on, and at its address. */
+static bool bmi_aux(const bmi270_t *m) { return (m->reg[0x6B] & 0x20) && m->reg[0x4B] == 0x10 << 1; }
+
 void bmi270_init(bmi270_t *m)
 {
     memset(m, 0, sizeof *m);
     pthread_mutex_init(&m->lock, NULL);
     m->accel[2] = 1.0f;                              /* flat on a table, the screen up */
+    m->mag[0] = 20.0f;                               /* the earth's field, the top edge to the north */
+    m->mag[2] = -45.0f;
     bmi_reset(m);
+}
+
+void bmi270_set_mag(bmi270_t *m, const float mag[3])
+{
+    pthread_mutex_lock(&m->lock);
+    memcpy(m->mag, mag, sizeof m->mag);
+    pthread_mutex_unlock(&m->lock);
+}
+
+bool bmi270_mag_active(bmi270_t *m)
+{
+    pthread_mutex_lock(&m->lock);
+    bool on = bmm_measuring(m);
+    pthread_mutex_unlock(&m->lock);
+    return on;
 }
 
 void bmi270_set(bmi270_t *m, const float accel[3], const float gyro[3])
@@ -406,6 +484,11 @@ void bmi270_write(void *ctx, const uint8_t *d, size_t n)
             m->ready = m->config_bytes == BMI_CONFIG_SIZE;
             m->reg[0x21] = m->ready ? 0x01 : 0x02;
         }
+        if ((m->reg[0x4C] & 0x80) && bmi_aux(m)) {           /* the compass by hand */
+            static const uint8_t burst[4] = { 1, 2, 6, 8 };
+            if (a == 0x4E) bmm_write(m, d[i], m->reg[0x4F]);
+            if (a == 0x4D) for (int k = 0; k < burst[m->reg[0x4C] >> 2 & 0x03]; k++) m->reg[0x04 + k] = bmm_read(m, (uint8_t)(d[i] + k));
+        }
     }
     pthread_mutex_unlock(&m->lock);
 }
@@ -426,6 +509,8 @@ void bmi270_read(void *ctx, uint8_t *buf, size_t n)
     pthread_mutex_lock(&m->lock);
     bmi_put(m, 0x0C, m->accel, 8.0f, m->ready && (m->reg[0x7D] & 0x04));
     bmi_put(m, 0x12, m->gyro, 2000.0f, m->ready && (m->reg[0x7D] & 0x02));
+    if (!(m->reg[0x4C] & 0x80) && (m->reg[0x7D] & 0x01))     /* the compass's data, fetched by the chip itself */
+        for (int k = 0; k < 8; k++) m->reg[0x04 + k] = bmi_aux(m) ? bmm_read(m, (uint8_t)(m->reg[0x4D] + k)) : 0;
     for (size_t i = 0; i < n; i++) {
         uint8_t a = m->ptr++;
         buf[i] = a < sizeof m->reg ? m->reg[a] : 0;
@@ -471,6 +556,13 @@ void ltr553_set(ltr553_t *m, float lux, int proximity)
     pthread_mutex_lock(&m->r.lock);
     if (lux >= 0) m->lux = lux;
     if (proximity >= 0) m->proximity = proximity > 2047 ? 2047 : proximity;
+    pthread_mutex_unlock(&m->r.lock);
+}
+
+void ltr553_power_cut(ltr553_t *m)
+{
+    pthread_mutex_lock(&m->r.lock);
+    m->r.reg[0x80] = m->r.reg[0x81] = 0;
     pthread_mutex_unlock(&m->r.lock);
 }
 

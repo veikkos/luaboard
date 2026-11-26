@@ -106,6 +106,7 @@ static op_t op_begin(void)
 {
     op_t op = { .t0 = hw_millis() };
     sdcard_begin();
+    sdcard_check();                  /* pulled out or swapped since the last call: not the old card's files */
     op.err = sdcard_mount();
     return op;
 }

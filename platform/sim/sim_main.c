@@ -418,7 +418,7 @@ static bool control_apply(char *line, bool *quiet)
         else if (!strcmp(val, "free")) ok = !sim_sd_mounted();
         else { ok = false; *quiet = false; }
     } else if (!strcmp(key, "sensor")) {
-        /* A question: sensor=NAME:on|off (imu, light): is it switched on? */
+        /* A question: sensor=NAME:on|off (imu, compass, light, lightpower, camera, camerapower, usbhost): is it switched on? */
         char name[16];
         int n = 0;
         *quiet = true;

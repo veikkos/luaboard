@@ -747,6 +747,8 @@ void *heap_caps_malloc(size_t size, uint32_t caps) { (void)caps; return malloc(s
 void *heap_caps_calloc(size_t n, size_t size, uint32_t caps) { (void)caps; return calloc(n, size); }
 void *heap_caps_realloc(void *ptr, size_t size, uint32_t caps) { (void)caps; return realloc(ptr, size); }
 void heap_caps_free(void *ptr) { free(ptr); }
+size_t heap_caps_get_free_size(uint32_t caps) { (void)caps; return 0; }
+size_t heap_caps_get_minimum_free_size(uint32_t caps) { (void)caps; return 0; }
 
 /* ---- random: host CSPRNG stands in for the hardware RNG ---- */
 #include "esp_random.h"

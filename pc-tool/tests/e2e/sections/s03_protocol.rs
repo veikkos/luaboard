@@ -81,8 +81,10 @@ pub fn run(t: &mut T) {
     let ok = t.e(&["get", "t/main.lua"]) == r#"print("replaced")"#;
     t.check(ok, "reinstall replaces the file", |_| "reinstall replace".into());
 
-    let ok = t.eval("sys.info().lua_api") == "1" && grep("^ +api: 1$", &t.e(&["info"]));
-    t.check(ok, "Lua API version 1 in sys.info and INFO", |t| format!("lua_api: {}", t.eval("sys.info().lua_api")));
+    let ok = t.eval("sys.info().lua_api") == "2" && grep("^ +api: 2$", &t.e(&["info"]));
+    t.check(ok, "the Lua API version in sys.info and INFO", |t| format!("lua_api: {}", t.eval("sys.info().lua_api")));
+    let ok = grep("^ +mem: 0/0$", &t.e(&["info"]));
+    t.check(ok, "INFO has the internal RAM figures (none in the simulator)", |t| t.e(&["info"]));
     t.write("api/main.lua", "print(\"api ran\")\n");
     t.write("api/app.json", r#"{"title": "Api", "lua_api": 99}"#);
     t.e(&["install", &t.path("api")]);

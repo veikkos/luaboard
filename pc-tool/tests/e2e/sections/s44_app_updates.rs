@@ -47,7 +47,7 @@ pub fn run(t: &mut T) {
     );
     let paint_json = app_json("paint", "1.0.0");
     market.add("paint", "Paint", "1.0.0", 1, &[("app.json", paint_json.as_bytes()), ("main.lua", b"-- paint")], &[]);
-    market.add("big", "Big", "1.0.0", 2, &[("main.lua", b"-- needs api 2")], &[]);
+    market.add("big", "Big", "1.0.0", 99, &[("main.lua", b"-- needs api 99")], &[]);
 
     market::boot(t, &market);
     t.write("hello/logo.jpg", LOGO);
@@ -66,7 +66,7 @@ pub fn run(t: &mut T) {
         format!("app_updates={} / {}", t.info("app_updates"), said(t))
     });
     let done = t.read("sim.err").contains("apps: check done (2 apps, 1 updates)");
-    t.check(done, "counts the apps this firmware runs (not big, Lua API 2)", |t| said(t));
+    t.check(done, "counts the apps this firmware runs (not big, Lua API 99)", |t| said(t));
 
     market.set_raw(Some(r#"{"format": 2, "apps": {}}"#.into()));
     let ok = next_check(t) && t.until(2.0, |t| t.info("app_updates") == "0");

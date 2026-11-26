@@ -89,13 +89,32 @@ char hw_boot_kind(void);
    is ESP_ERR_NOT_FOUND there). Both are off until started, and stopped
    again they draw next to nothing. */
 /** The motion sensor (BMI270): out of reset, its configuration file loaded,
- *  accelerometer and gyroscope on. Takes about a third of a second. */
+ *  accelerometer and gyroscope on, the compass behind it measuring. Takes
+ *  about half a second. */
 esp_err_t hw_imu_start(void);
 void hw_imu_stop(void);
 /** Raw readings: +-32768 is +-8 g, and +-2000 degrees a second. */
 esp_err_t hw_imu_read(int16_t accel[3], int16_t gyro[3]);
+/** The compass (BMM150), which the motion sensor reads for us and starts
+ *  with: the field in microtesla. ESP_ERR_NOT_FOUND if it didn't answer
+ *  at the start, ESP_ERR_INVALID_RESPONSE for a field beyond its range (a
+ *  magnet next to it). */
+esp_err_t hw_mag_read(float ut[3]);
+/** The camera (GC0308): its supplies on, out of reset, taking BOARD_CAM_W x
+ *  BOARD_CAM_H pictures. Takes about a second. Off again with
+ *  hw_camera_stop(), which a script's end does. */
+esp_err_t hw_camera_start(void);
+void hw_camera_stop(void);
+bool hw_camera_on(void);
+/** The picture mirrored left to right (as a mirror shows the one looking
+ *  into it), from the next one on. Kept while the camera is off. */
+void hw_camera_mirror(bool on);
+/** The newest picture: RGB565, the high byte first, rows top to bottom.
+ *  It stays until hw_camera_done() or the next call. NULL if none came. */
+const uint8_t *hw_camera_frame(void);
+void hw_camera_done(void);
 /** The light and proximity sensor (LTR-553ALS): both parts measuring. Takes
- *  a bit over a tenth of a second (its first measurement). */
+ *  a quarter of a second (its supply coming up, and its first measurement). */
 esp_err_t hw_light_start(void);
 void hw_light_stop(void);
 /** Its two light channels (visible + infrared, infrared) at gain 1 and
@@ -117,6 +136,10 @@ uint64_t hw_millis64(void); /* never wraps: what Lua sees */
 
 /* A big buffer: in PSRAM where there is some, else internal RAM. free() it. */
 void *hw_big_alloc(size_t n);
+/* Internal RAM, the scarce one (the radios, DMA buffers and the hardware AES
+   and SHA can use no other): bytes free now, and the fewest since the start.
+   0 and 0 in the simulator. */
+void hw_mem_stats(size_t *free_now, size_t *low);
 
 /* Hardware watchdog on the calling (main) task: reset the chip unless fed
    regularly. Stretch it around operations that legitimately take long

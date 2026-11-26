@@ -16,8 +16,8 @@
   <img src="docs/img/cores3.png" width="400" alt="CoreS3 in the simulator, showing Spotify now playing">
 </p>
 
-The current version is 0.9, a beta: testing on the real boards is under
-way, and things may still change and break. 1.0 comes when that is done.
+So far it has run on one real board, a CoreS3 Lite with the newer display
+(ILI9342E). The CoreS3 and the CoreS3 SE have only run in the simulator.
 
 - Hot reload: save and the app restarts, on the board or in the simulator.
 - Cross-platform [simulator](platform/sim/README.md),

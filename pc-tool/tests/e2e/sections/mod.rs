@@ -38,7 +38,9 @@ mod s36_uart;
 mod s37_pwm;
 mod s38_sensors;
 mod s39_sd;
+mod s40_camera;
 mod s41_png;
+mod s42_usb_host;
 mod s43_app_stage;
 mod s44_app_updates;
 mod s45_app_updates_menu;
@@ -86,7 +88,9 @@ pub const ALL: &[(&str, Section)] = &[
     ("37-pwm", s37_pwm::run),
     ("38-sensors", s38_sensors::run),
     ("39-sd", s39_sd::run),
+    ("40-camera", s40_camera::run),
     ("41-png", s41_png::run),
+    ("42-usb-host", s42_usb_host::run),
     ("43-app-stage", s43_app_stage::run),
     ("44-app-updates", s44_app_updates::run),
     ("45-app-updates-menu", s45_app_updates_menu::run),

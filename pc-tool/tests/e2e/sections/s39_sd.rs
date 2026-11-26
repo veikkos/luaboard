@@ -69,6 +69,27 @@ pub fn run(t: &mut T) {
     t.check(failed(&v) && v.contains("FAT"), "a card that isn't FAT: it says so", |_| format!("info: {v}"));
     t.ctl(&[&format!("sd={}", t.path("card")), "advance=2100"]);
 
+    // Pulled out between two calls: the next one says so, also one that would
+    // have found nothing on the card anyway.
+    let had = t.eval("sd.exists('hello.txt')");
+    t.ctl(&["sd=none"]);
+    let v = t.eval("sd.exists('nope')");
+    t.check(
+        had == "file" && failed(&v) && v.contains("no card"),
+        "pulled out between calls: the next says no card",
+        |_| format!("before: {had}, after: {v}"),
+    );
+    // Swapped for another between two calls: the next one is on the new card.
+    t.ctl(&[&format!("sd={}", t.path("card")), "advance=2100"]);
+    let had = t.eval("sd.exists('hello.txt')");
+    t.ctl(&["sd=none", &format!("sd={}", t.path("card2"))]);
+    let v = t.eval("tostring(sd.exists('hello.txt')) .. tostring(sd.write('new.txt', '1'))");
+    let there = std::path::Path::new(&t.path("card2/new.txt")).exists();
+    t.check(had == "file" && v == "falsetrue" && there, "swapped between calls: the next is on the new card", |_| {
+        format!("before: {had}, after: {v}, file there: {there}")
+    });
+    t.ctl(&[&format!("sd={}", t.path("card")), "advance=2100"]);
+
     // A script that used the card: it's let go of when the script ends.
     t.write("logger/main.lua", "OK = sd.append('boot.txt', 'x')\nfunction loop() end\n");
     t.e(&["put", &t.path("logger/main.lua"), "--app", "logger", "--run", "main.lua"]);

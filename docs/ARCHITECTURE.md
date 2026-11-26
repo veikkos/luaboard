@@ -79,6 +79,7 @@
  │ lua_uart.c     uart: a serial port (Grove Port C)    │
  │ lua_pins.c     which of gpio, i2c, uart has a pin    │
  │ lua_sensors.c  imu, light: the board's own sensors   │
+ │ lua_camera.c   camera: pictures, jpeg_enc.c for JPEG │
  │ lua_sd.c       sd: files on the microSD card (FAT),  │
  │ sdcard.c       mounted while a script uses it        │
  │ sound.c        speaker: queue of tones and WAV clips │
@@ -220,6 +221,20 @@ Lua never blocks it for long:
 * A custom allocator caps the VM at 4 MiB, in PSRAM. Out-of-memory becomes a normal Lua error.
 * Only `base/table/string/math/utf8/coroutine` are opened. `io/os/debug/package`
   aren't even compiled in, and `dofile/loadfile` are removed.
+
+Internal RAM is kept for what can be nowhere else. The chip has about
+350 KB of it for the heap and 8 MB of PSRAM. The main task's stack, the
+radios, the DMA buffers of the display and the speaker, and the chip's AES
+and SHA (which TLS runs on) need internal RAM. So everything else goes to
+PSRAM: the framebuffer, the Lua heap, mbedTLS, Wi-Fi's and lwIP's buffers,
+allocations from 4 KB up, and the firmware's own zeroed statics
+(`app/idf/sdkconfig.defaults`, `app/idf/main/linker.lf`). Before that,
+ESP-IDF's defaults left 70 KB free, an update check took 40 KB of it, and
+with a little more in use the AES driver found none: connections failed with
+`TLS receive failed (-0x0084)`. Now about 140 KB is free in the menu, and
+90 KB with Bluetooth and the speaker running. `INFO` reports it (`mem`).
+Speed did not change: the Lua heap and the framebuffer were in PSRAM all
+along.
 
 An app is a folder, and installing is explicit. Files are `<app>/<file>`.
 `PUT` writes to RAM, where an upload shadows the installed copy, and

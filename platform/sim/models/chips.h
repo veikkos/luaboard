@@ -16,6 +16,8 @@
  *   0x90 LDO en 0  bit7 = DLDO1 enable
  *   0x41 IRQ en 1  bits3:2 = PWRON short/long press
  *   0x49 IRQ st 1  bit3 = PWRON short press, bit2 = long press; write 1 to clear
+ *   0x90 LDO enable  bit0..3 = ALDO1..4, bit4 = BLDO1, bit5 = BLDO2, bit7 = DLDO1.
+ *                    At power-on ALDO1, 2 and 4 are on (as read from a CoreS3 Lite)
  *   0x99 DLDO1 V   bits4:0, V = 0.5 V + 0.1 V * n  (backlight supply)
  *   0xA4 battery percentage 0..100                                      */
 typedef struct axp2101 axp2101_t;
@@ -23,6 +25,7 @@ struct axp2101 {
     i2c_regs_t r;
     uint8_t irq1;
     void (*on_power_off)(axp2101_t *m);   /* 0x10 bit 0 written: the board's power is cut */
+    void (*on_rails)(axp2101_t *m, uint8_t en);   /* 0x90 written: the LDOs that are on now */
 };
 void axp2101_init(axp2101_t *m);
 /** Backlight level 0..1 derived from DLDO1 enable + voltage. */
@@ -136,7 +139,19 @@ void sht40_read(void *ctx, uint8_t *buf, size_t len);
  *   byte of a burst goes there), then 0x59 = 1: 0x21 internal status reads
  *   1 if the whole file came, else 2. With 0x7D bits 2 and 1 set, 0x0C..0x11
  *   are the acceleration and 0x12..0x17 the rotation, 16-bit little-endian,
- *   at +-8 g and +-2000 degrees a second full scale.                      */
+ *   at +-8 g and +-2000 degrees a second full scale.
+ *
+ *   The compass (a BMM150) hangs on its auxiliary bus, switched on by 0x6B
+ *   bit 5, with the compass's address (0x10) shifted left once in 0x4B. By
+ *   hand (0x4C bit 7): 0x4F then 0x4E write a register of the compass, 0x4D
+ *   reads 1, 2, 6 or 8 of them (0x4C bits 3:2) into 0x04 on. Otherwise,
+ *   with 0x7D bit 0, 0x04..0x0B follow the compass's eight registers from
+ *   the one in 0x4D.
+ *
+ *   BMM150: 0x4B bit 0 takes it out of suspend, into sleep; 0x4C bits 2:1 =
+ *   0 is measuring. 0x40 chip ID 0x32, 0x42..0x49 X and Y (13 bits), Z (15)
+ *   and the Hall resistance (14, with the data-ready bit), 0x5D..0x71 the
+ *   trim values its readings are corrected with.                          */
 typedef struct {
     pthread_mutex_t lock;
     uint8_t reg[128];
@@ -145,11 +160,16 @@ typedef struct {
     bool ready;              /* the configuration file was taken */
     float accel[3];          /* g */
     float gyro[3];           /* degrees a second */
+    uint8_t mag_reg[128];    /* the compass's own registers */
+    float mag[3];            /* microtesla */
 } bmi270_t;
 void bmi270_init(bmi270_t *m);
 void bmi270_write(void *ctx, const uint8_t *data, size_t len);   /* sim_i2c_write_fn */
 void bmi270_read(void *ctx, uint8_t *buf, size_t len);           /* sim_i2c_read_fn */
 void bmi270_set(bmi270_t *m, const float accel[3], const float gyro[3]);   /* NULL: as it is */
+void bmi270_set_mag(bmi270_t *m, const float mag[3]);
+/** The compass is measuring. */
+bool bmi270_mag_active(bmi270_t *m);
 /** Measuring: configured, with the accelerometer or the gyroscope on. */
 bool bmi270_active(bmi270_t *m);
 
@@ -162,5 +182,6 @@ bool bmi270_active(bmi270_t *m);
 typedef struct { i2c_regs_t r; float lux; int proximity; } ltr553_t;
 void ltr553_init(ltr553_t *m);
 void ltr553_set(ltr553_t *m, float lux, int proximity);   /* a negative value: as it is */
+void ltr553_power_cut(ltr553_t *m);                        /* its supply went: both parts in standby when it's back */
 bool ltr553_active(ltr553_t *m);
 

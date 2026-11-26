@@ -14,7 +14,7 @@ are the firmware's own, not part of the API: they can change in any release.
 
 ## API version
 
-This is version 1 of the Lua API. An app says which version it was written
+This is version 2 of the Lua API. An app says which version it was written
 for with `lua_api` in its `app.json` (no `lua_api` means 1):
 
 ```json
@@ -28,8 +28,11 @@ older firmware says "needs newer firmware" instead of failing halfway. A
 change that breaks existing apps also raises the oldest version supported.
 Those changes will be listed here. An installed app outside the range stays
 on the device, greyed in the menu, until a firmware or a new version of the
-app that fits comes. Everything below is version 1, frozen with the first
-release, 0.9.0: from here on any addition makes it version 2.
+app that fits comes. Version 1 is what the first release, 0.9.0, had.
+
+| Version | Added |
+|---|---|
+| 2 | `imu.mag`, `camera` |
 
 ## Errors
 
@@ -141,7 +144,8 @@ Every run starts clean. When a script starts, is stopped (`STOP`) or fails:
   the pull-down the `gpio` section asks for).
 * Serial port: `uart` is closed (what it was still sending gets up to
   0.5 s to go out) and its pins are free.
-* Sensors: `imu` and `light` are switched off.
+* Sensors: `imu` and `light` are switched off, and so is the `camera`,
+  its picture no longer mirrored.
 * SD card: the card is let go of (nothing is left open on it).
 * Network: all of the script's sockets (and so MQTT and kept HTTP
   connections) are closed.
@@ -379,18 +383,26 @@ input.
 
 ## imu - the motion sensor
 
-The accelerometer and gyroscope on the board (a BMI270). CoreS3 and CoreS3
-Lite have one. The SE doesn't, and there both calls return `nil, "no motion
-sensor on this board"`.
+The accelerometer and gyroscope on the board (a BMI270) and the compass
+behind it (a BMM150). CoreS3 and CoreS3 Lite have them. The SE doesn't, and
+there every call returns `nil, "no motion sensor on this board"`.
 
 | Function | Description |
 |---|---|
 | `imu.accel()` -> `x, y, z` | Acceleration in g, up to 8 either way. At rest it is gravity: about 1 on the axis that points up. |
 | `imu.gyro()` -> `x, y, z` | Rotation in degrees a second, up to 2000 either way. |
+| `imu.mag()` -> `x, y, z` | The magnetic field in microtesla. The earth's is 25 to 65 in all, about 50 in Finland, most of it pointing down. |
 
-The sensor is switched on by the first call, which takes about a third of
-a second, and off again when the script ends. `nil, err` also if it
+The sensor is switched on by the first call, which takes about half a
+second, and off again when the script ends. `nil, err` also if it
 doesn't answer.
+
+The compass measures every magnet and piece of iron near it along with the
+earth, so a heading needs the app to find the middle of what it reads
+while the board is turned around (the Sensors app does). A magnet right
+next to it is beyond its range: `nil, "the field is too strong for the
+compass"`. The CoreS3 Lite's back cover has magnets in it, and with the
+cover on that is what a Lite answers.
 
 ```lua
 function loop()                                  -- a level: where is down?
@@ -412,8 +424,8 @@ this board"`.
 | `light.lux()` -> `lux` | Ambient light in lux, roughly: about 300 to 500 in a lit room, tens of thousands in sunlight. It follows the room with half a second's delay. |
 | `light.proximity()` -> `0..2047` | How near something is to the sensor: the nearer, the bigger. Not a distance: it depends on the thing's color and size. |
 
-The sensor is switched on by the first call, which takes a bit over a
-tenth of a second, and off again when the script ends.
+The sensor is switched on by the first call, which takes a quarter of a
+second, and off again when the script ends.
 
 ```lua
 timer.every(1000, function()                     -- dim the screen in the dark
@@ -422,8 +434,39 @@ timer.every(1000, function()                     -- dim the screen in the dark
 end)
 ```
 
-In the simulator, `--set accel=X,Y,Z`, `gyro=X,Y,Z`, `light=LUX` and
-`proximity=N` are what the sensors measure (with `--model cores3`).
+In the simulator, `--set accel=X,Y,Z`, `gyro=X,Y,Z`, `mag=X,Y,Z`,
+`light=LUX` and `proximity=N` are what the sensors measure (with `--model
+cores3`).
+
+## camera - the camera
+
+The camera above the screen (a GC0308), looking the way the screen faces.
+CoreS3 and CoreS3 Lite have one. On the SE every call returns `nil, "no
+camera on this board"`. API version 2.
+
+| Function | Description |
+|---|---|
+| `camera.draw([x, y, [scale]])` -> `w, h` | Draw the newest picture with its corner at `x`, `y` (0, 0 if left out). It is 320x240, the screen's size. `scale` 2 or 4 draws it at a half or a quarter of that. Clipped to the screen. |
+| `camera.jpeg([quality])` -> `data` | The newest picture as a JPEG (a string), 320x240, to save with `sd.write` or send with `http.post`. `quality` is 1..100, 80 if left out: about 10 KB of a lit room. Takes a few tenths of a second. |
+| `camera.mirror([on])` | Mirror the picture left to right from the next one on (`true`, or nothing), or not (`false`, as at a script's start). It takes a moment: two pictures' time. The camera faces whoever looks at the screen: mirrored, they see themselves as in a mirror; not mirrored, as others see them, and text reads right. |
+| `camera.stop()` | Switch the camera off before the script ends, when it's done with it: on, it draws a good part of what the whole board does. |
+
+The camera is switched on by the first call, which takes about a second,
+and off again when the script ends. A new picture comes about every 40 ms,
+and a call waits for one. `nil, err` if the camera doesn't answer or gives
+no picture. Its first pictures are dark, until it has settled on the light.
+
+```lua
+function loop() camera.draw() end                -- a viewfinder: a tap takes the photo
+
+touch.on("tap", function()
+  local photo = camera.jpeg()
+  if photo then sd.write("photo.jpg", photo) end
+end)
+```
+
+In the simulator the camera sees a test picture: color bars, a gradient and
+a white square that `--set camera=N` moves (with `--model cores3`).
 
 ## sound - the speaker
 

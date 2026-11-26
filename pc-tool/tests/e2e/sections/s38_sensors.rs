@@ -23,12 +23,19 @@ pub fn run(t: &mut T) {
         "--set",
         "gyro=10,-20,30",
         "--set",
+        "mag=12.5,-30,45",
+        "--set",
         "light=500",
         "--set",
         "proximity=300",
     ]);
-    let off = t.ask("sensor=imu:off") && t.ask("sensor=light:off");
-    t.check(off, "both sensors are off until a script uses them", |_| "a sensor is on at boot".into());
+    let off = t.ask("sensor=imu:off")
+        && t.ask("sensor=compass:off")
+        && t.ask("sensor=light:off")
+        && t.ask("sensor=lightpower:off");
+    t.check(off, "both sensors are off until a script uses them, the light sensor's supply too", |_| {
+        "a sensor is on at boot".into()
+    });
 
     let a = nums(t, "imu.accel()");
     let on = t.ask("sensor=imu:on");
@@ -39,9 +46,24 @@ pub fn run(t: &mut T) {
     let a = nums(t, "imu.accel()");
     t.check(near(&a, &[0.0, 0.0, 1.0], 0.01), "flat on the table: z is 1 g", |_| format!("accel {a:?}"));
 
+    let m = nums(t, "imu.mag()");
+    let on = t.ask("sensor=compass:on");
+    t.check(near(&m, &[12.5, -30.0, 45.0], 0.4) && on, "imu.mag() in microtesla", |_| format!("mag {m:?}, on {on}"));
+    t.ctl(&["mag=-48,3.25,-51.5", "advance=50"]);
+    let m = nums(t, "imu.mag()");
+    t.check(near(&m, &[-48.0, 3.25, -51.5], 0.4), "the compass follows the field", |_| format!("mag {m:?}"));
+    t.ctl(&["mag=20,1400,-45", "advance=50"]);
+    let v = t.eval("tostring(imu.mag()) .. ' / ' .. select(2, imu.mag())");
+    t.check(v == "nil / the field is too strong for the compass", "a magnet next to it: nil and why", |_| {
+        format!("imu.mag(): {v}")
+    });
+    t.ctl(&["mag=12.5,-30,45", "advance=50"]);
+
     let lux = nums(t, "light.lux()");
-    let on = t.ask("sensor=light:on");
-    t.check(near(&lux, &[500.0], 5.0) && on, "light.lux()", |_| format!("lux {lux:?}, on {on}"));
+    let on = t.ask("sensor=light:on") && t.ask("sensor=lightpower:on");
+    t.check(near(&lux, &[500.0], 5.0) && on, "light.lux(), with the sensor's supply switched on for it", |_| {
+        format!("lux {lux:?}, on {on}")
+    });
     let p = nums(t, "light.proximity()");
     t.check(near(&p, &[300.0], 0.0), "light.proximity()", |_| format!("proximity {p:?}"));
     t.ctl(&["light=20", "proximity=1500", "advance=200"]);
@@ -55,10 +77,15 @@ pub fn run(t: &mut T) {
     t.e(&["put", &t.path("tilt/main.lua"), "--app", "tilt", "--run", "main.lua"]);
     t.advance(300); // the sensors' start-up delays, in the first frame
     t.until(2.0, |t| t.eval("tostring(X) .. tostring(L)") != "nilnil");
-    let on = t.ask("sensor=imu:on") && t.ask("sensor=light:on");
+    let on = t.ask("sensor=imu:on") && t.ask("sensor=compass:on") && t.ask("sensor=light:on");
     t.e(&["stop"]);
-    let off = t.ask("sensor=imu:off") && t.ask("sensor=light:off");
-    t.check(on && off, "the sensors are switched off when the script ends", |_| format!("on {on}, off after {off}"));
+    let off = t.ask("sensor=imu:off")
+        && t.ask("sensor=compass:off")
+        && t.ask("sensor=light:off")
+        && t.ask("sensor=lightpower:off");
+    t.check(on && off, "the sensors are switched off when the script ends, and the light sensor's supply", |_| {
+        format!("on {on}, off after {off}")
+    });
     t.stop();
 
     t.say("   the SE has no sensors");
@@ -67,6 +94,10 @@ pub fn run(t: &mut T) {
     let v = t.eval("tostring(imu.accel()) .. ' / ' .. select(2, imu.accel())");
     t.check(v.starts_with("nil / ") && v.contains("no motion sensor"), "imu on the SE: nil and why", |_| {
         format!("imu.accel(): {v}")
+    });
+    let v = t.eval("tostring(imu.mag()) .. ' / ' .. select(2, imu.mag())");
+    t.check(v.starts_with("nil / ") && v.contains("no motion sensor"), "the compass on the SE: nil and why", |_| {
+        format!("imu.mag(): {v}")
     });
     let v = t.eval("tostring(light.lux()) .. ' / ' .. select(2, light.proximity())");
     t.check(v.starts_with("nil / ") && v.contains("no light sensor"), "light on the SE: nil and why", |_| {
