@@ -54,18 +54,22 @@ pub fn run(t: &mut T) {
     let _first = monitor(t, &tcp, "first.txt");
     t.until(2.0, |t| grep("^monitoring", &t.read("first.txt")));
     let late = wi(t, &["info"]).replace('\n', " ");
-    t.ctl(&["advance=3050"]); // the image stops for 3 s of the device's time (just: the quiet after counts too)
-                              // The rest of the image comes anyway, a PING inside it: all of it at once,
-                              // right after the timeout. (Waiting for the timeout's ERR first would move
-                              // the device's clock on while it waits, past the quiet the device drops
-                              // input until, on a slow computer.)
+    // The image stops for 3 s of the device's time (just: the quiet after
+    // counts too). The rest of it comes anyway, a PING inside each piece, a
+    // tenth of a second apart. All of it goes in one batch of control lines,
+    // so the device's clock stands between the lines: on a slow computer,
+    // bytes from another process could come later than the quiet the device
+    // drops input until, and be taken as commands as they should then.
     let before = raw.pongs();
+    let mut lines = vec!["advance=3050".to_string()];
     for i in 0..10 {
-        let from = (65536 + i * 4096).min(size);
-        let to = (from + 4096).min(size);
-        raw.send(&img[from..to]);
-        raw.send(b"\nPING\n");
+        let from = 65536 + i * 40;
+        let mut piece = img[from..from + 40].to_vec();
+        piece.extend_from_slice(b"\nPING\n");
+        lines.push(format!("link={}", piece.iter().map(|b| format!("{b:02x}")).collect::<String>()));
+        lines.push("advance=100".to_string());
     }
+    t.ctl(&lines.iter().map(String::as_str).collect::<Vec<_>>());
     if t.until(3.0, |_| raw.has("ERR upload timeout")) {
         r.push_str("timeout: True\n");
     }
@@ -97,7 +101,7 @@ pub fn run(t: &mut T) {
     t.check(ok, "after an upload timeout the rest of the image isn't run as commands", |_| {
         format!("after timeout: {r}")
     });
-    let ok = info(t, "running") == "keep/main.lua" && info(t, "slot") == "ota_0";
+    let ok = t.until(3.0, |t| info(t, "running") == "keep/main.lua") && info(t, "slot") == "ota_0";
     t.check(ok, "a failed update starts the app it stopped again", |t| {
         format!("after failed update: {}", t.e(&["info"]))
     });

@@ -11,6 +11,7 @@
 #include "mock_internal.h"
 #include "sim_hw.h"
 
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -39,11 +40,41 @@ static uint8_t *s_ring;
 static uint32_t s_ring_size, s_ring_len;
 static bool s_rx_intr;
 
+/* Bytes from the PC that the control channel put in (link=HEX), ahead of
+   what the serial link brings: they are there while the clock stands, which
+   bytes from another process can't promise on a busy computer (tests). The
+   control channel runs on another thread than the firmware. */
+static uint8_t s_inject[1024];
+static uint32_t s_inject_len;
+static pthread_mutex_t s_inject_lock = PTHREAD_MUTEX_INITIALIZER;
+
+bool sim_usb_serial_inject(const void *data, size_t len)
+{
+    pthread_mutex_lock(&s_inject_lock);
+    bool ok = s_installed && len <= sizeof s_inject - s_inject_len;
+    if (ok) {
+        memcpy(s_inject + s_inject_len, data, len);
+        s_inject_len += (uint32_t)len;
+    }
+    pthread_mutex_unlock(&s_inject_lock);
+    return ok;
+}
+
 /* The next packet from the PC into the empty FIFO. */
 static void fifo_fill(void)
 {
     if (s_fifo_off < s_fifo_len || !s_link) return;
     s_fifo_off = s_fifo_len = 0;
+    pthread_mutex_lock(&s_inject_lock);
+    uint32_t k = s_inject_len < FIFO_SIZE ? s_inject_len : FIFO_SIZE;
+    if (k) {
+        memcpy(s_fifo, s_inject, k);
+        memmove(s_inject, s_inject + k, s_inject_len - k);
+        s_inject_len -= k;
+        s_fifo_len = k;
+    }
+    pthread_mutex_unlock(&s_inject_lock);
+    if (k) return;
     int n = mock_link_read(s_link, s_fifo, FIFO_SIZE, 0);
     if (s_host_gone) n = 0;                          /* (what it writes meanwhile never leaves it) */
     if (n > 0) s_fifo_len = (uint32_t)n;

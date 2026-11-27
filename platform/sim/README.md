@@ -298,7 +298,10 @@ to one, it warns and runs without a link.
 The control channel (`--control PORT`, one client at a time) takes the
 `--set` lines while the simulator runs, `advance=MS`, `skip=MS`, `ppm=FILE`
 (the LCD as it is now, written between two passes of the firmware's loop),
-`quit=1` (power off) and questions, answered `ok` for yes and `error` for no:
+`quit=1` (power off), `link=HEX` (bytes as if the computer sent them on the
+USB link, read before what the link brings: with the clock standing, where
+bytes from another program could come late on a busy computer; tests) and
+questions, answered `ok` for yes and `error` for no:
 
 | Question | Asks |
 |---|---|

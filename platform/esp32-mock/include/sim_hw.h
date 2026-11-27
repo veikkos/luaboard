@@ -83,6 +83,10 @@ void sim_usb_serial_attach_link(host_link_t *link);
 /** The computer stops talking to the port (mock_usb_serial_jtag.c), until
  *  the firmware makes it start anew. */
 void sim_usb_serial_host_gone(bool gone);
+/** Bytes as if the PC sent them on the USB link, read before what the link
+ *  brings (the control channel's link=HEX). False if they don't fit or the
+ *  driver isn't installed. */
+bool sim_usb_serial_inject(const void *data, size_t len);
 bool sim_usb_serial_host_talking(void);
 
 /* ---- I2C --------------------------------------------------------------- */

@@ -26,6 +26,7 @@
 #include <signal.h>
 #include <stdatomic.h>
 #include <stdbool.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -293,6 +294,19 @@ static bool sim_set(const char *key, const char *val)
         if (strlen(val) > 32) return false;
         sim_wifi_set_net(val);
         return true;
+    }
+    if (!strcmp(key, "link")) {                       /* bytes from the PC on the USB link, in hex (tests) */
+        uint8_t buf[128];
+        size_t n = strlen(val);
+        if (!n || n % 2 || n / 2 > sizeof buf) return false;
+        for (size_t i = 0; i < n / 2; i++) {
+            unsigned b;
+            if (!isxdigit((unsigned char)val[2 * i]) || !isxdigit((unsigned char)val[2 * i + 1]) ||
+                sscanf(val + 2 * i, "%2x", &b) != 1)
+                return false;
+            buf[i] = (uint8_t)b;
+        }
+        return sim_usb_serial_inject(buf, n / 2);
     }
     if (!strcmp(key, "apps_url")) {                   /* the app marketplace (none: no app checks) */
         sim_apps_set_url(val);
