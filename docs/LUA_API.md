@@ -14,7 +14,7 @@ are the firmware's own, not part of the API: they can change in any release.
 
 ## API version
 
-This is version 1 of the Lua API. An app says which version it was written
+This is version 2 of the Lua API. An app says which version it was written
 for with `lua_api` in its `app.json` (no `lua_api` means 1):
 
 ```json
@@ -28,8 +28,12 @@ older firmware says "needs newer firmware" instead of failing halfway. A
 change that breaks existing apps also raises the oldest version supported.
 Those changes will be listed here. An installed app outside the range stays
 on the device, greyed in the menu, until a firmware or a new version of the
-app that fits comes. Everything below is version 1, frozen with the first
-release, 1.0.0: from here on any addition makes it version 2.
+app that fits comes.
+
+| Version | Since |
+|---|---|
+| 1 | Everything below that isn't listed under a later version: the first release, 1.0.0. |
+| 2 | UDP: `net.udp` and its sockets. |
 
 ## Errors
 
@@ -639,9 +643,9 @@ task(function()
 end)
 ```
 
-## net - TCP sockets
+## net - TCP and UDP sockets
 
-Non-blocking TCP client and server (Wi-Fi on the device, the computer's network
+Non-blocking TCP client and server, and UDP (Wi-Fi on the device, the computer's network
 in the simulator). Without Wi-Fi a device on USB can use the computer's network
 (`luaboard tether`): connections then go through the computer, TLS still
 checked on the device, and `net.listen` takes none. The waiting helpers need a `task`.
@@ -659,9 +663,37 @@ checked on the device, and `net.listen` takes none. The waiting helpers need a `
 | `s:status()` | `"connecting"`, `"connected"`, `"listening"` or `"closed"` (+ error). |
 | `s:peer()`, `s:close()` | `"host:port"`. Close (also done when the socket is garbage-collected or the script ends). |
 
-At most 16 sockets at a time, 4 of them TLS (each needs about 40 KB, in PSRAM
-on the device). Opening more is `nil, "too many open sockets (max 16)"` or
-`nil, "too many TLS connections (max 4)"`. A host name is looked up in the
+UDP (version 2) is one datagram at a time, to and from IPv4 addresses on
+the network the device is on:
+
+| Function | Description |
+|---|---|
+| `net.udp([port])` -> `udp` or `nil, err` | A UDP socket that receives on `port`, or on any free port when none is given (the answers to what it sends come there). A port that's taken is `nil, "bind: ..."`. Ports 68 and 5353 are the device's own (DHCP, mDNS). |
+| `u:send(data, ip, port)` -> `true` or `nil, err` | One datagram of at most 1472 bytes (what fits one packet on any network) to an IPv4 address, a broadcast address such as `"255.255.255.255"` too. Names aren't looked up. Without a network it's `nil, "send: ..."`. |
+| `u:recv([max])` -> `data, ip, port` | The next datagram that has arrived and who sent it, `nil` when none waits (an empty datagram is `""`). One longer than `max` bytes (default 1472, at most 16384) is cut. `nil, "closed"` after `u:close()`. |
+| `u:wait([timeout_ms], [max])` -> `data, ip, port` or `nil, "timeout"` | Wait for a datagram, inside a task (default 5 s). `max` as for `recv`. |
+| `u:port()`, `u:close()` | The port it receives on. Close (also done when the socket is garbage-collected or the script ends). |
+
+Datagrams can get lost or come twice or out of order: ask again when no
+answer comes. One sent to a broadcast address often arrives several times
+(a Wi-Fi network may repeat it: four copies each way were seen on one). UDP
+goes over Wi-Fi only, not through the USB tether.
+
+```lua
+local u = assert(net.udp())                   -- ask a device on the network, wait for its answer
+task(function()
+  u:send("status?", "192.168.1.20", 9000)
+  local answer, ip = u:wait(1000)
+  print(answer or "no answer", ip)
+end)
+```
+
+At most 16 sockets at a time (TCP and UDP together), 4 of them TLS (each needs about 40 KB, in PSRAM
+on the device) and 4 of them UDP (one that isn't read holds up to 6
+datagrams of the memory the device receives with). Opening more is
+`nil, "too many open sockets (max 16)"`,
+`nil, "too many TLS connections (max 4)"` or
+`nil, "too many UDP sockets (max 4)"`. A host name is looked up in the
 background, so `connect` returns at once and the socket says `"connecting"`
 meanwhile. A name that doesn't exist ends as
 `"closed", "cannot resolve <host>"`. A TLS socket reports `"connecting"` until

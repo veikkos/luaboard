@@ -72,7 +72,7 @@
  │ script.c       Lua VM: heap cap, watchdog, require,  │
  │                timers + loop() via a Lua prelude     │
  │ lua_api.c      disp / touch / adc / gpio / sys       │
- │ lua_net.c      net: non-blocking TCP sockets, TLS    │
+ │ lua_net.c      net: non-blocking TCP (TLS) and UDP   │
  │ lua_web.c      secrets / crypto / browser for Lua    │
  │ lua_store.c    store: per-app values (/apps/.data)   │
  │ lua_i2c.c      i2c: the bus on Grove Port A          │

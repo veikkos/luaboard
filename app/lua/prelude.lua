@@ -144,6 +144,23 @@ function sock:wait_connected(timeout_ms)
   end
 end
 
+-- Wait for a datagram on a socket from net.udp(): data, ip, port, or
+-- nil, "timeout" (nil, "closed" if the socket is closed meanwhile). `max` as
+-- in recv: a longer datagram is cut.
+local udp = net._udp_methods
+net._udp_methods = nil
+
+function udp:wait(timeout_ms, max)
+  local deadline = sys.millis() + (timeout_ms or 5000)
+  while true do
+    local data, ip, port = self:recv(max)
+    if data then return data, ip, port end
+    if ip then return nil, ip end
+    if sys.millis() >= deadline then return nil, 'timeout' end
+    if current then yield() else return nil, 'wait() needs task()' end
+  end
+end
+
 -- Send everything. Inside a task it waits for buffer space; outside it
 -- gives up if the socket buffer is full.
 function sock:write_all(data)

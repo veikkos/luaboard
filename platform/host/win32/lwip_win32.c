@@ -8,11 +8,17 @@
 
 #include "lwip/sockets.h"
 
+#ifndef SIO_UDP_CONNRESET                 /* (mstcpip.h has it) */
+#define SIO_UDP_CONNRESET _WSAIOW(IOC_VENDOR, 12)
+#endif
+
 #undef socket
 #undef close
 #undef fcntl
 #undef send
 #undef recv
+#undef sendto
+#undef recvfrom
 #undef accept
 #undef listen
 #undef setsockopt
@@ -68,6 +74,13 @@ int mock_lwip_socket(int domain, int type, int protocol)
     /* Not inheritable: a reboot's next process must not keep our ports. */
     SOCKET s = WSASocketW(domain, type, protocol, NULL, 0, WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT);
     if (s == INVALID_SOCKET) return fail(false);
+    if (type == SOCK_DGRAM) {
+        /* Winsock fails the next receive (WSAECONNRESET) when a datagram
+           sent before found nobody listening. BSD sockets don't: off. */
+        BOOL off = FALSE;
+        DWORD got = 0;
+        WSAIoctl(s, SIO_UDP_CONNRESET, &off, sizeof off, NULL, 0, &got, NULL, NULL);
+    }
     return (int)s;
 }
 
@@ -94,6 +107,22 @@ ssize_t mock_lwip_send(int s, const void *buf, size_t len, int flags)
 ssize_t mock_lwip_recv(int s, void *buf, size_t len, int flags)
 {
     int n = recv((SOCKET)s, buf, (int)(len > INT_MAX ? INT_MAX : len), flags & ~MSG_DONTWAIT);
+    return n == SOCKET_ERROR ? fail(false) : n;
+}
+
+ssize_t mock_lwip_sendto(int s, const void *buf, size_t len, int flags, const struct sockaddr *to, socklen_t tolen)
+{
+    int n = sendto((SOCKET)s, buf, (int)(len > INT_MAX ? INT_MAX : len), flags & ~MSG_DONTWAIT, to, tolen);
+    return n == SOCKET_ERROR ? fail(false) : n;
+}
+
+ssize_t mock_lwip_recvfrom(int s, void *buf, size_t len, int flags, struct sockaddr *from, socklen_t *fromlen)
+{
+    int cap = (int)(len > INT_MAX ? INT_MAX : len);
+    int n = recvfrom((SOCKET)s, buf, cap, flags & ~MSG_DONTWAIT, from, fromlen);
+    /* A datagram longer than the buffer: BSD sockets cut it, Winsock also
+       calls that an error (the buffer is filled all the same). */
+    if (n == SOCKET_ERROR && WSAGetLastError() == WSAEMSGSIZE) return cap;
     return n == SOCKET_ERROR ? fail(false) : n;
 }
 

@@ -29,6 +29,8 @@
 #ifndef _WIN32
 #undef send
 #undef recv
+#undef sendto
+#undef recvfrom
 #undef accept
 
 ssize_t mock_lwip_send(int s, const void *buf, size_t len, int flags)
@@ -45,6 +47,26 @@ ssize_t mock_lwip_recv(int s, void *buf, size_t len, int flags)
     /* More may be there already (the firmware takes so much a pass), or
        come any moment: either way the tick's wait ends when it is. */
     if (n > 0 || (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))) sim_net_waits(s);
+    return n;
+}
+
+/* A UDP socket: what it sends may be a question, so the clock sees it as
+   it does a connection the firmware made. */
+ssize_t mock_lwip_sendto(int s, const void *buf, size_t len, int flags, const struct sockaddr *to, socklen_t tolen)
+{
+    ssize_t n = sendto(s, buf, len, flags, to, tolen);
+    if (n >= 0) {
+        sim_net_client(s);
+        sim_net_sent(s);
+    }
+    return n;
+}
+
+ssize_t mock_lwip_recvfrom(int s, void *buf, size_t len, int flags, struct sockaddr *from, socklen_t *fromlen)
+{
+    ssize_t n = recvfrom(s, buf, len, flags, from, fromlen);
+    if (n >= 0) sim_net_received(s);
+    if (n >= 0 || errno == EAGAIN || errno == EWOULDBLOCK) sim_net_waits(s);
     return n;
 }
 
@@ -377,7 +399,11 @@ int mock_lwip_bind(int s, const struct sockaddr *name, socklen_t namelen)
     sim_net_forget(s);                                   /* (its number may be a closed connection's) */
     if (name && name->sa_family == AF_INET && namelen >= sizeof(struct sockaddr_in)) {
         struct sockaddr_in in = *(const struct sockaddr_in *)name;
-        bool mapped = s_map_from && ntohs(in.sin_port) == s_map_from;
+        int type = 0;
+        socklen_t tlen = sizeof type;
+        getsockopt(s, SOL_SOCKET, SO_TYPE, (void *)&type, &tlen);
+        /* (the mapped port is the control link's, TCP: a UDP socket on that number is another thing) */
+        bool mapped = type == SOCK_STREAM && s_map_from && ntohs(in.sin_port) == s_map_from;
         if (s_loopback && in.sin_addr.s_addr == htonl(INADDR_ANY)) in.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
         if (mapped) in.sin_port = htons(s_map_to);
         int r = bind(s, (const struct sockaddr *)&in, sizeof in);

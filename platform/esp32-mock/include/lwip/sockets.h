@@ -33,6 +33,8 @@ int mock_lwip_close(int s);
 int mock_lwip_fcntl(int s, int cmd, int arg);
 ssize_t mock_lwip_send(int s, const void *buf, size_t len, int flags);
 ssize_t mock_lwip_recv(int s, void *buf, size_t len, int flags);
+ssize_t mock_lwip_sendto(int s, const void *buf, size_t len, int flags, const struct sockaddr *to, socklen_t tolen);
+ssize_t mock_lwip_recvfrom(int s, void *buf, size_t len, int flags, struct sockaddr *from, socklen_t *fromlen);
 int mock_lwip_accept(int s, struct sockaddr *addr, socklen_t *len);
 int mock_lwip_listen(int s, int backlog);
 int mock_lwip_setsockopt(int s, int level, int name, const void *val, socklen_t len);
@@ -48,6 +50,8 @@ int mock_win_connect(int s, const struct sockaddr *name, socklen_t len);
 #define fcntl(s, cmd, arg) mock_lwip_fcntl((s), (cmd), (arg))
 #define send(s, b, n, f) mock_lwip_send((s), (b), (n), (f))
 #define recv(s, b, n, f) mock_lwip_recv((s), (b), (n), (f))
+#define sendto(s, b, n, f, a, l) mock_lwip_sendto((s), (b), (n), (f), (a), (l))
+#define recvfrom(s, b, n, f, a, l) mock_lwip_recvfrom((s), (b), (n), (f), (a), (l))
 #define accept(s, a, l) mock_lwip_accept((s), (a), (l))
 #define listen(s, b) mock_lwip_listen((s), (b))
 #define setsockopt(s, l, n, v, len) mock_lwip_setsockopt((s), (l), (n), (v), (len))
@@ -66,12 +70,17 @@ int mock_win_connect(int s, const struct sockaddr *name, socklen_t len);
 #include <unistd.h>
 
 /* The host's own, seen by the simulated clock: a fast-forward waits for the
-   answer to what the firmware sent on a connection it made (mock_core.c). */
+   answer to what the firmware sent on a connection it made, or from a UDP
+   socket (mock_core.c). */
 ssize_t mock_lwip_send(int s, const void *buf, size_t len, int flags);
 ssize_t mock_lwip_recv(int s, void *buf, size_t len, int flags);
+ssize_t mock_lwip_sendto(int s, const void *buf, size_t len, int flags, const struct sockaddr *to, socklen_t tolen);
+ssize_t mock_lwip_recvfrom(int s, void *buf, size_t len, int flags, struct sockaddr *from, socklen_t *fromlen);
 int mock_lwip_accept(int s, struct sockaddr *addr, socklen_t *len);
 #define send(s, b, n, f) mock_lwip_send((s), (b), (n), (f))
 #define recv(s, b, n, f) mock_lwip_recv((s), (b), (n), (f))
+#define sendto(s, b, n, f, a, l) mock_lwip_sendto((s), (b), (n), (f), (a), (l))
+#define recvfrom(s, b, n, f, a, l) mock_lwip_recvfrom((s), (b), (n), (f), (a), (l))
 #define accept(s, a, l) mock_lwip_accept((s), (a), (l))
 #endif
 

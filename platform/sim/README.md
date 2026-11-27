@@ -144,7 +144,7 @@ window.
 | `--headless` | No window |
 | `--watch` | Watch this executable: a new build is flashed into `ota_0` and booted, in the same window. The `run` target does this, and rebuilds when a source changes (environment `WATCH=0` turns both off) |
 | `--link PATH` | Symlink to the serial PTY. On Windows the pipe's name, `\\.\pipe\PATH`. Default: the first free name, see [Serial link](#serial-link) |
-| `--loopback` | Servers (the Wi-Fi link, `net.listen`) take 127.0.0.1 only: no other computer reaches them, and no firewall asks about them (the tests) |
+| `--loopback` | Servers (the Wi-Fi link, `net.listen`) and UDP sockets (`net.udp`) take 127.0.0.1 only: no other computer reaches them, a UDP socket reaches only this computer, and no firewall asks about them (the tests) |
 | `--nvs FILE` | NVS file, so settings, Wi-Fi and secrets persist. `<nvs>.run` exists while the simulator runs. Found at start, the firmware sees a crash reset (the last run was killed) |
 | `--flash DIR` | Apps partition folder (default `<nvs>.flash`). The app slots of firmware updates are in `<nvs>.ota/` |
 | `--scale N` | Window points per LCD pixel, 1 to 8 (default: as last time, or 2) |

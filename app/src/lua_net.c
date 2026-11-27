@@ -19,6 +19,15 @@
  *   srv = net.listen(port)        -> server | nil, err
  *   srv:accept()                  -> socket | nil (no client waiting)
  *
+ * And UDP, one datagram at a time, to and from IPv4 addresses (broadcast
+ * ones too; names aren't looked up):
+ *
+ *   u = net.udp([port])           -> udp socket | nil, err   (no port: any free one)
+ *   u:send(data, ip, port)        -> true | nil, err
+ *   u:recv([max])                 -> data, ip, port | nil (nothing waiting) | nil, "closed"
+ *   u:port()                      -> the port it receives on
+ *   u:close()
+ *
  * Host names are looked up on a worker thread, so connect() never blocks: the
  * socket says "connecting" meanwhile, and "closed", "cannot resolve <host>"
  * if there is no such name.
@@ -45,12 +54,20 @@
 static const char *TAG = "net";
 
 #define MT_SOCK   "luaboard.socket"
+#define MT_UDP    "luaboard.udp"
+#define UDP_MAX   1472     /* a datagram's data: what fits one packet on any network (1500 less the IP and UDP headers) */
+/* UDP sockets at a time. One that isn't read keeps up to 6 datagrams
+   (CONFIG_LWIP_UDP_RECVMBOX_SIZE), each in one of the Wi-Fi driver's 32
+   receive buffers: four can't hold them all, so an app that stops reading
+   doesn't stop the device's own traffic. */
+#define MAX_UDP   4
 #define MAX_SOCKS 16       /* lwIP has 24 (sdkconfig.defaults): the rest are the control port's */
 #define MAX_TLS   4        /* each TLS connection needs ~40 KB (PSRAM on the device) */
 
 typedef struct {
-    conn_t c;             /* a listening socket keeps its fd here too, as open */
+    conn_t c;             /* a listening socket and a UDP one keep their fd here too, as open */
     bool listening;
+    bool udp;
     char peer[48];
 } lsock_t;
 
@@ -87,6 +104,13 @@ static int tls_count(void)
     return n;
 }
 
+static int udp_count(void)
+{
+    int n = 0;
+    for (int i = 0; i < MAX_SOCKS; i++) n += s_open[i] && s_open[i]->udp;
+    return n;
+}
+
 static void sock_close(lsock_t *s)
 {
     conn_close(&s->c);
@@ -107,7 +131,7 @@ bool lua_net_is_own_socket(const struct sockaddr_in *peer)
 {
     for (int i = 0; i < MAX_SOCKS; i++) {
         lsock_t *s = s_open[i];
-        if (!s || s->c.fd < 0 || s->listening) continue;
+        if (!s || s->c.fd < 0 || s->listening || s->udp) continue;
         struct sockaddr_in me;
         socklen_t len = sizeof me;
         if (getsockname(s->c.fd, (struct sockaddr *)&me, &len) == 0 && me.sin_family == AF_INET &&
@@ -125,15 +149,17 @@ static const char *state_name(const lsock_t *s)
 
 /* The Lua object comes first, before any fd exists: allocating it can throw
    (out of memory), and an fd made before that would never be closed. */
-static lsock_t *new_sock(lua_State *L)
+static lsock_t *new_sock_of(lua_State *L, const char *mt)
 {
     lsock_t *s = lua_newuserdatauv(L, sizeof *s, 0);
     conn_init(&s->c);
-    s->listening = false;
+    s->listening = s->udp = false;
     s->peer[0] = 0;
-    luaL_setmetatable(L, MT_SOCK);
+    luaL_setmetatable(L, mt);
     return s;
 }
+
+static lsock_t *new_sock(lua_State *L) { return new_sock_of(L, MT_SOCK); }
 
 static lsock_t *check_sock(lua_State *L) { return luaL_checkudata(L, 1, MT_SOCK); }
 
@@ -354,9 +380,10 @@ static int m_peer(lua_State *L)
     return 1;
 }
 
+/* (Both kinds of socket: only their two metatables, which scripts can't get at, have it.) */
 static int m_gc(lua_State *L)
 {
-    lsock_t *s = luaL_checkudata(L, 1, MT_SOCK);
+    lsock_t *s = lua_touserdata(L, 1);
     if (s->c.state != CONN_CLOSED) {
         ESP_LOGI(TAG, "closing unreferenced socket %s", s->peer);
         sock_close(s);
@@ -371,6 +398,162 @@ static int m_tostring(lua_State *L)
     return 1;
 }
 
+/* ------------------------------------------------------------- udp:* */
+
+static lsock_t *check_udp(lua_State *L) { return luaL_checkudata(L, 1, MT_UDP); }
+
+static int push_udp_closed(lua_State *L)
+{
+    lua_pushnil(L);
+    lua_pushliteral(L, "closed");
+    return 2;
+}
+
+/* "a.b.c.d", each part 0..255 in decimal, and nothing else: lwIP's own
+   parser also takes "1", "192.168.1" and hex, which the simulator's doesn't. */
+static bool ipv4_parse(const char *s, struct in_addr *out)
+{
+    uint32_t a = 0;
+    for (int part = 0; part < 4; part++) {
+        int v = 0, digits = 0;
+        while (*s >= '0' && *s <= '9' && digits < 3) { v = v * 10 + (*s++ - '0'); digits++; }
+        if (!digits || v > 255 || (part < 3 ? *s++ != '.' : *s != 0)) return false;
+        a = a << 8 | (uint32_t)v;
+    }
+    out->s_addr = htonl(a);
+    return true;
+}
+
+/* The UDP ports the firmware's own network code receives on: DHCP's and
+   mDNS's. An app that took one would leave the device without an address
+   or its name. */
+static bool own_udp_port(lua_Integer port) { return port == 68 || port == 5353; }
+
+/* net.udp([port]) -> udp socket | nil, err. It receives on `port`, or on
+   any free one when none is given (the answers to what it sends come there). */
+static int l_udp(lua_State *L)
+{
+    lua_Integer port = luaL_optinteger(L, 1, 0);
+    luaL_argcheck(L, port >= 0 && port < 65536, 1, "port must be 0..65535");
+    luaL_argcheck(L, !own_udp_port(port), 1, "that is one of the device's own ports (DHCP, mDNS)");
+    if (open_count() >= MAX_SOCKS) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "too many open sockets (max %d)", MAX_SOCKS);
+        return 2;
+    }
+    if (udp_count() >= MAX_UDP) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "too many UDP sockets (max %d)", MAX_UDP);
+        return 2;
+    }
+    lsock_t *s = new_sock_of(L, MT_UDP);
+    int fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (fd < 0) return push_err(L, "socket", errno);
+    int one = 1;
+    setsockopt(fd, SOL_SOCKET, SO_BROADCAST, &one, sizeof one);   /* to and from broadcast addresses */
+    struct sockaddr_in a = { .sin_family = AF_INET, .sin_port = htons((uint16_t)port),
+                             .sin_addr.s_addr = htonl(INADDR_ANY) };
+    socklen_t len = sizeof a;
+    if (bind(fd, (struct sockaddr *)&a, sizeof a) != 0 || getsockname(fd, (struct sockaddr *)&a, &len) != 0) {
+        int e = errno;
+        close(fd);
+        return push_err(L, "bind", e);
+    }
+    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
+    s->c.fd = fd;
+    s->c.state = CONN_OPEN;
+    s->c.port = ntohs(a.sin_port);
+    s->udp = true;
+    track(s);
+    snprintf(s->peer, sizeof s->peer, "*:%d", (int)s->c.port);
+    return 1;
+}
+
+static int u_send(lua_State *L)
+{
+    lsock_t *s = check_udp(L);
+    size_t len;
+    const char *data = luaL_checklstring(L, 2, &len);
+    const char *ip = luaL_checkstring(L, 3);
+    lua_Integer port = luaL_checkinteger(L, 4);
+    luaL_argcheck(L, len <= UDP_MAX, 2, "a datagram takes at most 1472 bytes");
+    struct sockaddr_in to = { .sin_family = AF_INET };
+    luaL_argcheck(L, ipv4_parse(ip, &to.sin_addr), 3, "an IPv4 address like 192.168.1.20 (names aren't looked up)");
+    luaL_argcheck(L, port > 0 && port < 65536, 4, "port must be 1..65535");
+    if (s->c.state != CONN_OPEN) return push_udp_closed(L);
+    to.sin_port = htons((uint16_t)port);
+    if (sendto(s->c.fd, data, len, 0, (struct sockaddr *)&to, sizeof to) < 0) return push_err(L, "send", errno);
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+static int u_recv(lua_State *L)
+{
+    lsock_t *s = check_udp(L);
+    lua_Integer max = luaL_optinteger(L, 2, UDP_MAX);
+    luaL_argcheck(L, max > 0 && max <= 16384, 2, "max must be 1..16384");
+    if (s->c.state != CONN_OPEN) return push_udp_closed(L);
+    luaL_Buffer b;
+    char *p = luaL_buffinitsize(L, &b, (size_t)max);
+    struct sockaddr_in from;
+    socklen_t flen = sizeof from;
+    ssize_t n = recvfrom(s->c.fd, p, (size_t)max, MSG_DONTWAIT, (struct sockaddr *)&from, &flen);
+    int e = errno;
+    luaL_pushresultsize(&b, n > 0 ? (size_t)n : 0);
+    if (n < 0) {
+        lua_pop(L, 1);
+        if (e == EAGAIN || e == EWOULDBLOCK) { lua_pushnil(L); return 1; }   /* nothing waiting */
+        return push_err(L, "recv", e);
+    }
+    char ip[16];
+    inet_ntop(AF_INET, &from.sin_addr, ip, sizeof ip);
+    lua_pushstring(L, ip);
+    lua_pushinteger(L, ntohs(from.sin_port));
+    return 3;
+}
+
+static int u_port(lua_State *L)
+{
+    lua_pushinteger(L, check_udp(L)->c.port);
+    return 1;
+}
+
+static int u_close(lua_State *L)
+{
+    lsock_t *s = check_udp(L);
+    if (s->c.state != CONN_CLOSED) sock_close(s);
+    return 0;
+}
+
+static int u_tostring(lua_State *L)
+{
+    lsock_t *s = check_udp(L);
+    lua_pushfstring(L, "udp(%s, %s)", s->peer, s->c.state == CONN_OPEN ? "open" : "closed");
+    return 1;
+}
+
+/* A socket type: its metatable `mt` with the methods, closed when collected
+   or left (<close>). The methods table is left on the stack. */
+static void socket_type(lua_State *L, const char *mt, const luaL_Reg *methods, lua_CFunction tostring)
+{
+    luaL_newmetatable(L, mt);
+    lua_newtable(L);
+    luaL_setfuncs(L, methods, 0);
+    lua_pushvalue(L, -1);
+    lua_setfield(L, -3, "__index");
+    lua_pushcfunction(L, m_gc);
+    lua_setfield(L, -3, "__gc");
+    lua_pushcfunction(L, m_gc);
+    lua_setfield(L, -3, "__close");
+    lua_pushcfunction(L, tostring);
+    lua_setfield(L, -3, "__tostring");
+    /* Hide the metatable from getmetatable(): a script that removed __gc
+       would get the socket freed while it is still in s_open (use after free). */
+    lua_pushboolean(L, 0);
+    lua_setfield(L, -3, "__metatable");
+    lua_remove(L, -2);                    /* the metatable: the registry has it */
+}
+
 void lua_net_register(lua_State *L)
 {
     static const luaL_Reg methods[] = {
@@ -378,28 +561,17 @@ void lua_net_register(lua_State *L)
         { "accept", m_accept }, { "close", m_close }, { "peer", m_peer },
         { NULL, NULL },
     };
-    luaL_newmetatable(L, MT_SOCK);
-    luaL_newlib(L, methods);
-    int idx = lua_gettop(L);
-    lua_pushvalue(L, idx);
-    lua_setfield(L, -3, "__index");
-    lua_pushcfunction(L, m_gc);
-    lua_setfield(L, -3, "__gc");
-    lua_pushcfunction(L, m_gc);
-    lua_setfield(L, -3, "__close");
-    lua_pushcfunction(L, m_tostring);
-    lua_setfield(L, -3, "__tostring");
-    /* Hide the metatable from getmetatable(): a script that removed __gc
-       would get the socket freed while it is still in s_open (use after free). */
-    lua_pushboolean(L, 0);
-    lua_setfield(L, -3, "__metatable");
-
+    static const luaL_Reg udp_methods[] = {
+        { "send", u_send }, { "recv", u_recv }, { "port", u_port }, { "close", u_close }, { NULL, NULL },
+    };
     static const luaL_Reg funcs[] = {
-        { "connect", l_connect }, { "listen", l_listen }, { "_join", l_join }, { "wifi", l_wifi }, { NULL, NULL },
+        { "connect", l_connect }, { "listen", l_listen }, { "udp", l_udp }, { "_join", l_join }, { "wifi", l_wifi },
+        { NULL, NULL },
     };
     luaL_newlib(L, funcs);
-    lua_pushvalue(L, idx);
-    lua_setfield(L, -2, "_methods");      /* the prelude adds the waiting ones (and removes this) */
+    socket_type(L, MT_SOCK, methods, m_tostring);
+    lua_setfield(L, -2, "_methods");      /* the prelude adds the waiting ones (and removes these two) */
+    socket_type(L, MT_UDP, udp_methods, u_tostring);
+    lua_setfield(L, -2, "_udp_methods");
     lua_setglobal(L, "net");
-    lua_pop(L, 2);                        /* methods, metatable */
 }

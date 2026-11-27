@@ -8,10 +8,10 @@
    up with every change to it, additions too; APP_LUA_API_MIN moves up to
    APP_LUA_API only when a change breaks existing apps. An app declares the
    version it was written for as "lua_api" in app.json (none = 1) and runs
-   if APP_LUA_API_MIN <= lua_api <= APP_LUA_API. Version 1 is frozen with
-   the first release, 1.0.0: the next change to the API makes it 2. (Lua itself owns
-   LUA_API.) */
-#define APP_LUA_API          1
+   if APP_LUA_API_MIN <= lua_api <= APP_LUA_API. Version 1 is what the first
+   release, 1.0.0, has; what each later one added is listed in LUA_API.md.
+   (Lua itself owns LUA_API.) */
+#define APP_LUA_API          2
 #define APP_LUA_API_MIN      1
 
 /* app.json's text (and the marketplace index's copy of it): the most the

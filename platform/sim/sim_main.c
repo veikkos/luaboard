@@ -83,7 +83,7 @@ static void usage(const char *argv0)
         "usage: %s [options]                          (board: %s)\n"
         "  --model NAME        board variant: %s\n"
         "  --headless          no window (CI / tests)\n"
-        "  --loopback          servers (Wi-Fi link, net.listen) take 127.0.0.1 only:\n"
+        "  --loopback          servers (Wi-Fi link, net.listen) and net.udp take 127.0.0.1 only:\n"
         "                      not reachable from other computers, no firewall prompt\n"
         "  --link PATH         the serial link: " LINK_HELP "\n"
         "  --nvs FILE          NVS flash backing file (default: esp32-sim-nvs.bin)\n"
