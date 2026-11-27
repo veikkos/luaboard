@@ -89,7 +89,8 @@
  │                scan, connect, discovery, pairing     │
  │ lua_ble.c      ble: devices and connections for Lua  │
  │ builtin_lua.c  app/lua/*.lua (prelude, mqtt, http,   │
- │                json, oauth) embedded in the binary   │
+ │                ws, json, oauth) embedded in the      │
+ │                binary                                │
  │ vfs.c          apps: LittleFS /apps/<app>/<file>     │
  │                + RAM uploads shadowing them;         │
  │                app data in /apps/.data/<app>         │

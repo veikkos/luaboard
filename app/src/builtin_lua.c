@@ -17,6 +17,7 @@ static const struct { const char *name; const char *src; size_t len; } s_builtin
     { "http.lua", embed_http_lua, sizeof embed_http_lua - 1 },
     { "oauth.lua", embed_oauth_lua, sizeof embed_oauth_lua - 1 },
     { "json.lua", embed_json_lua, sizeof embed_json_lua - 1 },
+    { "ws.lua", embed_ws_lua, sizeof embed_ws_lua - 1 },
 };
 
 const char *builtin_lua(const char *name, size_t *len)

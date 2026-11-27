@@ -248,6 +248,22 @@ static int l_join(lua_State *L)
     return 1;
 }
 
+/* net._xor(data, key): data with each byte XORed with the key's, the key
+   over and over (a WebSocket frame's masking, ws.lua: byte by byte in Lua
+   it takes a second for 64 KiB on the chip). */
+static int l_xor(lua_State *L)
+{
+    size_t n, kn;
+    const char *d = luaL_checklstring(L, 1, &n);
+    const char *k = luaL_checklstring(L, 2, &kn);
+    luaL_argcheck(L, kn > 0, 2, "an empty key");
+    luaL_Buffer b;
+    char *out = luaL_buffinitsize(L, &b, n);
+    for (size_t i = 0; i < n; i++) out[i] = (char)(d[i] ^ k[i % kn]);
+    luaL_pushresultsize(&b, n);
+    return 1;
+}
+
 /* net.wifi() -> "off" | "connecting" | "connected", ip (when connected) */
 static int l_wifi(lua_State *L)
 {
@@ -576,7 +592,8 @@ void lua_net_register(lua_State *L)
         { "send", u_send }, { "recv", u_recv }, { "port", u_port }, { "close", u_close }, { NULL, NULL },
     };
     static const luaL_Reg funcs[] = {
-        { "connect", l_connect }, { "listen", l_listen }, { "udp", l_udp }, { "_join", l_join }, { "wifi", l_wifi },
+        { "connect", l_connect }, { "listen", l_listen }, { "udp", l_udp }, { "_join", l_join }, { "_xor", l_xor },
+        { "wifi", l_wifi },
         { NULL, NULL },
     };
     luaL_newlib(L, funcs);

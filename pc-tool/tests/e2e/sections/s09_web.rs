@@ -26,6 +26,8 @@ task(function()
   R.json = json.encode({ t.a[1], t.a[2], t.a[3] == json.null, t.s }) .. " " ..
     table.concat({ tostring(json.decode('{"a":')), select(2, json.decode('{"a":')) }, " ")
   R.sha = crypto.hex(crypto.sha256("abc")):sub(1, 16)
+  R.sha1 = crypto.hex(crypto.sha1("abc")) .. " " .. crypto.hex(crypto.sha1("")) .. " " ..
+    crypto.hex(crypto.sha1("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"))
   R.b64 = crypto.unbase64(crypto.base64("luaboard?", true))
   -- cert_name: the certificate is for 127.0.0.1, so by another name it needs the name said.
   local L = "https://localhost:$TP"
@@ -268,6 +270,11 @@ pub fn run(t: &mut T) {
     t.check(ok, "json decode/encode, bad text is nil, err", |_| format!("json: {v}"));
     let ok = t.eval("R.sha") == "ba7816bf8f01cfea" && t.eval("R.b64") == "luaboard?";
     t.check(ok, "crypto sha256/base64", |_| "crypto".into());
+    let v = t.eval("R.sha1");
+    let ok = v
+        == "a9993e364706816aba3e25717850c26c9cd0d89d da39a3ee5e6b4b0d3255bfef95601890afd80709 \
+                   84983e441c3bd26ebaae4aa1f95129e5e54670f1";
+    t.check(ok, "crypto.sha1 (the standard's examples: short, empty, two blocks)", |_| format!("sha1: {v}"));
     let v = t.eval("R.jpeg");
     t.check(v == "150x150", "disp.jpeg decodes at 1/2", |_| format!("jpeg: {v}"));
     let v = t.eval(r#"disp.jpeg(0, 0, "nope")"#);

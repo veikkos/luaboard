@@ -33,6 +33,7 @@
 #include "nvs.h"
 #include "script.h"
 #include "secrets.h"
+#include "sha1.h"
 #include "sha256.h"
 
 /* ------------------------------------------------------------- secrets */
@@ -129,6 +130,17 @@ static int l_sha256(lua_State *L)
     return 1;
 }
 
+/* crypto.sha1(data) -> 20 raw bytes. For protocols that ask for it. */
+static int l_sha1(lua_State *L)
+{
+    size_t len;
+    const char *d = luaL_checklstring(L, 1, &len);
+    uint8_t out[20];
+    lb_sha1(d, len, out);
+    lua_pushlstring(L, (const char *)out, 20);
+    return 1;
+}
+
 static int l_hmac(lua_State *L)
 {
     size_t kl, dl;
@@ -222,7 +234,7 @@ void lua_web_register(lua_State *L)
     lua_setglobal(L, "secrets");
 
     static const luaL_Reg cr[] = {
-        { "sha256", l_sha256 }, { "hmac_sha256", l_hmac }, { "random", l_random }, { "hex", l_hex },
+        { "sha256", l_sha256 }, { "sha1", l_sha1 }, { "hmac_sha256", l_hmac }, { "random", l_random }, { "hex", l_hex },
         { "base64", l_base64 }, { "unbase64", l_unbase64 }, { NULL, NULL },
     };
     luaL_newlib(L, cr);

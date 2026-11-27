@@ -1,6 +1,6 @@
 //! Fake servers the device talks to in the tests, in this process: an MQTT
-//! broker, an OAuth provider with a small web API, the release downloads and
-//! the app marketplace. Each takes a free port (port 0) and logs
+//! broker, an OAuth provider with a small web API, a WebSocket server, the
+//! release downloads and the app marketplace. Each takes a free port (port 0) and logs
 //! every event as one line ("PUB dev1 dev1/temp 23", "TOKEN code", ...).
 
 #![allow(dead_code)]
@@ -11,6 +11,7 @@ pub mod mqtt;
 pub mod oauth;
 pub mod releases;
 pub mod tls;
+pub mod ws;
 
 use std::sync::{Arc, Mutex};
 

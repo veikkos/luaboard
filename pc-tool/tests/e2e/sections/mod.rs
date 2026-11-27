@@ -11,6 +11,7 @@ mod s04_notice;
 mod s06_wifi;
 mod s07_net_mqtt;
 mod s07_net_udp;
+mod s07_net_ws;
 mod s08_mqtt_offline;
 mod s09_web;
 mod s10_oauth;
@@ -62,6 +63,7 @@ pub const ALL: &[(&str, Section)] = &[
     ("06-wifi", s06_wifi::run),
     ("07-net-mqtt", s07_net_mqtt::run),
     ("07-net-udp", s07_net_udp::run),
+    ("07-net-ws", s07_net_ws::run),
     ("08-mqtt-offline", s08_mqtt_offline::run),
     ("09-web", s09_web::run),
     ("10-oauth", s10_oauth::run),

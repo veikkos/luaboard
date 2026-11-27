@@ -33,7 +33,7 @@ app that fits comes.
 | Version | Since |
 |---|---|
 | 1 | Everything below that isn't listed under a later version: the first release, 1.0.0. |
-| 2 | UDP: `net.udp` and its sockets. `cert_name` for TLS in `net.connect`, `http.request` and `mqtt.connect`. |
+| 2 | UDP: `net.udp` and its sockets. `cert_name` for TLS in `net.connect`, `http.request` and `mqtt.connect`. WebSocket: the `ws` library. `crypto.sha1`. |
 
 ## Errors
 
@@ -814,6 +814,42 @@ task(function()
 end)
 ```
 
+## ws - WebSocket client (built in)
+
+`local ws = require("ws")` (version 2): messages both ways over one
+connection, as many web services and devices on a local network talk. Use
+`connect` and `recv` inside a `task`.
+
+| Function | Description |
+|---|---|
+| `ws.connect(url, [opts])` -> `w` or `nil, err` | `"ws://host[:port][/path]"`, or `"wss://..."` for TLS (the server's certificate checked as in `net.connect`). A server that doesn't answer as a WebSocket one is `nil, "not a WebSocket: ..."`. |
+| `w:send(data, [binary])` -> `true` or `nil, err` | One message of at most 64 KiB, as text, or as binary data with `binary` true. In a task it returns once the message has gone out. Outside one (a touch handler), what the socket doesn't take at once is kept and goes with the next `send` or `recv`. Messages always go out whole and in the order sent. `nil, "closed"` once the connection has ended, `nil, "too much waiting to be sent"` past 256 KiB kept. |
+| `w:recv([timeout_ms])` -> `data, binary` | The next message, and whether it's a binary one. `nil, "timeout"` when none came within `timeout_ms` (for the whole call). Nothing is lost by that: a message half received is finished by the next call. `nil, "closed"` (or why, such as `"timeout"` for a message that stopped halfway for 10 s) when the connection has ended. Without a timeout it waits until one comes. |
+| `w:close()` | Close it (also done when the script ends). |
+
+| Option | Default | |
+|---|---|---|
+| `ca`, `cert_name` | none | For `wss://`, as in `net.connect`: a CA of your own, and the name the certificate is for when it isn't the url's host. |
+| `headers` | none | A table of headers sent with the request (`Authorization`, `Origin`, ...). |
+| `timeout` | 8000 | Milliseconds for connecting and the server's answer. |
+
+The server's pings are answered while `recv` waits, so a script that wants
+the connection kept calls `recv` regularly. A message that comes in several
+frames is put together, and one over 256 KiB closes the connection. A
+connection is a socket, and counts as one.
+
+```lua
+local ws, json = require("ws"), require("json")
+task(function()
+  local w = assert(ws.connect("wss://example.com/events"))
+  w:send(json.encode({ subscribe = "news" }))
+  while true do
+    local msg, err = w:recv(30000)
+    if msg then print(msg) elseif err ~= "timeout" then break end
+  end
+end)
+```
+
 ## json (built in)
 
 `local json = require("json")`: `json.decode(text)` -> `value` or
@@ -944,6 +980,7 @@ slot (the default).
 | Function | Description |
 |---|---|
 | `crypto.sha256(data)`, `crypto.hmac_sha256(key, data)` | 32 raw bytes. |
+| `crypto.sha1(data)` | 20 raw bytes (version 2). For protocols that ask for SHA-1, as WebSocket's handshake does: it no longer keeps a forger out, so don't build anything new on it. |
 | `crypto.random(n)` | `n` bytes (0..4096) from the hardware random number generator. |
 | `crypto.hex(data)` | Lowercase hex. |
 | `crypto.base64(data, [url])`, `crypto.unbase64(text)` | `url = true`: URL-safe alphabet, no padding. `unbase64` takes either alphabet, ignores padding and whitespace, and returns `nil` on other characters. |

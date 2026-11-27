@@ -17,10 +17,11 @@ file(GLOB FW_LUA_SRCS ${GLOB_DEPENDS} ${LUA_DIR}/*.c)
 list(FILTER FW_LUA_SRCS EXCLUDE REGEX ".*/(lua|luac|linit|liolib|loslib|loadlib|ldblib)\\.c$")
 
 file(GLOB FW_APP_SRCS ${GLOB_DEPENDS} ${ROOT}/app/src/*.c)
-set(FW_LIB_SRCS ${ROOT}/libs/font5x7/font5x7.c ${ROOT}/libs/sha256/sha256.c ${ROOT}/third_party/tjpgd/tjpgd.c
+set(FW_LIB_SRCS ${ROOT}/libs/font5x7/font5x7.c ${ROOT}/libs/sha256/sha256.c ${ROOT}/libs/sha1/sha1.c
+    ${ROOT}/third_party/tjpgd/tjpgd.c
     ${ROOT}/third_party/qrcodegen/qrcodegen.c)
 set(FW_SRC_INCLUDES
-    ${ROOT}/platform/boards/${BOARD} ${ROOT}/app/src ${ROOT}/libs/font5x7 ${ROOT}/libs/sha256
+    ${ROOT}/platform/boards/${BOARD} ${ROOT}/app/src ${ROOT}/libs/font5x7 ${ROOT}/libs/sha256 ${ROOT}/libs/sha1
     ${ROOT}/third_party/tjpgd ${ROOT}/third_party/bmi270 ${ROOT}/third_party/qrcodegen ${LUA_DIR})
 
 # The built-in Lua libraries, embedded as byte arrays (builtin_lua.c).
