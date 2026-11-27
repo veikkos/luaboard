@@ -127,11 +127,18 @@ static void say_bye(client_t *c, const char *why)
 /* A client has proved it has the key: the other clients go (the newest
    login wins). Done the moment it happens: a client that logs in, gets its
    reply and hangs up within one pass of the main loop replaces the old one
-   as any other does. */
+   as any other does. But while a firmware update runs, a client that is
+   logged in stays, and the newer one is sent away: the old one may be
+   sending the update (a studio that reconnects by itself cut a CLI's update
+   short that way). An update that stalls ends by itself, and with it this. */
 static void logged_in_now(client_t *c)
 {
     proto_link_login(c->link);
     c->authed = true;
+    bool taken = false;
+    for (int i = 0; i < NET_MAX_CLIENTS; i++)
+        if (&s_clients[i] != c && s_clients[i].fd >= 0 && s_clients[i].authed) taken = true;
+    if (taken && ota_active()) { say_bye(c, "a firmware update is running"); return; }
     for (int i = 0; i < NET_MAX_CLIENTS; i++)
         if (&s_clients[i] != c && s_clients[i].fd >= 0) say_bye(&s_clients[i], "another client logged in");
 }
@@ -145,7 +152,7 @@ static int tcp_read(void *ctx, uint8_t *buf, size_t cap)
         if (got < 0) { close_client(c, "a frame didn't decrypt"); return 0; }
         if (got > 0) {
             if (c->wl.verified && !c->authed) logged_in_now(c);
-            return got;
+            return c->fd >= 0 ? got : 0;        /* (sent away as it logged in: nothing of it is read) */
         }
         size_t room;
         uint8_t *dst = wl_room(&c->wl, &room);

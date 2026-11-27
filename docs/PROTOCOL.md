@@ -330,7 +330,10 @@ logging in. A new connection only pushes out the oldest client that hasn't
 logged in (`EVT bye another client connected`). A logged-in client is
 replaced only when a newer client logs in (`EVT bye another client logged
 in`), so a PC reconnecting after a network blip still wins over its own dead
-connection, while someone without the key can't kick you off. A client that
+connection, while someone without the key can't kick you off. Not while a
+firmware update runs: then the logged-in client stays, as it may be the one
+sending the update, and the newer one is dropped as it logs in (`EVT bye a
+firmware update is running`). A client that
 hasn't logged in after 60 s is dropped (`EVT bye no login in time`), as is
 one that stops reading for 2 s, and all of them when Wi-Fi is lost or turned
 off. Connections from the device's own scripts (`net.connect` to its own
@@ -489,7 +492,7 @@ script ends. `ERR no pending browser request <id>` if the id isn't pending.
 | `EVT time synced <ISO 8601>` | The clock was set from the network for the first time since boot. |
 | `EVT time usb <ISO 8601>` | The [USB tether](#usb-tether) started, and the clock was set from the computer's. |
 | `EVT wifi lost reason=<n>` | Lost the network after being connected (ESP-IDF disconnect reason). The device keeps retrying with back-off up to 30 s. |
-| `EVT bye <why>` | Sent to a Wi-Fi client just before the device drops it: `another client connected`, `another client logged in`, `no login in time`, `paired anew` or `unpaired`. Encrypted to a logged-in client, in clear text to one that hasn't finished `HELLO`, and not sent to one in between. |
+| `EVT bye <why>` | Sent to a Wi-Fi client just before the device drops it: `another client connected`, `another client logged in`, `a firmware update is running`, `no login in time`, `paired anew` or `unpaired`. Encrypted to a logged-in client, in clear text to one that hasn't finished `HELLO`, and not sent to one in between. |
 | `EVT cleared <app>` | The app's data (secrets, stored values, Bluetooth bonds) was cleared from the device's menu. |
 
 ## Example session

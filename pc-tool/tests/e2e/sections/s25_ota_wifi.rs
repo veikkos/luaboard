@@ -3,6 +3,7 @@
 use std::fs;
 
 use super::ota::{cp, info, sha256, Raw, REBOOTS};
+use super::s06_wifi::monitor;
 use crate::harness::{grep, EXE, T};
 
 pub fn run(t: &mut T) {
@@ -48,6 +49,11 @@ pub fn run(t: &mut T) {
     if wi(t, &["info"]).contains("slot:") {
         r.push_str("wifi info: True\n");
     }
+    // A Wi-Fi client that is logged in stays so while the update runs: a newer login
+    // doesn't replace it (it may be the one sending the update), it is turned away.
+    let _first = monitor(t, &tcp, "first.txt");
+    t.until(2.0, |t| grep("^monitoring", &t.read("first.txt")));
+    let late = wi(t, &["info"]).replace('\n', " ");
     t.ctl(&["advance=3050"]); // the image stops for 3 s of the device's time (just: the quiet after counts too)
     if t.until(3.0, |_| raw.has("ERR upload timeout")) {
         r.push_str("timeout: True\n");
@@ -79,6 +85,11 @@ pub fn run(t: &mut T) {
     let ok = grep("wifi run: .*a firmware update is running", &r) && r.contains("wifi info: True");
     t.check(ok, "during an update another link may look but not run apps", |_| {
         format!("other link during update: {r}")
+    });
+    let kept = t.until(2.0, |t| t.read("first.txt").contains("ota failed")) && !t.read("first.txt").contains("bye");
+    let ok = late.contains("a firmware update is running") && !late.contains("slot:") && kept;
+    t.check(ok, "during an update a newer Wi-Fi login is turned away, and the client that was there stays", |t| {
+        format!("the newer login: {late} / the first client: {}", t.read("first.txt"))
     });
     let ok = r.contains("pongs while it streams: 0") && r.contains("pong after: True");
     t.check(ok, "after an upload timeout the rest of the image isn't run as commands", |_| {

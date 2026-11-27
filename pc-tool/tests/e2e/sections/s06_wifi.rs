@@ -340,7 +340,7 @@ fn wrong_keys(keys: &str) -> String {
 }
 
 /// `luaboard -p W monitor --secs 3` in the background, its output to `out`.
-fn monitor(t: &T, w: &str, out: &str) -> Bg {
+pub(super) fn monitor(t: &T, w: &str, out: &str) -> Bg {
     let f = fs::File::create(t.work.join(out)).unwrap();
     let child = Command::new(&t.cli)
         .args(["-p", w, "monitor", "--secs", "3"])
@@ -354,7 +354,7 @@ fn monitor(t: &T, w: &str, out: &str) -> Bg {
 }
 
 /// A background process, stopped when dropped.
-struct Bg(Child);
+pub(super) struct Bg(Child);
 
 impl Drop for Bg {
     fn drop(&mut self) {

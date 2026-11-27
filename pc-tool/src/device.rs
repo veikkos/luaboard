@@ -211,17 +211,33 @@ impl Device {
     /// then PING until the device answers. Everything that arrives before the
     /// PONG (stale output, an error for the partial line) is dropped, as the
     /// link keeps order, so there is no need to wait for the line to go quiet.
+    /// But for the device's goodbye (`EVT bye <why>`): when it then hangs up,
+    /// that is why, and the error says so.
     fn sync(&mut self) -> Result<()> {
         self.write_all(b"\n")?;
         self.rx.clear();
+        let mut bye: Option<String> = None;
         for _ in 0..3 {
             self.send_line("PING")?;
             let deadline = Instant::now() + Duration::from_millis(800);
             while Instant::now() < deadline {
-                if let Some(line) = self.read_line(Duration::from_millis(50))? {
-                    if Msg::parse(&line) == Msg::Ok("PONG".into()) {
-                        return Ok(());
+                let line = match self.read_line(Duration::from_millis(50)) {
+                    Ok(line) => line,
+                    Err(e) => {
+                        return Err(match bye {
+                            Some(why) => e.context(format!("the device turned this connection away: {why}")),
+                            None => e,
+                        })
                     }
+                };
+                match line.as_deref().map(Msg::parse) {
+                    Some(Msg::Ok(s)) if s == "PONG" => return Ok(()),
+                    Some(Msg::Evt(s)) => {
+                        if let Some(why) = s.strip_prefix("bye ") {
+                            bye = Some(why.to_string());
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
