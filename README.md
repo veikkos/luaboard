@@ -27,8 +27,8 @@ So far it has run on one real board, a CoreS3 Lite with the newer display
 - Apps from the [marketplace](https://github.com/veikkos/luaboard-marketplace),
   from Spotify and Google Calendar to electricity prices and Home Assistant,
   installed and updated on the board.
-- Graphics, touch, sound, sensors, a serial port, PWM, an SD card, Bluetooth
-  LE, TLS, MQTT, HTTP and OAuth built in.
+- Graphics, touch, sound, sensors, a camera, a serial port, PWM, an SD card,
+  Bluetooth LE, TCP and UDP, TLS, MQTT, HTTP, WebSocket and OAuth built in.
 
 ![The studio typing into an app: on every pause the app reloads on the device and the Display panel shows it](pc-tool/studio.gif)
 
@@ -135,8 +135,8 @@ Scripts are sandboxed: 4 MiB heap, 1 s watchdog per call, no `io`/`os`.
 Each run starts clean. Errors stop the script and show file, line and message
 on the device and in the studio.
 
-Networking uses non-blocking sockets with TLS, plus built-in `mqtt`, `http`,
-`json` and `oauth` libraries. `task()` and `sleep()` run network code as
+Networking uses non-blocking TCP sockets with TLS and UDP, plus built-in
+`mqtt`, `http`, `ws` (WebSocket), `json` and `oauth` libraries. `task()` and `sleep()` run network code as
 coroutines:
 
 ```lua

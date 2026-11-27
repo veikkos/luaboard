@@ -32,8 +32,8 @@ app that fits comes.
 
 | Version | Since |
 |---|---|
-| 1 | Everything below that isn't listed under a later version: the first release, 1.0.0. |
-| 2 | UDP: `net.udp` and its sockets. `cert_name` for TLS in `net.connect`, `http.request` and `mqtt.connect`. WebSocket: the `ws` library. `crypto.sha1`. |
+| 1 | 1.0.0: everything below that isn't listed under a later version. |
+| 2 | 1.1.0: UDP: `net.udp` and its sockets. `cert_name` for TLS in `net.connect`, `http.request` and `mqtt.connect`. WebSocket: the `ws` library. `crypto.sha1`. |
 
 ## Errors
 

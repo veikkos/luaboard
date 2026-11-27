@@ -1,6 +1,6 @@
 [package]
 name = "luaboard-tools"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 description = "PC tools for luaboard: install and control Lua apps over USB or Wi-Fi"
 license = "MIT"
