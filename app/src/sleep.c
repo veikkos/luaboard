@@ -19,6 +19,8 @@ static uint32_t s_usb_at;
 static bool s_usb_read;
 static bool s_started;
 static bool s_keep;              /* an app keeps the screen on */
+static bool s_awake;             /* a computer keeps the device awake (sleep_stay_awake) ... */
+static uint32_t s_awake_until;   /* ... until then */
 
 void sleep_now(void)
 {
@@ -40,7 +42,7 @@ bool sleep_light_allowed(void)
         s_usb_read = true;
     }
     return !s_usb && !sound_playing() && !ota_active() && !app_install_busy() && !ble_busy() && !lua_uart_is_open() &&
-           !lua_api_pwm_running() && !hw_camera_on();
+           !lua_api_pwm_running() && !hw_camera_on() && !sleep_stay_awake_left(now);
 }
 
 bool sleep_active(void) { return hw_screen_is_off(); }
@@ -60,8 +62,22 @@ void sleep_keep_awake(bool on) { s_keep = on; }
 
 bool sleep_kept_awake(void) { return s_keep; }
 
+void sleep_stay_awake(uint32_t now, uint32_t ms)
+{
+    s_awake = ms > 0;
+    s_awake_until = now + ms;
+    if (s_awake) sleep_activity(now);
+}
+
+uint32_t sleep_stay_awake_left(uint32_t now)
+{
+    if (s_awake && (int32_t)(s_awake_until - now) <= 0) s_awake = false;
+    return s_awake ? s_awake_until - now : 0;
+}
+
 void sleep_tick(uint32_t now)
 {
+    if (sleep_stay_awake_left(now)) s_active_at = s_touched_at = now;   /* as if touched: the settings count from its end */
     if (!s_started) s_touched_at = now;
     if (!s_started || s_keep) { s_active_at = now; s_started = true; }   /* kept: idle from when it's let go */
     int min = settings_screen_off();

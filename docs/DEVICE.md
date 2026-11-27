@@ -61,6 +61,12 @@ On USB power it stays on. An app can turn the device off too
 itself. The power key turns it on again. An app can also ask to be woken:
 the device then turns itself on in time.
 
+Commands from a computer don't count as a touch, so a device worked on over
+Wi-Fi sleeps and turns off as set. `luaboard awake 60` keeps it awake for 60
+minutes (the screen on, no turning off), `luaboard awake off` ends that, and
+`luaboard info` shows the minutes left. It also ends when the device
+restarts.
+
 On USB power the device doesn't power down when an app turns it off: the
 app stops and the screen goes off until the power key is pressed (or the
 app's wake-up time comes), and a computer connected to it stays connected.

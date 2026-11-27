@@ -154,6 +154,12 @@ enum Cmd {
     Format,
     /// Show or set the app started at boot instead of the menu (<app> | off)
     Autorun { app: Option<String> },
+    /// Keep the device awake for MINUTES (screen on, no turning itself off),
+    /// e.g. while working on it over Wi-Fi; off ends it, alone shows what's left
+    Awake {
+        #[arg(value_name = "MINUTES | off")]
+        minutes: Option<String>,
+    },
     /// Show the device's clock (set from the network once Wi-Fi is up)
     Time {
         /// Ask the time server now (it's also refreshed every 6 h by itself)
@@ -676,6 +682,10 @@ fn main() -> Result<()> {
         Cmd::Autorun { app } => {
             let mut dev = open()?;
             println!("{}", dev.autorun(app.as_deref(), a)?);
+        }
+        Cmd::Awake { minutes } => {
+            let mut dev = open()?;
+            println!("{}", dev.awake(minutes.as_deref(), a)?);
         }
         Cmd::Time { sync } => {
             let mut dev = open()?;

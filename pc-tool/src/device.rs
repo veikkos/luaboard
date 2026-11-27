@@ -574,6 +574,17 @@ impl Device {
         self.command(&cmd, a).map(|r| r.0)
     }
 
+    /// Keep the device awake (screen on, not turning itself off) for a
+    /// time: `Some(minutes)` or `Some("off")` sets it. Returns `AWAKE
+    /// <minutes left>|off`.
+    pub fn awake(&mut self, minutes: Option<&str>, a: &mut dyn FnMut(Msg)) -> Result<String> {
+        let cmd = match minutes {
+            Some(v) => format!("AWAKE {v}"),
+            None => "AWAKE".to_string(),
+        };
+        self.command(&cmd, a).map(|r| r.0)
+    }
+
     pub fn apps(&mut self, a: &mut dyn FnMut(Msg)) -> Result<Vec<AppInfo>> {
         let (_, lines) = self.command("APPS", a)?;
         lines

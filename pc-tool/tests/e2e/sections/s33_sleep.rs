@@ -138,5 +138,51 @@ pub fn run(t: &mut T) {
     t.ctl(&["usb=1"]);
     let ok = t.until(3.0, |t| t.eval("sys.info().boot") == "power");
     t.check(off && ok, "USB plugged into a board that is off turns it on", |_| format!("off {off}, on {ok}"));
+
+    t.say("   luaboard awake: a computer keeps the device awake for a time");
+    let awake =
+        |t: &T| t.e(&["info"]).lines().find_map(|l| l.trim().strip_prefix("awake:").map(|v| v.trim().to_string()));
+    t.ctl(&["usb=0", "power=short", "advance=300"]); // on battery, at home; Turn off after is 5 min
+    t.tap_at(60, ui::SETTINGS);
+    t.tap_at(60, ui::row(2)); // Sleep after: never -> 1 min
+    let none = t.e(&["awake"]);
+    let set = t.e(&["awake", "10"]);
+    let ok = none.contains("AWAKE off") && set.contains("AWAKE 10") && awake(t).as_deref() == Some("10");
+    t.check(ok, "awake 10: asked for, and shown in info", |t| {
+        format!("before: {none}, set: {set}, info: {:?}", awake(t))
+    });
+    t.advance(301_000); // past both settings' times
+    let ok = t.is("on") && screen(t) == "on" && awake(t).as_deref() == Some("5");
+    t.check(ok, "while it lasts the screen stays on and the device doesn't turn off", |t| {
+        format!("on {}, screen {}, left {:?}", t.is("on"), screen(t), awake(t))
+    });
+    t.eval("disp.sleep(true)");
+    t.advance(1_100);
+    let asleep = screen(t) == "off" && !t.is("light");
+    let again = t.e(&["awake", "1"]);
+    let ok = asleep && again.contains("AWAKE 1") && screen(t) == "on";
+    t.check(ok, "asleep meanwhile the chip stays up; asking again wakes the screen", |t| {
+        format!("asleep without light sleep {asleep}, {again}, screen {}", screen(t))
+    });
+    t.advance(61_000); // it ran out: the settings count from there
+    let ended = t.e(&["awake"]).contains("AWAKE off") && awake(t).as_deref() == Some("-") && screen(t) == "on";
+    t.advance(61_000);
+    let slept = screen(t) == "off";
+    t.check(ended && slept, "it ends by itself, and Sleep after counts from then", |t| {
+        format!("ended {ended}, screen a minute later {}", screen(t))
+    });
+    t.e(&["awake", "10"]);
+    let off = t.e(&["awake", "off"]);
+    let bad = t.e(&["awake", "soon"]);
+    t.advance(61_000);
+    let ok = off.contains("AWAKE off") && bad.contains("usage: AWAKE") && screen(t) == "off";
+    t.check(ok, "awake off ends it at once; anything else is turned down", |t| {
+        format!("{off}, {bad}, screen {}", screen(t))
+    });
+    t.advance(300_000);
+    let off = t.wait_off();
+    t.check(off, "... and left alone the device turns itself off again", |_| "still on".into());
+    t.ctl(&["power=short"]);
+    t.until(3.0, |t| t.eval("sys.info().boot") == "power");
     t.stop();
 }

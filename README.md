@@ -166,7 +166,8 @@ Paired, the board doesn't need to be within reach. The studio's Display
 panel mirrors its screen and takes clicks, drags and keys as touches and
 button presses, so you can write, run and try an app on a device across the
 house. The CLI can do the same, for example `luaboard touch 160 120` or
-`luaboard touch B --hold 800`.
+`luaboard touch B --hold 800`, and `luaboard awake 60` keeps the board from
+sleeping or turning itself off meanwhile.
 
 Firmware updates from a computer go over the same link, USB or Wi-Fi
 ([pc-tool/README.md](pc-tool/README.md#firmware-updates)).

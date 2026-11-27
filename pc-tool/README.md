@@ -79,6 +79,7 @@ $E -p tcp://192.168.1.23:3333 ls
 | `save`, `format`, `autorun [APP\|off]` | Install all RAM uploads. Delete all apps and secrets. Set the boot app |
 | `screenshot FILE.ppm` | Save the screen |
 | `touch X Y`, `touch A\|B\|C`, `touch power` `[--hold MS]` | Touch the device from here: a point on the screen, a touch button, or the power key. `--hold 800` is a long press |
+| `awake [MINUTES\|off]` | Keep the device awake that long (screen on, no turning itself off), for working on it from here. `off` ends it, alone shows what's left |
 | `eval CODE` | Run Lua and print the result |
 | `monitor [--secs N]` | Stream output and events |
 | `tether [--allow-local]` | Lend the device this computer's network over USB while it has no Wi-Fi, and stream its output. Its apps and update checks then connect through this computer, TLS still checked on the device. `--allow-local` lets them reach this computer's own addresses (`127.0.0.1`) too, see [USB tether](../docs/PROTOCOL.md#usb-tether) |

@@ -25,6 +25,13 @@ void sleep_keep_awake(bool on);
 bool sleep_kept_awake(void);
 /** Turn the screen off if it has been idle for the setting's time. */
 void sleep_tick(uint32_t now);
+/** A computer asks the device to stay awake for `ms` from `now` (0: no
+ *  longer): the screen wakes, and until then the device is as if touched all
+ *  the while, so neither Sleep after nor Turn off after comes, and the chip
+ *  doesn't go into light sleep. Nothing is stored: it ends with a restart. */
+void sleep_stay_awake(uint32_t now, uint32_t ms);
+/** How much of that is left at `now`, in ms; 0 when none. */
+uint32_t sleep_stay_awake_left(uint32_t now);
 /** hw_millis() of the last touch or key: what the Turn off after setting
  *  counts from, whether or not an app keeps the screen awake. */
 uint32_t sleep_idle_since(void);

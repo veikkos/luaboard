@@ -173,6 +173,9 @@
    seen that late at worst), where it otherwise waits one tick. */
 #define POWER_LIGHT_SLEEP    1
 #define SLEEP_POLL_MS        50
+/* The longest a computer can ask the device to stay awake for at a time
+   (the AWAKE command), in minutes: one forgotten ends by itself. */
+#define AWAKE_MAX_MIN        (24 * 60)
 
 /* The microSD card (sdcard.c): where its FAT file system is mounted, and how
    long an empty slot is left alone before it's looked at again (a mount

@@ -33,6 +33,7 @@
 #include "script.h"
 #include "secrets.h"
 #include "settings.h"
+#include "sleep.h"
 #include "tun.h"
 #include "update.h"
 #include "vfs.h"
@@ -173,6 +174,12 @@ static char *next_word(char **s)
 
 /* ----------------------------------------------------------- commands */
 
+/* The minutes of staying awake that are left, counting a started one. */
+static unsigned awake_minutes(void)
+{
+    return (unsigned)((sleep_stay_awake_left(hw_millis()) + 59999) / 60000);
+}
+
 static void cmd_info(char *args)
 {
     size_t used, peak, limit, ram, fused, ftotal;
@@ -185,13 +192,15 @@ static void cmd_info(char *args)
     const update_manifest_t *upd = update_available();
     size_t mem_free, mem_low;
     hw_mem_stats(&mem_free, &mem_low);
-    reply_ok("fw=%s ver=%s board=%s model=%s lua=%s api=%d apps=%d flash=%zu/%zu ram=%zu/%d heap=%zu/%zu running=%s autorun=%s ip=%s auth=%s time=%s target=%s slot=%s ota=%s screen=%s reset=%s update=%s app_updates=%d mem=%zu/%zu",
+    char awake[12] = "-";
+    if (awake_minutes()) snprintf(awake, sizeof awake, "%u", awake_minutes());
+    reply_ok("fw=%s ver=%s board=%s model=%s lua=%s api=%d apps=%d flash=%zu/%zu ram=%zu/%d heap=%zu/%zu running=%s autorun=%s ip=%s auth=%s time=%s target=%s slot=%s ota=%s screen=%s reset=%s update=%s app_updates=%d mem=%zu/%zu awake=%s",
              FW_NAME, fw_version(), BOARD_NAME, hw_model(), LUA_VERSION_MAJOR "." LUA_VERSION_MINOR "." LUA_VERSION_RELEASE,
              APP_LUA_API, napps, fused, ftotal, ram, VFS_RAM_CAPACITY, used, limit,
              script_running() ? script_current() : "-", autostart[0] ? autostart : "-", net_ip(),
              auth_paired() ? "key" : "none", now, CONFIG_IDF_TARGET, ota_slot(), ota_state(),
              hw_screen_is_off() ? "off" : "on", hw_reset_reason(),
-             upd ? upd->version : update_manual() ? "manual" : "-", app_update_count(), mem_free, mem_low);
+             upd ? upd->version : update_manual() ? "manual" : "-", app_update_count(), mem_free, mem_low, awake);
 }
 
 static void ls_line(const char *path, size_t size, uint32_t crc, void *ctx)
@@ -389,6 +398,25 @@ static void cmd_key(char *args)
     if (strcasecmp(k, "POWER") || *next_word(&args)) { reply_err("usage: KEY POWER"); return; }
     buttons_remote_power();
     reply_ok("KEY POWER");
+}
+
+/* AWAKE [<minutes>|off]: stay awake that long from now, or no longer; alone,
+   how long is left. For working on a device from a computer: its commands
+   aren't a touch, so the device's settings would let it sleep or turn off. */
+static void cmd_awake(char *args)
+{
+    char *a = next_word(&args), *end;
+    if (*a) {
+        bool off = !strcasecmp(a, "off");
+        long min = strtol(a, &end, 10);
+        if (*next_word(&args) || (!off && (*end || min < 1 || min > AWAKE_MAX_MIN))) {
+            reply_err("usage: AWAKE [<minutes 1..%d>|off]", AWAKE_MAX_MIN);
+            return;
+        }
+        sleep_stay_awake(hw_millis(), off ? 0 : (uint32_t)min * 60000u);
+    }
+    if (awake_minutes()) reply_ok("AWAKE %u", awake_minutes());
+    else reply_ok("AWAKE off");
 }
 
 /* The app on the screen (running, or stopped on its error screen) if it's
@@ -813,6 +841,7 @@ static const struct {
     { "FB", cmd_fb, true },
     { "TOUCH", cmd_touch, false },
     { "KEY", cmd_key, false },
+    { "AWAKE", cmd_awake, false },
     { "RM", cmd_rm, false },
     { "RUN", cmd_run, false },
     { "STOP", cmd_stop, false },
