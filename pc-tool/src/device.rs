@@ -293,14 +293,19 @@ impl Device {
         }
     }
 
+    /// `n` raw bytes. The timeout is for the link going quiet, not for the
+    /// whole of them: a big payload over a slow link (a screenshot, a busy
+    /// computer) is read as long as it keeps coming.
     fn read_bytes(&mut self, n: usize) -> Result<Vec<u8>> {
-        let end = Instant::now() + self.timeout;
+        let mut end = Instant::now() + self.timeout;
         while self.rx.len() < n {
             let left = end.saturating_duration_since(Instant::now());
             if left.is_zero() {
                 bail!("timeout reading {n} bytes (got {})", self.rx.len());
             }
-            self.fill(left)?;
+            if self.fill(left)? > 0 {
+                end = Instant::now() + self.timeout;
+            }
         }
         Ok(self.rx.drain(..n).collect())
     }
@@ -892,6 +897,58 @@ mod tests {
         // The 42 came after the resync PING and was dropped with everything
         // up to the PONG; the next command gets its own reply.
         assert_eq!(dev.command("PING", &mut a).unwrap().0, "PONG");
+    }
+
+    /// A device whose data comes a little at a time: `chunk` bytes per
+    /// read, each after `every` (none at all once `data` is used up).
+    struct Trickle {
+        data: Vec<u8>,
+        chunk: usize,
+        every: Duration,
+    }
+
+    impl Read for Trickle {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            std::thread::sleep(self.every);
+            if self.data.is_empty() {
+                return Err(std::io::ErrorKind::TimedOut.into());
+            }
+            let n = buf.len().min(self.chunk).min(self.data.len());
+            buf[..n].copy_from_slice(&self.data[..n]);
+            self.data.drain(..n);
+            Ok(n)
+        }
+    }
+
+    impl Link for Trickle {
+        fn set_wait(&mut self, _: Duration) {}
+    }
+
+    impl Write for Trickle {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_slow_transfer_that_keeps_coming_is_read_whole() {
+        // 20 pieces, one every 20 ms: 400 ms in all, twice the timeout, but
+        // never quiet for long. (A screenshot over a slow link, a busy computer.)
+        let slow = Trickle { data: vec![7; 2000], chunk: 100, every: Duration::from_millis(20) };
+        let mut dev = Device::on(Box::new(slow));
+        dev.timeout = Duration::from_millis(200);
+        assert_eq!(dev.read_bytes(2000).unwrap().len(), 2000);
+        // One that stops coming fails once it has been quiet for the timeout.
+        let stalled = Trickle { data: vec![7; 500], chunk: 100, every: Duration::from_millis(1) };
+        let mut dev = Device::on(Box::new(stalled));
+        dev.timeout = Duration::from_millis(100);
+        let t0 = Instant::now();
+        let err = dev.read_bytes(2000).unwrap_err().to_string();
+        assert!(err.contains("got 500"), "{err}");
+        assert!(t0.elapsed() < Duration::from_secs(2));
     }
 
     #[test]
