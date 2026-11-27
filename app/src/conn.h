@@ -37,10 +37,11 @@ typedef struct {
 /** A closed connection, to open or adopt. */
 void conn_init(conn_t *c);
 /** Start connecting to host:port, with TLS if tls (trusting ca_pem, else
- *  the built-in CAs). NULL if under way, or already failed (closed, the
+ *  the built-in CAs; the certificate has to be for cert_name, or for host
+ *  when that is NULL). NULL if under way, or already failed (closed, the
  *  reason in err or errmsg); else why it can't start (left closed). */
 const char *conn_open(conn_t *c, const char *host, uint16_t port, bool tls, const char *ca_pem, size_t ca_len,
-                      bool app);
+                      const char *cert_name, bool app);
 /** A connection that came in (accept): open, plain TCP. */
 void conn_adopt(conn_t *c, int fd);
 /** Move the wait for the network, the lookup, the connect or the handshake

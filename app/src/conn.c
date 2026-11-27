@@ -154,6 +154,7 @@ static const char *begin(conn_t *c)
 }
 
 const char *conn_open(conn_t *c, const char *host, uint16_t port, bool tls, const char *ca_pem, size_t ca_len,
+                      const char *cert_name,
                       bool app)
 {
     conn_close(c);
@@ -165,7 +166,8 @@ const char *conn_open(conn_t *c, const char *host, uint16_t port, bool tls, cons
     c->app = app;
     if (tls) {
         c->tls = calloc(1, sizeof *c->tls);
-        const char *e = c->tls ? tls_setup(c->tls, bio_send, bio_recv, c, host, ca_pem, ca_len) : "out of memory";
+        const char *e = c->tls ? tls_setup(c->tls, bio_send, bio_recv, c, cert_name ? cert_name : host, ca_pem, ca_len)
+                               : "out of memory";
         if (e) { conn_close(c); return e; }
     }
     if (waiting_for_wifi()) {

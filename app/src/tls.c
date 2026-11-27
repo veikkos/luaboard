@@ -8,7 +8,7 @@
 #include "esp_crt_bundle.h"
 #include "psa/crypto.h"
 
-const char *tls_setup(tls_t *t, mbedtls_ssl_send_t *send, mbedtls_ssl_recv_t *recv, void *ctx, const char *host,
+const char *tls_setup(tls_t *t, mbedtls_ssl_send_t *send, mbedtls_ssl_recv_t *recv, void *ctx, const char *name,
                       const char *ca_pem, size_t ca_len)
 {
     static bool psa_ready;
@@ -37,7 +37,7 @@ const char *tls_setup(tls_t *t, mbedtls_ssl_send_t *send, mbedtls_ssl_recv_t *re
         return "no root certificates available";
     }
     if (mbedtls_ssl_setup(&t->ssl, &t->conf) != 0) return "TLS setup failed";
-    if (mbedtls_ssl_set_hostname(&t->ssl, host) != 0) return "bad TLS host name";
+    if (mbedtls_ssl_set_hostname(&t->ssl, name) != 0) return "bad TLS host name";
     mbedtls_ssl_set_bio(&t->ssl, ctx, send, recv, NULL);
     return NULL;
 }

@@ -76,7 +76,7 @@ local function parse_url(url, opts)
   local scheme, host, port = tostring(url):match('^(mqtts?)://([^:/]+):?(%d*)$')
   if not host then host, port = tostring(url):match('^([^:/]+):?(%d*)$') end
   if not host then fail('bad broker address: ' .. tostring(url)) end
-  local tls = scheme == 'mqtts' or opts.tls or opts.ca ~= nil
+  local tls = scheme == 'mqtts' or opts.tls or opts.ca ~= nil or opts.cert_name ~= nil
   return host, tonumber(port) or opts.port or (tls and 8883 or 1883), tls
 end
 
@@ -170,7 +170,7 @@ end
 -- One connection attempt: TCP, CONNECT (with will), CONNACK.
 function Client:_open()
   local o = self.opts
-  local s, err = net.connect(self.host, self.port, self.tls and { tls = true, ca = o.ca } or nil)
+  local s, err = net.connect(self.host, self.port, self.tls and { tls = true, ca = o.ca, cert_name = o.cert_name } or nil)
   if not s then return nil, err end
   local ok
   ok, err = s:wait_connected(o.timeout)
@@ -382,7 +382,7 @@ function Client:queued() return #self.queue end
 -- Connect to a broker. Call inside task(). Returns a client or nil, error.
 -- opts: client_id, username, password, keepalive (s, default 60),
 --       clean (default true), timeout (ms, default 5000),
---       will = { topic, payload, qos, retain }, tls, ca (PEM),
+--       will = { topic, payload, qos, retain }, tls, ca (PEM), cert_name,
 --       reconnect (default true), queue (max queued messages, default 100; 0 = off),
 --       max_size (biggest packet taken from the broker, default 64 KiB),
 --       on_connect, on_close (as c.on_connect, c.on_close: set before the
@@ -397,6 +397,10 @@ function M.connect(url, opts)
   end
   for _, k in ipairs({ 'on_connect', 'on_close' }) do
     if opts[k] ~= nil and type(opts[k]) ~= 'function' then fail('mqtt.connect: opts.' .. k .. ' must be a function') end
+  end
+  local cn = opts.cert_name
+  if cn ~= nil and (type(cn) ~= 'string' or #cn == 0 or #cn > 253 or cn:find('\0', 1, true)) then
+    fail('mqtt.connect: opts.cert_name must be a name of 1 to 253 characters')
   end
   local host, port, tls = parse_url(url, opts)
   -- The default id is the board's own, so two boards running the same app

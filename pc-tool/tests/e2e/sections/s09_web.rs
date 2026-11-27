@@ -27,6 +27,17 @@ task(function()
     table.concat({ tostring(json.decode('{"a":')), select(2, json.decode('{"a":')) }, " ")
   R.sha = crypto.hex(crypto.sha256("abc")):sub(1, 16)
   R.b64 = crypto.unbase64(crypto.base64("luaboard?", true))
+  -- cert_name: the certificate is for 127.0.0.1, so by another name it needs the name said.
+  local L = "https://localhost:$TP"
+  local function outcome(st, b) return st == nil and (b:find("not trusted") and "rejected" or b) or tostring(b) end
+  R.named = outcome(http.get(L .. "/chunked", nil, { ca = CA, cert_name = "127.0.0.1" }))
+  R.unnamed = outcome(http.get(L .. "/chunked", nil, { ca = CA }))      -- (not on the connection kept just now)
+  local function redir(to) return "/redir?to=" .. http.urlencode(to) end
+  R.same = outcome(http.get(L .. redir("/chunked"), nil, { ca = CA, cert_name = "127.0.0.1" }))
+  -- Redirected to another server, that one is checked as itself, not as the name given for the first.
+  R.elsewhere = outcome(http.get("https://127.0.0.1:$TP" .. redir(L .. "/chunked"), nil, { ca = CA, cert_name = "127.0.0.1" }))
+  R.badname = select(2, pcall(http.get, L .. "/chunked", nil, { cert_name = true })) .. " | " ..
+    select(2, pcall(net.connect, "127.0.0.1", $TP, { cert_name = "a\0b" }))
   local _, jpeg = http.get("http://127.0.0.1:$WP/cover/0-300.jpg")
   R.jpeg = table.concat({ disp.jpeg(0, 0, jpeg, 2) }, "x")
   R.done = true
@@ -225,6 +236,15 @@ pub fn run(t: &mut T) {
     t.check(v == "hello chunked world", "https with a custom CA (opts.ca)", |_| format!("tls: {v}"));
     let v = t.eval("R.untrusted");
     t.check(v == "rejected", "unknown certificate rejected", |_| format!("untrusted: {v}"));
+    let v = t.eval("R.named, R.unnamed, R.same, R.elsewhere");
+    t.check(
+        v == "hello chunked world\trejected\thello chunked world\trejected",
+        "https with cert_name: for that server only, not on a connection kept for it, not for where it redirects",
+        |_| format!("with cert_name / without / redirected to itself / redirected elsewhere: {v}"),
+    );
+    let v = t.eval("R.badname");
+    let ok = v.matches("cert_name must be a name").count() == 2 && v.contains("web.lua:");
+    t.check(ok, "a cert_name that isn't a name is a wrong call, at the app's line", |_| format!("bad names: {v}"));
     let v = t.eval("R.chunked");
     t.check(v == "hello chunked world", "http chunked body", |_| format!("chunked: {v}"));
     let v = t.eval("R.close");

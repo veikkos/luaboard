@@ -10,7 +10,8 @@
 --
 -- request() returns status, body, headers (lowercase names), or nil, err when
 -- the request could not be made. Call it inside task(). https:// uses TLS with
--- certificate checks (opts.ca = PEM to trust your own CA). Redirects are
+-- certificate checks (opts.ca = PEM to trust your own CA, opts.cert_name = the
+-- name its certificate is for when that isn't the URL's host). Redirects are
 -- followed (opts.redirects, default 5; 0 returns the 3xx), without the
 -- credentials when to another server (Authorization, Cookie and the names in
 -- opts.private_headers, such as an API key's own header). Connections are
@@ -87,8 +88,8 @@ local function connect(host, port, o)
   end
 end
 
-local function open(scheme, host, port, opts, deadline)
-  local s, err = connect(host, port, scheme == 'https' and { tls = true, ca = opts.ca } or nil)
+local function open(scheme, host, port, ca, cert_name, deadline)
+  local s, err = connect(host, port, scheme == 'https' and { tls = true, ca = ca, cert_name = cert_name } or nil)
   if not s then return nil, err end
   local ok
   ok, err = s:wait_connected(remaining(deadline))
@@ -189,8 +190,9 @@ local function alive(c)
   return c.sock:status() == 'connected' and c.sock:recv(1) == ''
 end
 
--- One request and its response, no redirects.
-local function request1(opts, method, url, headers, body, deadline, max)
+-- One request and its response, no redirects. cert_name: the name this
+-- server's certificate is for, if not its host.
+local function request1(opts, cert_name, method, url, headers, body, deadline, max)
   local scheme, host, port, path = M.parse_url(url)
   local lines = { method .. ' ' .. path .. ' HTTP/1.1' }
   local has = {}
@@ -206,9 +208,12 @@ local function request1(opts, method, url, headers, body, deadline, max)
   end
   local req = table.concat(lines, '\r\n') .. '\r\n\r\n' .. body
 
-  -- Connections verified against a custom CA are only reused with that CA.
+  -- Connections verified against a custom CA, or for another name, are only
+  -- reused with that CA and that name (the name last: it may hold any character).
   local key = scheme .. '://' .. host .. ':' .. port
-  if scheme == 'https' and opts.ca then key = key .. '#' .. crypto.hex(crypto.sha256(opts.ca)):sub(1, 16) end
+  if scheme == 'https' and (opts.ca or cert_name) then
+    key = key .. '#ca=' .. (opts.ca and crypto.hex(crypto.sha256(opts.ca)):sub(1, 16) or '') .. '#name=' .. (cert_name or '')
+  end
   for attempt = 1, 2 do
     local c = idle[key]
     idle[key] = nil
@@ -216,7 +221,7 @@ local function request1(opts, method, url, headers, body, deadline, max)
     if c and not alive(c) then c.sock:close(); c, reused = nil, false end
     if not c then
       local err
-      c, err = open(scheme, host, port, opts, deadline)
+      c, err = open(scheme, host, port, opts.ca, cert_name, deadline)
       if not c then return nil, err end
     end
     local ok, err = c.sock:write_all(req)
@@ -255,6 +260,10 @@ function M.request(opts)
   local redirects = opts.redirects or DEFAULT_REDIRECTS
   local private = {}
   for k in pairs(PRIVATE) do private[k] = true end
+  local cert_name = opts.cert_name
+  if cert_name ~= nil and (type(cert_name) ~= 'string' or #cert_name == 0 or #cert_name > 253 or cert_name:find('\0', 1, true)) then
+    fail('http.request: cert_name must be a name of 1 to 253 characters')
+  end
   local extra = opts.private_headers
   if extra ~= nil and type(extra) ~= 'table' then fail('http.request: private_headers must be a list of header names') end
   for _, name in ipairs(extra or {}) do
@@ -263,7 +272,7 @@ function M.request(opts)
   end
 
   while true do
-    local status, rbody, rheaders = request1(opts, method, url, headers, body, deadline, max)
+    local status, rbody, rheaders = request1(opts, cert_name, method, url, headers, body, deadline, max)
     if not status then return nil, rbody end
     local loc = rheaders.location
     if not (loc and (status == 301 or status == 302 or status == 303 or status == 307 or status == 308)) then
@@ -278,10 +287,12 @@ function M.request(opts)
     if not next_url:match('^[hH][tT][tT][pP][sS]?://[^/?#]') then
       return nil, 'redirect to an url that is not http(s): ' .. loc:sub(1, 80)
     end
-    -- To another server: without the user's credentials.
+    -- To another server: without the user's credentials, and its
+    -- certificate is checked as its own (cert_name was the first one's).
     local function origin(u) local sc, hp = u:match('^(%a+)://([^/?#]+)') return sc:lower() .. '://' .. hp:lower() end
     if origin(next_url) ~= origin(url) then
       for k in pairs(headers) do if private[k:lower()] then headers[k] = nil end end
+      cert_name = nil
     end
     -- 303, and 301/302 after a POST (as browsers do), go on as a GET without the body.
     if status == 303 or ((status == 301 or status == 302) and method == 'POST') then

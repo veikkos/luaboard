@@ -118,6 +118,19 @@ task(function()
   if c then assert(c:publish("tls1/hello", "secure", {{ qos = 1 }})) end
   local c13, err3 = mqtt.connect("mqtts://127.0.0.1:{sp13}", {{ client_id = "tls13", ca = CA13, reconnect = false }})
   R.err13 = tostring(err3)
+  -- The certificate is for 127.0.0.1: reached by another name it isn't
+  -- trusted, unless cert_name says which name it has.
+  local function try(host, opts)
+    local s = assert(net.connect(host, {sp}, opts))
+    local ok, e = s:wait_connected(5000)
+    s:close()
+    return ok and "ok" or tostring(e)
+  end
+  R.byname = try("localhost", {{ ca = CA }})
+  R.named = try("localhost", {{ ca = CA, cert_name = "127.0.0.1" }})
+  R.wrongname = try("127.0.0.1", {{ ca = CA, cert_name = "tv.example" }})
+  local named, err4 = mqtt.connect("mqtts://localhost:{sp}", {{ client_id = "named", ca = CA, cert_name = "127.0.0.1", reconnect = false }})
+  R.mqttnamed = named and "ok" or tostring(err4)
   if c then R.done = true end
 end)
 "#,
@@ -133,6 +146,17 @@ end)
     let v = t.eval("R.untrusted");
     t.check(v.to_lowercase().contains("certificate not trusted"), "mqtts:// refuses a broker it can't verify", |_| {
         format!("untrusted: {v}")
+    });
+    // (what each try ended as, short: an EVAL's reply is one line of limited length)
+    let v = t.eval(r#"(R.byname:gsub("^.*TLS: ", "")), R.named, (R.wrongname:gsub("^.*TLS: ", "")), R.mqttnamed"#);
+    let p: Vec<&str> = v.split('\t').collect();
+    let ok = p.len() == 4
+        && p[0].contains("certificate not trusted")
+        && p[1] == "ok"
+        && p[2].contains("certificate not trusted")
+        && p[3] == "ok";
+    t.check(ok, "cert_name: the certificate is checked against that name instead of the host's", |_| {
+        format!("by another name / with cert_name / with a wrong cert_name / mqtt with cert_name: {v}")
     });
     let ok = tlog13.has("CONNECT tls13");
     t.check(ok, "MQTT over TLS 1.3 only", |t| format!("tls 1.3: {} / {}", t.eval("R.err13"), tlog13.text()));

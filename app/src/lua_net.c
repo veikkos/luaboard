@@ -10,6 +10,7 @@
  *       opts.tls = true            TLS (https, mqtts, ...): server certificate
  *                                  checked against the root CA bundle
  *       opts.ca = pem              trust this CA (PEM text) instead of the bundle
+ *       opts.cert_name = name      the certificate is for this name, not for host
  *   s:status()                    -> "connecting" | "connected" | "closed", err
  *                                    (with TLS: "connected" after the handshake)
  *   s:send(data)                  -> bytes accepted (may be < #data) | nil, err
@@ -178,7 +179,7 @@ static int l_connect(lua_State *L)
     lua_Integer port = luaL_checkinteger(L, 2);
     luaL_argcheck(L, port > 0 && port < 65536, 2, "port must be 1..65535");
     bool tls = false;
-    const char *ca = NULL;
+    const char *ca = NULL, *cert_name = NULL;
     size_t ca_len = 0;
     if (!lua_isnoneornil(L, 3)) {
         luaL_checktype(L, 3, LUA_TTABLE);
@@ -187,7 +188,17 @@ static int l_connect(lua_State *L)
         tls = lua_toboolean(L, -1);
         lua_getfield(L, 3, "ca");
         if (!lua_isnil(L, -1)) { ca = luaL_checklstring(L, -1, &ca_len); tls = true; }
-        lua_pop(L, 2);    /* ca stays valid: the opts table still references it */
+        lua_getfield(L, 3, "cert_name");
+        if (!lua_isnil(L, -1)) {
+            size_t n = lua_rawlen(L, -1);
+            /* (a name with a NUL in it would be checked only up to there) */
+            if (lua_type(L, -1) != LUA_TSTRING || n == 0 || n > 253 || strlen(lua_tostring(L, -1)) != n)
+                return luaL_error(L, "net.connect: opts.cert_name must be a name of 1 to 253 characters");
+            cert_name = lua_tostring(L, -1);
+            tls = true;
+        }
+        /* The three stay on the stack until the connection has them: the
+           opts table needn't hold on to what an __index of its made. */
     }
     luaL_argcheck(L, strlen(host) < DNS_HOST_MAX, 1, "host name too long");
     /* Out of sockets is a state, not a wrong call: nil, err, so http can
@@ -206,7 +217,7 @@ static int l_connect(lua_State *L)
     lsock_t *s = new_sock(L);
     snprintf(s->peer, sizeof s->peer, "%s:%d", host, (int)port);
     /* (an app's: never to this device's own control port) */
-    const char *e = conn_open(&s->c, host, (uint16_t)port, tls, ca, ca_len, true);
+    const char *e = conn_open(&s->c, host, (uint16_t)port, tls, ca, ca_len, cert_name, true);
     if (e) {
         lua_pushnil(L);
         lua_pushstring(L, e);

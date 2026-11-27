@@ -154,7 +154,7 @@ static const char *start(httpc_t *c)
     if (n < 0 || (size_t)n >= sizeof c->line) return "address too long";
     c->out_len = (size_t)n;
     c->out_off = 0;
-    const char *e = conn_open(&c->conn, c->host, c->port, c->https, NULL, 0, false);
+    const char *e = conn_open(&c->conn, c->host, c->port, c->https, NULL, 0, NULL, false);
     if (e) return e;
     progress(c);
     if (c->conn.state == CONN_CLOSED) conn_failed(c, NULL);

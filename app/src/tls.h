@@ -18,8 +18,11 @@ typedef struct {
 /** Set up the session; the handshake runs later, step by step. send and
     recv move the encrypted bytes, mbedTLS style: bytes moved, 0 from recv at
     the end, MBEDTLS_ERR_SSL_WANT_WRITE/WANT_READ for none now, else an
-    error. ctx is passed to them. NULL if ok, else why not. */
-const char *tls_setup(tls_t *t, mbedtls_ssl_send_t *send, mbedtls_ssl_recv_t *recv, void *ctx, const char *host,
+    error. ctx is passed to them. `name` is what the server's certificate
+    has to be for (the host connected to, unless the caller knows the
+    certificate by another name); it's also the name the server is asked
+    for. NULL if ok, else why not. */
+const char *tls_setup(tls_t *t, mbedtls_ssl_send_t *send, mbedtls_ssl_recv_t *recv, void *ctx, const char *name,
                       const char *ca_pem, size_t ca_len);
 /** One step of the handshake: 0 done, MBEDTLS_ERR_SSL_WANT_READ/WRITE call
     again, else an error. */

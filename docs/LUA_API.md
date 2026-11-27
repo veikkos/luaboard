@@ -33,7 +33,7 @@ app that fits comes.
 | Version | Since |
 |---|---|
 | 1 | Everything below that isn't listed under a later version: the first release, 1.0.0. |
-| 2 | UDP: `net.udp` and its sockets. |
+| 2 | UDP: `net.udp` and its sockets. `cert_name` for TLS in `net.connect`, `http.request` and `mqtt.connect`. |
 
 ## Errors
 
@@ -653,7 +653,7 @@ checked on the device, and `net.listen` takes none. The waiting helpers need a `
 | Function | Description |
 |---|---|
 | `net.wifi()` -> `state, [ip]` | The device's Wi-Fi: `"off"` (no network set up), `"connecting"` (joining, or rejoining after losing it) or `"connected"`, with the IP address. In the simulator, the simulated access point's state. |
-| `net.connect(host, port, [opts])` -> `socket` or `nil, err` | Start connecting (host name or IPv4 address). Then `s:wait_connected()`. A connection opened while Wi-Fi is still joining waits for it (an app started at boot runs a few seconds before the network is there), and so do `http` and `mqtt`, which are built on this. The device's own control port (3333) refuses connections from scripts. `opts.tls = true`: TLS (HTTPS, MQTTS, ...) with the server's certificate checked against the built-in root certificates. `opts.ca = pem` trusts that CA instead (your own server) and implies `tls`. |
+| `net.connect(host, port, [opts])` -> `socket` or `nil, err` | Start connecting (host name or IPv4 address). Then `s:wait_connected()`. A connection opened while Wi-Fi is still joining waits for it (an app started at boot runs a few seconds before the network is there), and so do `http` and `mqtt`, which are built on this. The device's own control port (3333) refuses connections from scripts. `opts.tls = true`: TLS (HTTPS, MQTTS, ...) with the server's certificate checked against the built-in root certificates. `opts.ca = pem` trusts that CA instead (your own server) and implies `tls`. `opts.cert_name = name` (version 2) checks the certificate against that name instead of `host`, for a server reached by an address its certificate doesn't name (a device on the local network whose certificate is for a fixed name); it implies `tls`, and the name is also the one the server is asked for. |
 | `net.listen(port)` -> `server` or `nil, err` | Accept incoming connections: `srv:accept()` -> `socket` or `nil`. Port 3333 is the device's own. |
 | `s:wait_connected([timeout_ms])` -> `true` or `nil, err` | Wait until connected (default 5 s). Closes the socket on timeout. |
 | `s:send(data)` -> `n` | Bytes accepted right now (may be fewer or 0, and 0 while connecting). `nil, "closed"` (or a TLS error) at the end. |
@@ -738,6 +738,7 @@ Options for `mqtt.connect`:
 | `port` | 1883, 8883 with TLS | Used when `url` has no port. |
 | `tls` | `false` | TLS, as `mqtts://` does. The broker's certificate is checked against the root certificate bundle. |
 | `ca` | none | PEM text of a CA to trust instead of the bundle (a broker with its own certificate). Implies `tls`. |
+| `cert_name` | none | The name the broker's certificate is for, when it isn't the URL's host (as in `net.connect`, version 2). Implies `tls`. |
 | `username`, `password` | none | |
 | `keepalive` | 60 s | A broker silent for 1.5× this is treated as gone (e.g. Wi-Fi dropped). 0 turns it off: no pings, and a dead connection goes unnoticed until a write fails. |
 | `will` | none | `{ topic, payload, qos, retain }`: published by the broker if the device disappears without `close()` (power cut, crash, lost Wi-Fi). |
@@ -780,7 +781,7 @@ end)
 
 | Function | Description |
 |---|---|
-| `http.request{ method, url, headers, body, timeout, max_size, ca, redirects, private_headers }` -> `status, body, headers` | `nil, err` if the request couldn't be made. `method` defaults to `GET`. A string argument is taken as `url`. `https://` uses TLS (`ca` as in `net.connect`). Header names in the result are lowercase. Repeated headers are joined with `", "`. `timeout` in ms, default 15000 (the whole request, redirects included). Maximum body 256 KB. `redirects`: how many to follow, default 5 (below). |
+| `http.request{ method, url, headers, body, timeout, max_size, ca, cert_name, redirects, private_headers }` -> `status, body, headers` | `nil, err` if the request couldn't be made. `method` defaults to `GET`. A string argument is taken as `url`. `https://` uses TLS (`ca` and `cert_name` as in `net.connect`). Header names in the result are lowercase. Repeated headers are joined with `", "`. `timeout` in ms, default 15000 (the whole request, redirects included). Maximum body 256 KB. `redirects`: how many to follow, default 5 (below). |
 | `http.get(url, [headers], [opts])`, `http.post(url, body, [headers], [opts])` | Shortcuts. `opts` takes the other `request` fields. |
 | `http.form(t)` / `http.parse_query(q)` | `{ a = 1 }` <-> `"a=1"` (URL-encoded, and `form` sorts the keys). |
 | `http.urlencode(s)`, `http.urldecode(s)` | |
