@@ -55,17 +55,19 @@ pub fn run(t: &mut T) {
     t.until(2.0, |t| grep("^monitoring", &t.read("first.txt")));
     let late = wi(t, &["info"]).replace('\n', " ");
     t.ctl(&["advance=3050"]); // the image stops for 3 s of the device's time (just: the quiet after counts too)
-    if t.until(3.0, |_| raw.has("ERR upload timeout")) {
-        r.push_str("timeout: True\n");
-    }
+                              // The rest of the image comes anyway, a PING inside it: all of it at once,
+                              // right after the timeout. (Waiting for the timeout's ERR first would move
+                              // the device's clock on while it waits, past the quiet the device drops
+                              // input until, on a slow computer.)
     let before = raw.pongs();
     for i in 0..10 {
-        // the rest of the image comes anyway, a PING inside it
         let from = (65536 + i * 4096).min(size);
         let to = (from + 4096).min(size);
         raw.send(&img[from..to]);
         raw.send(b"\nPING\n");
-        t.advance(100);
+    }
+    if t.until(3.0, |_| raw.has("ERR upload timeout")) {
+        r.push_str("timeout: True\n");
     }
     t.advance(800);
     // A PING after the quiet, and HELP to mark the end: the device reads its
